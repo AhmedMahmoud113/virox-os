@@ -1,0 +1,81 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# First-boot identity and safe defaults (BUILD-PLAN B6 items 2, 3, 6, 7, 8, 11).
+# uci-defaults also run again after an upgrade that keeps settings: everything that
+# touches the user's configuration happens only once per configuration
+# (lg7200.state.initialized), so an upgrade never overwrites the user's own settings.
+# After a factory reset the flag is gone and the same identity comes back from unitcfg.
+
+. /lib/functions.sh
+. /lib/functions/lg7200.sh
+
+lg7200_unitcfg_migrate
+
+# Always refresh the package repositories (URLs may change with the version).
+/usr/libexec/lg7200/repos
+
+[ "$(uci -q get lg7200.state.initialized)" = "1" ] && exit 0
+
+name="$(uci -q get lg7200.product.name)"
+prefix="$(uci -q get lg7200.product.ssid_prefix)"
+host="$(uci -q get lg7200.product.hostname)"
+country="$(uci -q get lg7200.product.country)"
+tz="$(uci -q get lg7200.product.timezone)"
+zone="$(uci -q get lg7200.product.zonename)"
+wifi_on="$(uci -q get lg7200.product.wifi_default_on)"
+lan_ip="$(uci -q get lg7200.lan.default_ip)"
+
+# --- system
+uci -q set system.@system[0].hostname="${host:-$name}"
+[ -n "$tz" ] && uci -q set system.@system[0].timezone="$tz"
+[ -n "$zone" ] && uci -q set system.@system[0].zonename="$zone"
+uci commit system
+
+# --- base MAC (override > Factory unless blocklisted > generated) on the LAN/WAN devices
+set -- $(/usr/libexec/lg7200/apply-macs)
+base_mac="$1"
+uci -q get lg7200.state >/dev/null || uci set lg7200.state=state
+
+# --- LAN address: only replace the OpenWrt default, never an address set by hand
+cur="$(uci -q get network.lan.ipaddr)"
+case "${cur%/*}" in
+	192.168.1.1|"")
+		if [ -n "$lan_ip" ]; then
+			uci set network.lan.ipaddr="$lan_ip/24"
+			uci -q delete network.lan.netmask
+			uci set lg7200.lan.applied="$lan_ip"
+		fi
+		;;
+esac
+# --- packet steering on (13.6); flow offloading stays off (homenet counting and SQM need it off)
+uci set network.globals=globals 2>/dev/null
+uci set network.globals.packet_steering=1
+uci commit network
+
+# --- LuCI over plain HTTP on the LAN, HTTPS still available, no forced redirect (12.2).
+# Admin from the WAN side stays blocked by the firewall defaults (input reject on wan).
+if uci -q get uhttpd.main >/dev/null; then
+	uci set uhttpd.main.redirect_https=0
+	uci commit uhttpd
+fi
+
+# --- Wi-Fi: country, legal power (regdb decides), no WDS, WPA2/WPA3, per-unit name and key
+ssid="$(unitcfg_get wifi_ssid 2>/dev/null)"
+if [ -z "$ssid" ]; then
+	suffix="$(echo "${base_mac:-00:00:00:00:00:00}" | tr -d ':' | cut -c9-12 | tr 'a-f' 'A-F')"
+	ssid="${prefix}${suffix}"
+	unitcfg_set wifi_ssid "$ssid"
+fi
+key="$(unitcfg_get wifi_key 2>/dev/null)"
+if [ -z "$key" ]; then
+	key="$(lg7200_wifi_key)"
+	unitcfg_set wifi_key "$key"
+fi
+
+# Section 13 Wi-Fi defaults with this unit's name and key: once per radio, now if the radios
+# are already known, else when they appear (hotplug ieee80211, 30-lg7200-wifi-defaults)
+/usr/libexec/lg7200/wifi-defaults
+
+uci set lg7200.state.initialized=1
+uci commit lg7200
+exit 0

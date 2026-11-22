@@ -1,0 +1,22 @@
+{
+	"homenet-user": {
+		"description": "Virox API, user role: one person's own devices and usage (BUILD-PLAN B7.3a, 11.2)",
+		"read": {
+			"ubus": {
+				"virox.homenet": [
+					"me"
+				],
+				"virox.info": [
+					"info"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.homenet": [
+					"me_ask_time"
+				]
+			}
+		}
+	}
+}

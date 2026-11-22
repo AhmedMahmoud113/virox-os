@@ -1,0 +1,131 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A bad DHCP setting must never take the network down (BUILD-PLAN B7.5b).
+#
+#   dhcp-guard check   dnsmasq healthy: remember /etc/config/dhcp as the last working one.
+#                      dnsmasq down while the config differs from the last working one: put the
+#                      last working one back, restart dnsmasq, alert in the event list.
+#                      Exit 0 healthy, 2 restored, 1 down and nothing to restore.
+#   dhcp-guard apply   reload dnsmasq after a change, then check (used by the virox API)
+#
+# Called every 15 s by the lg7200-watch loop, so a change made anywhere (API, LuCI, uci on the
+# console) is covered. Example: two reservations with the same IP make dnsmasq refuse to start
+# ("duplicate dhcp-host IP address"), and then no device gets an address.
+. /lib/functions/lg7200.sh
+
+CONF=/etc/config/dhcp
+GOOD=/etc/lg7200/dhcp.good
+BAD=/tmp/lg7200-dhcp.bad
+DOWN=/var/run/lg7200-dhcp-down
+
+# main dnsmasq process(es) as procd runs them (not `pidof`: dnsmasq forks short-lived children,
+# e.g. for DNS over TCP, which would make a healthy dnsmasq look unstable)
+main_pids() {
+	ubus call service list '{"name":"dnsmasq"}' 2>/dev/null |
+		jsonfilter -e '@.dnsmasq.instances[*].pid' 2>/dev/null | sort | tr '\n' ' '
+}
+
+# healthy = the same main process seen for 3 seconds in a row within $1 seconds (default 9). A crash
+# loop never is; normal restarts in between (each reservation reloads dnsmasq, two changes in a row
+# reload twice) only make it wait. Before (2026-11-21): fixed windows; two reloads in a row looked
+# like a crash loop (found by the b7b repeat), and the waits added up past the 30 s limit of an API
+# call (b9l: "Request timed out").
+healthy() {
+	local max="${1:-9}" n=0 last="" cur same=0 p
+	while [ "$n" -lt "$max" ]; do
+		cur="$(main_pids)"
+		if [ -n "$cur" ] && [ "$cur" = "$last" ]; then
+			same=$((same + 1))
+			if [ "$same" -ge 3 ]; then
+				for p in $cur; do [ -d "/proc/$p" ] || return 1; done
+				return 0
+			fi
+		else
+			same=0
+		fi
+		last="$cur"
+		sleep 1
+		n=$((n + 1))
+	done
+	return 1
+}
+
+managed() {
+	[ -x /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq enabled && [ -f "$CONF" ]
+}
+
+# The running dnsmasq has loaded the current /etc/config/dhcp: its init script writes
+# /var/etc/dnsmasq.conf.* each time it applies the uci config. A config committed but not
+# applied yet must never be remembered as working (found by the B7.5b test: the loop saw the
+# old dnsmasq still running a moment after a bad commit, and kept the bad config as "good").
+applied() {
+	local f n=0
+	for f in /var/etc/dnsmasq.conf.*; do
+		[ -f "$f" ] || continue
+		n=1
+		[ "$CONF" -nt "$f" ] && return 1
+	done
+	[ "$n" = 1 ]
+}
+
+# dnsmasq's config was applied less than $1 seconds ago (its init script writes it on each apply;
+# a crash loop of procd's respawns does not)
+recent() {
+	local f now
+	now="$(date +%s)"
+	for f in /var/etc/dnsmasq.conf.*; do
+		[ -f "$f" ] && [ $((now - $(date -r "$f" +%s))) -lt "$1" ] && return 0
+	done
+	return 1
+}
+remember() {
+	applied || return 0
+	[ -f "$GOOD" ] && cmp -s "$CONF" "$GOOD" && return 0
+	lg7200_write_atomic "$GOOD" < "$CONF"
+}
+
+check() {
+	managed || return 0
+	if healthy 12; then remember; rm -f "$DOWN"; return 0; fi
+	# A change applied a moment ago (the watch loop's run): decide on the next run. Each reservation
+	# restarts dnsmasq; several in a row under load never leave it 3 s still, and the guard put the
+	# last working settings back over a good change: the new reservations were gone (1 of 8 on a
+	# loaded VM, 2 of 20 b7b runs, session 22). A bad config is still restored within a minute.
+	# `apply` decides at once: it made the change itself and waited for it.
+	if [ "$1" != now ] && recent 20; then
+		logger -t lg7200 "dnsmasq restarting after a DHCP change; checked again on the next run"
+		return 0
+	fi
+	if [ -f "$GOOD" ] && ! cmp -s "$CONF" "$GOOD"; then
+		cp -f "$CONF" "$BAD"
+		lg7200_write_atomic "$CONF" < "$GOOD"
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		if healthy 9; then
+			logger -t lg7200 "dnsmasq failed after a DHCP change; last working DHCP settings restored (bad copy: $BAD)"
+			lg7200_event_add network dhcp_restored warn
+			rm -f "$DOWN"
+			return 2
+		fi
+	fi
+	if [ ! -f "$DOWN" ]; then
+		touch "$DOWN"
+		logger -t lg7200 "dnsmasq is not running and no working DHCP settings are known"
+		lg7200_event_add network dhcp_down danger
+	fi
+	return 1
+}
+
+# one guard at a time (the watch loop and the API)
+exec 8>/var/run/lg7200-dhcp-guard.lock
+flock 8
+
+case "$1" in
+	check) check ;;
+	apply)
+		t0="$(cut -d. -f1 /proc/uptime)"
+		/etc/init.d/dnsmasq reload >/dev/null 2>&1; sleep 1; check now; rc=$?
+		t="$(( $(cut -d. -f1 /proc/uptime) - t0 ))"
+		[ "$t" -le 12 ] || logger -t lg7200 "dhcp-guard apply took ${t}s (rc $rc)"
+		exit "$rc" ;;
+	*) echo "usage: $0 check|apply" >&2; exit 1 ;;
+esac

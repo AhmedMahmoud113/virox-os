@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A USB printer plugged in or out: the print server follows (15.4 item 5)
+case "$DEVNAME" in usb/lp*|lp*) ;; *) exit 0 ;; esac
+( sleep 2; /usr/libexec/lg7200/usb apply ) >/dev/null 2>&1 </dev/null &

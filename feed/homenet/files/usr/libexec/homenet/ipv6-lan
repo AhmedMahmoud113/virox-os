@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# P1: while homenet is enabled, LAN clients get IPv4 only (no router advertisements, no DHCPv6
+# on the LAN, no IPv6 forwarding LAN -> WAN), so counting, blocking, kids mode and site locks
+# cannot be bypassed over IPv6. The previous values are saved and restored by "on".
+# usage: ipv6-lan off|on|status
+
+state() { uci -q get homenet.state.ipv6_off; }
+
+off() {
+	[ "$(state)" = 1 ] && return 0
+	uci -q get homenet.state >/dev/null || uci set homenet.state=state
+	uci set homenet.state.prev_ra="$(uci -q get dhcp.lan.ra)"
+	uci set homenet.state.prev_dhcpv6="$(uci -q get dhcp.lan.dhcpv6)"
+	uci set homenet.state.prev_ndp="$(uci -q get dhcp.lan.ndp)"
+	uci set dhcp.lan.ra=disabled
+	uci set dhcp.lan.dhcpv6=disabled
+	uci set dhcp.lan.ndp=disabled
+	uci set firewall.homenet_no_ipv6=rule
+	uci set firewall.homenet_no_ipv6.name='homenet: no IPv6 from the LAN to the internet (P1)'
+	uci set firewall.homenet_no_ipv6.src=lan
+	uci set firewall.homenet_no_ipv6.dest=wan
+	uci set firewall.homenet_no_ipv6.family=ipv6
+	uci set firewall.homenet_no_ipv6.proto=all
+	uci set firewall.homenet_no_ipv6.target=REJECT
+	uci set homenet.state.ipv6_off=1
+	uci commit dhcp; uci commit firewall; uci commit homenet
+	/etc/init.d/odhcpd reload 2>/dev/null
+	/etc/init.d/firewall reload 2>/dev/null
+}
+
+restore() { # $1 option, $2 saved value
+	if [ -n "$2" ]; then uci set "dhcp.lan.$1=$2"; else uci -q delete "dhcp.lan.$1"; fi
+}
+
+on() {
+	[ "$(state)" = 1 ] || return 0
+	restore ra "$(uci -q get homenet.state.prev_ra)"
+	restore dhcpv6 "$(uci -q get homenet.state.prev_dhcpv6)"
+	restore ndp "$(uci -q get homenet.state.prev_ndp)"
+	uci -q delete firewall.homenet_no_ipv6
+	uci -q delete homenet.state.ipv6_off
+	uci -q delete homenet.state.prev_ra; uci -q delete homenet.state.prev_dhcpv6; uci -q delete homenet.state.prev_ndp
+	uci commit dhcp; uci commit firewall; uci commit homenet
+	/etc/init.d/odhcpd reload 2>/dev/null
+	/etc/init.d/firewall reload 2>/dev/null
+}
+
+case "$1" in
+	off) off ;;
+	on) on ;;
+	status) [ "$(state)" = 1 ] && echo off || echo on ;;
+	*) echo "usage: $0 off|on|status" >&2; exit 1 ;;
+esac

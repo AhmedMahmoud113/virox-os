@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# B9 R5: the personal Wi-Fi passwords follow every change of the Wi-Fi settings (the wizard, the
+# network names switch, LuCI): the key files and the WPA2 rule are applied again. Nothing runs
+# between changes.
+START=95
+USE_PROCD=1
+
+start_service() {
+	/usr/libexec/homenet/identity keys-apply >/dev/null 2>&1
+}
+
+service_triggers() {
+	procd_add_config_trigger "config.change" "wireless" /usr/libexec/homenet/identity keys-apply
+	procd_add_config_trigger "config.change" "homenet" /usr/libexec/homenet/identity keys-apply
+}

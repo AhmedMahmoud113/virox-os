@@ -1,0 +1,529 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Two internet lines (BUILD-PLAN B9, docs/dualwan-spec.md sections 2, 3, 7).
+#
+#   lines enable | disable          second line on (port -> wan2, own zone entry) / off
+#   lines apply                     routing tables, rules, nft table hn_lines from config + state
+#   lines watch                     health loop (procd service homenet-lines), every 10 s
+#   lines tick                      every minute (cron): line usage, package alerts, expiries
+#   lines assign <target> <kind> <value> <minutes> <mb>
+#                                   target: device id (d..), person id (p..) or "all";
+#                                   kind: line (value 1|2, permanent; value 0 removes),
+#                                   both (minutes 0 = until switched off), borrow (minutes and/or
+#                                   mb, 0 = no limit of that kind), off (remove both/borrow)
+#   lines renewed <1|2>             package renewed early: new cycle from today
+#   lines calibrate <1|2> <mb>      remaining at the ISP: the cycle continues from that figure
+#   lines speedtest <1|2>           download speed of one line (X3): OK <kbit/s> | ERR <code>
+#   lines tune <1|2>                P5: measure download AND upload in the background (about 20 s),
+#                                   then shape at 90 % of both: OK started | ERR busy
+#   lines tune-state <1|2>          RUN | OK <down kbit/s> <up kbit/s> | ERR <code>
+#
+# One LAN bridge (R6): the line choice only changes the internet path. A connection gets its line
+# once, when it starts (ct mark), and keeps it; "both lines" spreads connections by destination
+# (jhash of the address), so one site always sees one address. A line that is down or whose
+# package is used up is "not available": its devices move to the other line when it is down
+# (O3) and stop when the package is used up (O2), unless borrowing is allowed.
+. /usr/lib/homenet/common.sh
+
+LN_RUN="$HN_RUN/lines"
+LN_ASSIGN="$HN_DATA/lines-assign.tsv"     # target kind value until limit_bytes start_day start_bytes
+LN_USAGE="$LN_RUN/usage.tsv"              # line cycle_start bytes alerted_level   (RAM, saved every 10 min)
+LN_DAYS="$LN_RUN/days.tsv"                # day line bytes                          (RAM, saved every 10 min)
+LN_HEALTH="$LN_RUN/health"                # line up|down
+LN_COUNT="$LN_RUN/counters"               # dev rx tx
+MASK=0xff00
+MARK1=0x100
+MARK2=0x200
+mkdir -p "$LN_RUN"
+
+ln_enabled() { [ "$(uci -q get lines.main.enabled)" = 1 ]; }
+ln_iface() { uci -q get "lines.line$1.iface" || { [ "$1" = 1 ] && echo wan || echo wan2; }; }
+ln_dev() {
+	local d
+	d="$(ubus call "network.interface.$(ln_iface "$1")" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)"
+	[ -n "$d" ] || d="$(uci -q get "network.$(ln_iface "$1").device")"
+	echo "$d"
+}
+ln_health() { awk -v l="$1" '$1 == l { print $2; f = 1 } END { if (!f) print "up" }' "$LN_HEALTH" 2>/dev/null || echo up; }
+# the guest network's line now: 1, 2, 3 (both, both up) or empty (the default route)
+ln_guest_line() {
+	local gl="$(uci -q get homenet.guest.line)"
+	[ "$gl" = 3 ] || { echo "$gl"; return; }
+	if [ "$(ln_health 1)" = up ] && [ "$(ln_health 2)" = up ]; then echo 3
+	elif [ "$(ln_health 2)" = up ]; then echo 2
+	else echo 1; fi
+}
+ln_package() { echo $(( $(uci -q get "lines.line$1.package_mb" || echo 0) * 1048576 )); }
+ln_used() { awk -v l="$1" '$1 == l { print $3; f = 1 } END { if (!f) print 0 }' "$LN_USAGE" 2>/dev/null; }
+# 1 when the package of the line is used up (no package = never)
+ln_usedup() {
+	local p; p="$(ln_package "$1")"
+	[ "$p" -gt 0 ] && [ "$(ln_used "$1")" -ge "$p" ]
+}
+
+ln_prepare() {
+	for f in usage.tsv days.tsv; do
+		[ -f "$LN_RUN/$f" ] || { if [ -f "$HN_DATA/lines-$f" ]; then cp -p "$HN_DATA/lines-$f" "$LN_RUN/$f"; else : > "$LN_RUN/$f"; fi; }
+	done
+	[ -f "$LN_ASSIGN" ] || : > "$LN_ASSIGN"
+}
+ln_save() {
+	hn_write "$HN_DATA/lines-usage.tsv" < "$LN_USAGE"
+	hn_write "$HN_DATA/lines-days.tsv" < "$LN_DAYS"
+}
+
+# ------------------------------------------------------------------ routing
+ln_routes() {
+	local n dev st gw gw6
+	for n in 1 2; do
+		dev="$(ln_dev "$n")"
+		ip route flush table $((100 + n)) 2>/dev/null
+		ip -6 route flush table $((100 + n)) 2>/dev/null
+		[ -n "$dev" ] || continue
+		st="$(ubus call "network.interface.$(ln_iface "$n")" status 2>/dev/null)"
+		[ "$(echo "$st" | jsonfilter -e '@.up' 2>/dev/null)" = true ] || continue
+		gw="$(echo "$st" | jsonfilter -e '@.route[@.target="0.0.0.0"].nexthop' 2>/dev/null | head -n 1)"
+		if [ -n "$gw" ] && [ "$gw" != 0.0.0.0 ]; then ip route replace default via "$gw" dev "$dev" table $((100 + n))
+		else ip route replace default dev "$dev" table $((100 + n)); fi
+		gw6="$(echo "$st" | jsonfilter -e '@.route[@.target="::"].nexthop' 2>/dev/null | head -n 1)"
+		[ -n "$gw6" ] && ip -6 route replace default via "$gw6" dev "$dev" table $((100 + n))
+	done
+	for f in "" -6; do
+		while ip $f rule del priority 900 2>/dev/null; do :; done
+		while ip $f rule del priority 901 2>/dev/null; do :; done
+		while ip $f rule del priority 902 2>/dev/null; do :; done
+		while ip $f rule del priority 903 2>/dev/null; do :; done
+		ln_enabled || continue
+		# local and LAN destinations keep the main table (all of it but its default route)
+		ip $f rule add priority 900 lookup main suppress_prefixlength 0
+		ip $f rule add priority 901 fwmark $MARK1/$MASK lookup 101
+		ip $f rule add priority 902 fwmark $MARK2/$MASK lookup 102
+		# B9 Y2: the guest network on the line the owner chose (IPv4; guests have no IPv6);
+		# 3 = both lines (spread per destination by ln_nft); with one of them down, the other
+		gl="$(ln_guest_line)"
+		if [ -z "$f" ] && [ "$(uci -q get homenet.guest.enabled)" = 1 ] && { [ "$gl" = 1 ] || [ "$gl" = 2 ]; }; then
+			ip rule add priority 903 iif br-guest lookup $((100 + gl))
+		fi
+	done
+}
+
+# ------------------------------------------------------------------ who uses which line
+# prints "mac<TAB>l1|l2|both|stop" for every known MAC
+ln_plan() {
+	local now h1 h2 u1 u2 def
+	now="$(date +%s)"; def="$(uci -q get lines.main.default_line || echo 1)"
+	h1="$(ln_health 1)"; h2="$(ln_health 2)"
+	u1=0; ln_usedup 1 && u1=1; u2=0; ln_usedup 2 && u2=1
+	awk -F '\t' -v now="$now" -v def="$def" -v h1="$h1" -v h2="$h2" -v u1="$u1" -v u2="$u2" '
+		FILENAME == ARGV[1] { if ($4 == 0 || $4 > now) { a[$1 SUBSEP $2] = $3 }; next }
+		FILENAME == ARGV[2] { person[$1] = $3; next }
+		{
+			d = $2; p = person[d]
+			base = def
+			if ((p SUBSEP "line") in a) base = a[p SUBSEP "line"]
+			if ((d SUBSEP "line") in a) base = a[d SUBSEP "line"]
+			both = ((d SUBSEP "both") in a) || (p != "" && (p SUBSEP "both") in a) || (("all" SUBSEP "both") in a)
+			borrow = ((d SUBSEP "borrow") in a) || (p != "" && (p SUBSEP "borrow") in a)
+			other = 3 - base
+			hb = (base == 1) ? h1 : h2; ho = (other == 1) ? h1 : h2
+			ub = (base == 1) ? u1 : u2; uo = (other == 1) ? u1 : u2
+			ab = (hb == "up" && !ub); ao = (ho == "up" && !uo)
+			if (both && ab && ao) r = "both"
+			else if (borrow && ao) r = "l" other
+			else if (ab) r = "l" base
+			else if (hb != "up" && ao) r = "l" other          # line down: move (O3)
+			else if (both && ao) r = "l" other
+			else r = "stop"                                   # package used up (O2)
+			print $1 "\t" r
+		}' "$LN_ASSIGN" "$HN_DEVICES" "$HN_MACS"
+}
+
+ln_nft() {
+	local lan wans plan t
+	lan="$(hn_lan_dev)"
+	ln_enabled || { nft delete table inet hn_lines 2>/dev/null; return 0; }
+	wans="$(for n in 1 2; do ln_dev $n; done | awk 'NF { printf "%s\"%s\"", s, $1; s = ", " }')"
+	plan="$(ln_plan)"
+	els() { echo "$plan" | awk -F '\t' -v k="$1" '$2 == k { printf "%s%s", s, $1; s = ", " }'; }
+	t="/tmp/hn_lines.$$.nft"
+	{
+		# the old table goes and the new one comes in one transaction (nft -f is atomic): no moment
+		# without the line marks (it ran every minute, and at a line change a connection opened in
+		# that moment took the wrong line or failed)
+		echo "add table inet hn_lines"
+		echo "delete table inet hn_lines"
+		echo "table inet hn_lines {"
+		for s in l1 l2 both stop; do
+			e="$(els $s)"
+			# (a ${e:+...} expansion cannot hold braces: it ended at the first one)
+			if [ -n "$e" ]; then echo "	set $s { type ether_addr; elements = { $e }; }"
+			else echo "	set $s { type ether_addr; }"; fi
+		done
+		echo "	chain to1 { ct mark set ct mark and 0xffff00ff or $MARK1; }"
+		echo "	chain to2 { ct mark set ct mark and 0xffff00ff or $MARK2; }"
+		echo "	chain pre {"
+		echo "		type filter hook prerouting priority mangle; policy accept;"
+		[ "$(uci -q get homenet.guest.enabled)" = 1 ] && [ "$(ln_guest_line)" = 3 ] && {
+			echo "		iifname \"br-guest\" ct state new meta nfproto ipv4 jhash ip daddr mod 2 vmap { 0 : jump to1, 1 : jump to2 }"
+			echo "		iifname \"br-guest\" meta mark set ct mark and $MASK return"
+		}
+		# a connection that comes in on a line (an open port, 15.4 item 2) answers on that line
+		for n in 1 2; do d="$(ln_dev $n)"; [ -n "$d" ] && echo "		iifname \"$d\" ct state new jump to$n"; done
+		echo "		iifname != \"$lan\" return"
+		echo "		ct state new ether saddr @l1 jump to1"
+		echo "		ct state new ether saddr @l2 jump to2"
+		echo "		ct state new ether saddr @both meta nfproto ipv4 jhash ip daddr mod 2 vmap { 0 : jump to1, 1 : jump to2 }"
+		echo "		ct state new ether saddr @both meta nfproto ipv6 jhash ip6 daddr mod 2 vmap { 0 : jump to1, 1 : jump to2 }"
+		echo "		meta mark set ct mark and $MASK"
+		echo "	}"
+		[ -n "$wans" ] && {
+			echo "	chain forward_lines {"
+			echo "		type filter hook forward priority filter - 1; policy accept;"
+			echo "		iifname \"$lan\" oifname { $wans } ether saddr @stop drop"
+			echo "	}"
+		}
+		echo "}"
+	} > "$t"
+	nft -f "$t"; local rc=$?
+	rm -f "$t"
+	return $rc
+}
+
+ln_shaper() {
+	local n dev up down ifb ack devs=""
+	for n in 1 2; do
+		dev="$(ln_dev "$n")"; [ -n "$dev" ] || continue
+		# a port that is not there (no second modem cabled yet) is skipped, not an error of apply
+		[ -d "/sys/class/net/$dev" ] || continue
+		ifb="ifb-line$n"
+		tc qdisc del dev "$dev" root 2>/dev/null
+		tc qdisc del dev "$dev" ingress 2>/dev/null
+		ip link del "$ifb" 2>/dev/null
+		if ln_enabled; then [ "$(uci -q get "lines.line$n.shaper")" != 0 ] || continue
+		else [ "$n" = 1 ] && [ "$(uci -q get lines.line1.shaper_single)" = 1 ] || continue; fi
+		up="$(uci -q get "lines.line$n.up_kbit" || echo 30000)"
+		down="$(uci -q get "lines.line$n.down_kbit" || echo 30000)"
+		# R7: games and calls first (diffserv4) in both directions, on each line separately
+		# P5: the overhead of the link in front of Virox (a DSL modem: VDSL2 with PPPoE by default)
+		oh="$(uci -q get "lines.line$n.overhead" || echo pppoe-ptm)"
+		case "$oh" in pppoe-ptm|bridged-ptm|pppoe-vcmux|pppoe-llcsnap|ethernet|docsis|none) ;; *) oh=pppoe-ptm ;; esac
+		[ "$oh" = none ] && oh=""
+		# a much slower upload than download (DSL): the many small ACKs of a download fill the
+		# upload and games and calls wait behind them; cake drops the redundant ones (ack-filter)
+		ack=""; [ "$up" -gt 0 ] && [ $(( down / up )) -ge 8 ] && ack="ack-filter"
+		tc qdisc replace dev "$dev" root cake bandwidth "${up}kbit" diffserv4 nat $ack $oh 2>/dev/null
+		ip link add "$ifb" type ifb 2>/dev/null && ip link set "$ifb" up &&
+		tc qdisc add dev "$dev" handle ffff: ingress 2>/dev/null &&
+		tc filter add dev "$dev" parent ffff: protocol all prio 10 u32 match u32 0 0 action mirred egress redirect dev "$ifb" 2>/dev/null &&
+		tc qdisc replace dev "$ifb" root cake bandwidth "${down}kbit" diffserv4 nat wash ingress $oh 2>/dev/null
+		devs="$devs${devs:+, }\"$dev\""
+	done
+	ln_qos_marks "$devs"
+	return 0
+}
+
+# Games and calls first on the upload (owner 2026-11-21: "pay great attention to the ping of games
+# and calls"). cake's diffserv4 puts a packet in the Voice tin by its DSCP mark, but phones, game
+# consoles and PCs mostly send none. The packets of games and of voice and video calls are small
+# UDP packets: they get EF (Voice) on the way out of a shaped line, everything else is unchanged.
+# QUIC (UDP 443, web and video downloads) is left out. The download side needs no mark: cake gives
+# sparse flows (a game, a call) the front of the queue by itself.
+ln_qos_marks() { # <"dev1", "dev2"> or empty (no shaped line: no marks)
+	nft delete table inet homenet_qos 2>/dev/null
+	[ -n "$1" ] || return 0
+	nft -f - <<-EOF 2>/dev/null
+		table inet homenet_qos {
+			chain post {
+				type filter hook postrouting priority mangle; policy accept;
+				oifname { $1 } meta l4proto udp udp sport != 443 udp dport != 443 meta length <= 320 ip dscp set ef
+				oifname { $1 } meta l4proto udp udp sport != 443 udp dport != 443 meta length <= 320 ip6 dscp set ef
+			}
+		}
+	EOF
+}
+
+# X3: download speed of one line, measured by the router: the test address is routed through
+# that line for the few seconds of the test. Prints "OK <kbit/s>" or "ERR <code>".
+ln_speedtest() {
+	local n="$1" url host ip t0 t1 size
+	# one line without homenet-dualwan's second line: line 1 through the main table
+	if ln_enabled; then [ "$(ln_health "$n")" = up ] || { echo "ERR line_down"; return 0; }
+	else [ "$n" = 1 ] || { echo "ERR not_enabled"; return 0; }; fi
+	url="$(uci -q get lines.main.speedtest_url || echo 'https://speed.cloudflare.com/__down?bytes=60000000')"
+	host="$(echo "$url" | sed -n 's#^https\?://\([^/:?]*\).*#\1#p')"
+	# an address as the test server (a local test server) needs no name lookup
+	ip="$(echo "$host" | grep -E '^[0-9]+(\.[0-9]+){3}$')"
+	[ -n "$ip" ] || ip="$(nslookup "$host" 2>/dev/null | awk '/^Address/ && $NF !~ /:/ && NR > 2 { print $NF; exit }')"
+	[ -n "$ip" ] || { echo "ERR no_dns"; return 0; }
+	ln_enabled && ip rule add priority 899 to "$ip" lookup $((100 + n)) 2>/dev/null
+	dev="$(ln_dev "$n")"
+	[ "${LN_KEEP_SHAPER:-0}" = 1 ] || { tc qdisc del dev "$dev" root 2>/dev/null; ip link set "ifb-line$n" down 2>/dev/null; }
+	# busybox has no `timeout` (the 2026-11-21 finding: this test always failed, so one line was never
+	# shaped): the download runs in the background, its speed is read from the line's byte counter
+	uclient-fetch -q -O /dev/null "$url" >/dev/null 2>&1 &
+	k="$(ln_rate "$dev" rx $! 8)"
+	# the upload too when asked (tune): a file of zeros posted to the same service
+	if [ "${LN_UP:-0}" = 1 ]; then
+		head -c 8388608 /dev/zero > /tmp/lines-up
+		uclient-fetch -q -O /dev/null --post-file=/tmp/lines-up "$(uci -q get lines.main.speedtest_up_url || echo 'https://speed.cloudflare.com/__up')" >/dev/null 2>&1 &
+		u="$(ln_rate "$dev" tx $! 8)"
+		rm -f /tmp/lines-up
+	fi
+	ln_enabled && ip rule del priority 899 to "$ip" lookup $((100 + n)) 2>/dev/null
+	ln_shaper
+	[ "${k:-0}" -ge 100 ] || { echo "ERR failed"; return 0; }
+	echo "OK $k${u:+ $u}"
+}
+
+# ln_rate <dev> rx|tx <pid> <seconds>: kbit/s of that direction of <dev> while <pid> runs, at most
+# <seconds> (then <pid> is stopped). The first second (connection, TLS, slow start) is not counted
+# when the transfer runs longer; a fast line that finishes the file sooner is counted from the start.
+ln_rate() {
+	local f="/sys/class/net/$1/statistics/$2_bytes" p="$3" i=0 bs ts b0 t0 b1="" t1=""
+	bs="$(cat "$f" 2>/dev/null || echo 0)"; ts="$(cut -d ' ' -f 1 /proc/uptime)"
+	sleep 1
+	b0="$(cat "$f" 2>/dev/null || echo 0)"; t0="$(cut -d ' ' -f 1 /proc/uptime)"
+	while [ "$i" -lt "$4" ] && kill -0 "$p" 2>/dev/null; do
+		sleep 1; i=$((i + 1))
+		# a sample counts only while the transfer still runs (its end may fall inside a second)
+		kill -0 "$p" 2>/dev/null || break
+		b1="$(cat "$f" 2>/dev/null || echo 0)"; t1="$(cut -d ' ' -f 1 /proc/uptime)"
+	done
+	if [ -z "$b1" ]; then
+		wait "$p" 2>/dev/null
+		b0="$bs"; t0="$ts"; b1="$(cat "$f" 2>/dev/null || echo 0)"; t1="$(cut -d ' ' -f 1 /proc/uptime)"
+	fi
+	kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
+	awk -v a="$b0" -v b="$b1" -v s="$t0" -v e="$t1" 'BEGIN { d = e - s; if (d < 0.2) { print 0; exit } printf "%d\n", (b - a) * 8 / 1000 / d }'
+}
+
+ln_apply() {
+	ln_prepare
+	ln_routes
+	ln_nft
+	ln_shaper
+}
+
+# ------------------------------------------------------------------ health (O3)
+ln_probe() {
+	local dev host
+	dev="$(ln_dev "$1")"; [ -n "$dev" ] || return 1
+	for host in $(uci -q get "lines.line$1.probe_hosts" || uci -q get lines.main.probe_hosts || echo "1.1.1.1 8.8.8.8"); do
+		ping -I "$dev" -c 1 -W 2 "$host" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+ln_watch() {
+	local f1=0 f2=0 s1=0 s2=0 n st old
+	while :; do
+		if ln_enabled; then
+			for n in 1 2; do
+				eval "f=\$f$n; s=\$s$n"
+				if ln_probe "$n"; then s=$((s + 1)); f=0; else f=$((f + 1)); s=0; fi
+				eval "f$n=$f; s$n=$s"
+				old="$(ln_health "$n")"; st="$old"
+				[ "$old" = up ] && [ "$f" -ge 3 ] && st=down
+				[ "$old" = down ] && [ "$s" -ge 5 ] && st=up
+				if [ "$st" != "$old" ]; then
+					{ grep -v "^$n " "$LN_HEALTH" 2>/dev/null; echo "$n $st"; } > "$LN_HEALTH.new" && mv "$LN_HEALTH.new" "$LN_HEALTH"
+					ln_routes; ln_nft
+					if [ "$st" = down ]; then
+						# after the move: connections still on the line that went down (also those
+						# opened while it was being moved) start again on the other line
+						conntrack -D --mark "$( [ "$n" = 1 ] && echo $MARK1 || echo $MARK2 )/$MASK" >/dev/null 2>&1
+						hn_event line_down warn line="$n"
+					else
+						hn_event line_up info line="$n"
+					fi
+				fi
+			done
+		fi
+		sleep 10
+	done
+}
+
+# ------------------------------------------------------------------ usage, packages, expiries
+ln_renew_due() { # $1 line, $2 cycle_start: 0 when a new cycle starts today
+	local rd today dom last
+	rd="$(uci -q get "lines.line$1.renew_day" || echo 1)"
+	today="$(hn_today)"; dom="$(date +%d | sed 's/^0//')"
+	last="$(date -d "@$(( $(date +%s) + 86400 ))" +%d 2>/dev/null | sed 's/^0//')"
+	[ "$2" = "$today" ] && return 1
+	[ "$dom" = "$rd" ] && return 0
+	# a renewal day after the end of a short month falls on its last day
+	[ "$last" = 1 ] && [ "$rd" -gt "$dom" ] && return 0
+	return 1
+}
+ln_tick() {
+	ln_prepare
+	ln_enabled || return 0
+	hn_synced || return 0
+	local today n dev rx tx lrx ltx d cs bytes lvl p pct warn now
+	today="$(hn_today)"; now="$(date +%s)"
+	for n in 1 2; do
+		dev="$(ln_dev "$n")"; [ -n "$dev" ] || continue
+		rx="$(cat "/sys/class/net/$dev/statistics/rx_bytes" 2>/dev/null || echo 0)"
+		tx="$(cat "/sys/class/net/$dev/statistics/tx_bytes" 2>/dev/null || echo 0)"
+		set -- $(awk -v d="$dev" '$1 == d { print $2, $3 }' "$LN_COUNT" 2>/dev/null)
+		lrx="${1:-$rx}"; ltx="${2:-$tx}"
+		[ "$rx" -ge "$lrx" ] && drx=$((rx - lrx)) || drx=$rx
+		[ "$tx" -ge "$ltx" ] && dtx=$((tx - ltx)) || dtx=$tx
+		d=$((drx + dtx))
+		{ grep -v "^$dev " "$LN_COUNT" 2>/dev/null; echo "$dev $rx $tx"; } > "$LN_COUNT.new" && mv "$LN_COUNT.new" "$LN_COUNT"
+		set -- $(awk -F '\t' -v l="$n" '$1 == l { print $2, $3, $4 }' "$LN_USAGE")
+		cs="${1:-$today}"; bytes="${2:-0}"; lvl="${3:-0}"
+		if ln_renew_due "$n" "$cs"; then cs="$today"; bytes=0; lvl=0; hn_event line_renewed info line="$n"; fi
+		bytes=$((bytes + d))
+		p="$(ln_package "$n")"
+		if [ "$p" -gt 0 ]; then
+			pct=$((bytes * 100 / p)); warn="$(uci -q get "lines.line$n.warn" || echo 80)"
+			for x in "$warn" 95 100; do
+				if [ "$pct" -ge "$x" ] && [ "$lvl" -lt "$x" ]; then
+					lvl=$x
+					[ "$x" = 100 ] && hn_event line_package_used_up warn line="$n" || hn_event line_package_level warn line="$n" percent="$x"
+				fi
+			done
+		fi
+		{ awk -F '\t' -v l="$n" '$1 != l' "$LN_USAGE"; printf '%s\t%s\t%s\t%s\n' "$n" "$cs" "$bytes" "$lvl"; } > "$LN_USAGE.new" && mv "$LN_USAGE.new" "$LN_USAGE"
+		awk -F '\t' -v t="$today" -v l="$n" -v d="$d" 'BEGIN { OFS = "\t" } $1 == t && $2 == l { $3 += d; f = 1 } { print } END { if (!f) print t, l, d }' "$LN_DAYS" | tail -n 90 > "$LN_DAYS.new" && mv "$LN_DAYS.new" "$LN_DAYS"
+	done
+	ln_expire "$now"
+	[ $(( $(date +%M | sed 's/^0//') % 10 )) = 0 ] && ln_save
+	ln_nft
+}
+# bytes of a device or person since a day (homenet's per-device history)
+ln_target_bytes() {
+	awk -F '\t' -v t="$1" -v s="$2" '
+		FILENAME == ARGV[1] { if ($1 == t || $3 == t) dev[$1] = 1; next }
+		$1 >= s && ($2 in dev) { b += $3 + $4 } END { print b + 0 }' "$HN_DEVICES" "$HN_HISTORY"
+}
+ln_expire() {
+	local now="$1" changed=0 t k v u lim sd sb
+	: > "$LN_ASSIGN.new"
+	while IFS="$TAB" read -r t k v u lim sd sb; do
+		[ -n "$t" ] || continue
+		if [ "$k" != line ] && [ "${u:-0}" != 0 ] && [ "$u" -le "$now" ]; then
+			changed=1; hn_event "${k}_ended" info target="$t"; continue
+		fi
+		if [ "$k" = borrow ] && [ "${lim:-0}" != 0 ] && [ $(( $(ln_target_bytes "$t" "$sd") - sb )) -ge "$lim" ]; then
+			changed=1; hn_event borrow_ended info target="$t"; continue
+		fi
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$t" "$k" "$v" "$u" "$lim" "$sd" "$sb" >> "$LN_ASSIGN.new"
+	done < "$LN_ASSIGN"
+	if [ "$changed" = 1 ]; then hn_write "$LN_ASSIGN" < "$LN_ASSIGN.new"; fi
+	rm -f "$LN_ASSIGN.new"
+}
+
+ln_assign() {
+	local t="$1" k="$2" v="${3:-}" min="${4:-0}" mb="${5:-0}" until=0 today
+	case "$t" in all|d[0-9]*|p[0-9]*) ;; *) echo "bad target" >&2; return 2 ;; esac
+	case "$k" in line|both|borrow|off) ;; *) echo "bad kind" >&2; return 2 ;; esac
+	[ "$t" = all ] && [ "$k" != both ] && [ "$k" != off ] && { echo "all: both only" >&2; return 2; }
+	ln_prepare
+	today="$(hn_today)"
+	[ "$min" -gt 0 ] 2>/dev/null && until=$(( $(date +%s) + min * 60 ))
+	{
+		awk -F '\t' -v t="$t" -v k="$k" '!($1 == t && ($2 == k || (k == "off" && ($2 == "both" || $2 == "borrow"))))' "$LN_ASSIGN"
+		case "$k" in
+			# line 0 (back to the default) writes no row; the block must still end true, or the
+			# "&& hn_write" below is skipped and the old row stays
+			line) if [ "$v" = 1 ] || [ "$v" = 2 ]; then printf '%s\tline\t%s\t0\t0\t\t0\n' "$t" "$v"; fi ;;
+			both) printf '%s\tboth\t-\t%s\t0\t\t0\n' "$t" "$until"; hn_event both_started info target="$t" ;;
+			borrow) printf '%s\tborrow\t-\t%s\t%s\t%s\t%s\n' "$t" "$until" $((mb * 1048576)) "$today" "$(ln_target_bytes "$t" "$today")"
+			        hn_event borrow_started info target="$t" ;;
+		esac
+		true
+	} > "$LN_ASSIGN.new" && hn_write "$LN_ASSIGN" < "$LN_ASSIGN.new"
+	rm -f "$LN_ASSIGN.new"
+	ln_nft
+}
+
+ln_cycle_set() { # line bytes: new cycle start today (renewed) or keep (calibrate)
+	local n="$1" bytes="$2" keep="$3" cs
+	ln_prepare
+	cs="$(awk -F '\t' -v l="$n" '$1 == l { print $2 }' "$LN_USAGE")"
+	[ "$keep" = 1 ] && [ -n "$cs" ] || cs="$(hn_today)"
+	{ awk -F '\t' -v l="$n" '$1 != l' "$LN_USAGE"; printf '%s\t%s\t%s\t0\n' "$n" "$cs" "$bytes"; } > "$LN_USAGE.new" && mv "$LN_USAGE.new" "$LN_USAGE"
+	ln_save; ln_nft
+}
+
+# ------------------------------------------------------------------ on / off
+ln_enable() {
+	local port wz br
+	port="$(uci -q get lines.main.port || echo lan4)"
+	br="$(uci -q show network | sed -n "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p" | head -n 1)"
+	[ -n "$br" ] && uci -q del_list "network.$br.ports=$port"
+	uci -q batch <<-EOF
+		set network.wan2=interface
+		set network.wan2.proto='dhcp'
+		set network.wan2.device='$port'
+		set network.wan2.metric='20'
+		set network.wan.metric='10'
+		set lines.main.enabled='1'
+	EOF
+	wz="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
+	[ -n "$wz" ] && { uci -q del_list "firewall.$wz.network=wan2"; uci -q add_list "firewall.$wz.network=wan2"; }
+	uci commit network; uci commit firewall; uci commit lines
+	/etc/init.d/network reload; /etc/init.d/firewall reload
+	/etc/init.d/homenet-lines restart
+	/usr/libexec/homenet/accounting rules >/dev/null 2>&1
+	ln_apply
+}
+ln_disable() {
+	local port wz br
+	port="$(uci -q get lines.main.port || echo lan4)"
+	ln_save 2>/dev/null
+	uci -q set lines.main.enabled='0'
+	uci -q delete network.wan2
+	br="$(uci -q show network | sed -n "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p" | head -n 1)"
+	[ -n "$br" ] && { uci -q del_list "network.$br.ports=$port"; uci -q add_list "network.$br.ports=$port"; }
+	wz="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
+	[ -n "$wz" ] && uci -q del_list "firewall.$wz.network=wan2"
+	uci commit network; uci commit firewall; uci commit lines
+	ln_apply
+	/etc/init.d/homenet-lines stop
+	/etc/init.d/network reload; /etc/init.d/firewall reload
+	/usr/libexec/homenet/accounting rules >/dev/null 2>&1
+}
+
+case "$1" in
+	enable) ln_enable ;;
+	disable) ln_disable ;;
+	apply) ln_apply ;;
+	watch) ln_prepare; ln_watch ;;
+	tick) ln_tick ;;
+	assign) shift; ln_assign "$@" ;;
+	renewed) ln_cycle_set "$2" 0 0 ;;
+	calibrate)
+		p="$(ln_package "$2")"; r=$(( ${3:-0} * 1048576 ))
+		[ "$p" -gt 0 ] || { echo "no package" >&2; exit 2; }
+		[ "$r" -le "$p" ] || r="$p"
+		ln_cycle_set "$2" $((p - r)) 1 ;;
+	plan) ln_plan ;;
+	tune)
+		# P5: shape at about 90 % of the measured download AND upload speed, so a download or an
+		# upload (a video call, a backup to the cloud) cannot fill the line and games and calls keep
+		# a low ping. About 20 s: runs in the background, the page asks tune-state.
+		n="${2:-1}"; case "$n" in 1|2) ;; *) echo "ERR invalid_line"; exit 0 ;; esac
+		f="$LN_RUN/tune-$n"
+		[ "$(cat "$f" 2>/dev/null)" = RUN ] && [ -n "$(find "$f" -mmin -2 2>/dev/null)" ] && { echo "ERR busy"; exit 0; }
+		echo RUN > "$f"
+		"$0" tune-run "$n" >/dev/null 2>&1 &
+		echo "OK started" ;;
+	tune-run)
+		n="$2"; f="$LN_RUN/tune-$n"
+		r="$(LN_UP=1 ln_speedtest "$n")"
+		case "$r" in OK\ *) ;; *) echo "$r" > "$f"; exit 0 ;; esac
+		set -- ${r#OK }
+		k=$(( $1 * 9 / 10 )); [ "$k" -ge 1000 ] || { echo "ERR too_slow" > "$f"; exit 0; }
+		uci set "lines.line$n.down_kbit=$k"
+		# an upload that could not be measured keeps the value set before
+		u=""; [ "${2:-0}" -ge 300 ] && u=$(( $2 * 9 / 10 )) && uci set "lines.line$n.up_kbit=$u"
+		uci set "lines.line$n.shaper=1"
+		[ "$n" = 1 ] && uci set lines.line1.shaper_single=1
+		uci commit lines; ln_shaper
+		echo "OK $k $(uci -q get "lines.line$n.up_kbit")" > "$f" ;;
+	tune-state) cat "$LN_RUN/tune-${2:-1}" 2>/dev/null || echo "ERR none" ;;
+	speedtest) ln_speedtest "$2" ;;
+	*) echo "usage: lines enable|disable|apply|watch|tick|assign|renewed|calibrate|plan" >&2; exit 2 ;;
+esac

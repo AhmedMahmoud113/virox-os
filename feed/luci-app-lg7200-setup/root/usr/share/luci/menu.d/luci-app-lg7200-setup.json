@@ -1,0 +1,13 @@
+{
+	"admin/setup": {
+		"title": "Quick setup",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "lg7200/setup"
+		},
+		"depends": {
+			"acl": [ "luci-app-lg7200-setup" ]
+		}
+	}
+}

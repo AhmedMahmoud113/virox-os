@@ -1,0 +1,99 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Guest network (BUILD-PLAN B9 Y2, docs/dualwan-spec.md section 6): its own network name on every
+# radio, its own subnet and bridge (br-guest), internet only: guests cannot reach the router's
+# pages or any home device, and guests cannot see each other (client isolation). With two lines
+# (homenet-dualwan) the owner chooses the line guests use. Settings in uci homenet.guest:
+# enabled, ssid, key, line (0 = the default line, 3 = both lines), band (2g default, 5g, both). Virox access points carry their guests to this
+# bridge through a VXLAN tunnel (homenet-apctl), so guests get MTU 1450 from DHCP.
+#
+#   guest apply      write network / dhcp / firewall / wireless from homenet.guest, reload what changed
+# Output: "OK" or "ERR <code>".
+. /usr/lib/homenet/common.sh
+
+GIP="${HN_GUEST_IP:-10.73.0.1}"
+
+g_on() { [ "$(uci -q get homenet.guest.enabled)" = 1 ]; }
+
+g_apply() {
+	local ssid key s r z n band
+	if g_on; then
+		ssid="$(uci -q get homenet.guest.ssid)"; key="$(uci -q get homenet.guest.key)"
+		band="$(uci -q get homenet.guest.band)"; case "$band" in 5g|both) ;; *) band=2g ;; esac
+		[ -n "$ssid" ] && [ "${#key}" -ge 8 ] || { echo "ERR invalid_guest"; return 0; }
+		uci -q batch <<-EOF
+			set network.guest_dev=device
+			set network.guest_dev.type='bridge'
+			set network.guest_dev.name='br-guest'
+			set network.guest_dev.bridge_empty='1'
+			set network.guest=interface
+			set network.guest.proto='static'
+			set network.guest.device='br-guest'
+			set network.guest.ipaddr='$GIP'
+			set network.guest.netmask='255.255.255.0'
+			set dhcp.guest=dhcp
+			set dhcp.guest.interface='guest'
+			set dhcp.guest.start='50'
+			set dhcp.guest.limit='200'
+			set dhcp.guest.leasetime='2h'
+			set dhcp.guest.force='1'
+			delete dhcp.guest.dhcp_option
+			add_list dhcp.guest.dhcp_option='26,1450'
+			set firewall.guest_zone=zone
+			set firewall.guest_zone.name='guest'
+			set firewall.guest_zone.network='guest'
+			set firewall.guest_zone.input='REJECT'
+			set firewall.guest_zone.output='ACCEPT'
+			set firewall.guest_zone.forward='REJECT'
+			set firewall.guest_fwd=forwarding
+			set firewall.guest_fwd.src='guest'
+			set firewall.guest_fwd.dest='wan'
+			set firewall.guest_dhcp=rule
+			set firewall.guest_dhcp.name='Guest DHCP'
+			set firewall.guest_dhcp.src='guest'
+			set firewall.guest_dhcp.proto='udp'
+			set firewall.guest_dhcp.dest_port='67-68'
+			set firewall.guest_dhcp.target='ACCEPT'
+			set firewall.guest_dns=rule
+			set firewall.guest_dns.name='Guest DNS'
+			set firewall.guest_dns.src='guest'
+			set firewall.guest_dns.proto='tcp udp'
+			set firewall.guest_dns.dest_port='53'
+			set firewall.guest_dns.target='ACCEPT'
+		EOF
+		n=0
+		for r in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-device$/\1/p"); do
+			s="guest_$r"
+			# the band the owner chose: 2.4 GHz by default (reaches further; owner 2026-11-20), 5 GHz
+			# or both; a radio of the other band loses its guest network
+			[ "$band" = both ] || [ "$(uci -q get wireless.$r.band)" = "$band" ] || { uci -q delete wireless.$s; continue; }
+			uci -q batch <<-EOF
+				set wireless.$s=wifi-iface
+				set wireless.$s.device='$r'
+				set wireless.$s.mode='ap'
+				set wireless.$s.network='guest'
+				set wireless.$s.ssid='$(echo "$ssid" | sed "s/'/'\\\\''/g")'
+				set wireless.$s.key='$(echo "$key" | sed "s/'/'\\\\''/g")'
+				set wireless.$s.encryption='sae-mixed'
+				set wireless.$s.isolate='1'
+				set wireless.$s.disabled='0'
+			EOF
+			# hidden name (owner 2026-11-21: its own checkbox, virox.homenet guest_hidden)
+			if [ "$(uci -q get homenet.guest.hidden)" = 1 ]; then uci set wireless.$s.hidden='1'; else uci -q delete wireless.$s.hidden; fi
+			n=$((n + 1))
+		done
+	else
+		for s in $(uci -q show wireless | sed -n "s/^wireless\.\(guest_[^.]*\)=wifi-iface$/\1/p"); do uci -q delete wireless.$s; done
+		for s in network.guest network.guest_dev dhcp.guest firewall.guest_zone firewall.guest_fwd firewall.guest_dhcp firewall.guest_dns; do uci -q delete $s; done
+	fi
+	for c in network dhcp firewall wireless; do uci commit $c; done
+	( /etc/init.d/network reload; /etc/init.d/firewall reload; /etc/init.d/dnsmasq reload; wifi reload
+	  /usr/libexec/homenet/accounting rules
+	  [ -x /usr/libexec/homenet/lines ] && /usr/libexec/homenet/lines apply ) >/dev/null 2>&1 &
+	echo OK
+}
+
+case "$1" in
+	apply) g_apply ;;
+	*) echo "usage: guest apply" >&2; exit 2 ;;
+esac

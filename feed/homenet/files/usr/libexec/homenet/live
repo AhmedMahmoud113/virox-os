@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Who uses the internet now (owner 2026-11-22): the speed of each device at this moment, from the
+# per-address byte counters that the usage count already keeps (sets upload / download; table
+# inet homenet on a router, bridge homenet_ap on an access point). Nothing new is counted.
+#
+#   live      prints "id down_Bps up_Bps" per device that moved data (id = device id, or ip:<addr>
+#             for an address without a device yet), biggest first, then "@total down_Bps up_Bps"
+#             and "@seconds <s>" (the time the speeds were measured over)
+# The reading of the last call is kept (live.snap) and the next call measures from it when it is
+# 1 to 20 s old (a page that asks every few seconds); otherwise it reads twice, 1 s apart.
+# A counter that went back counts from zero; an address that is new since the last reading counts
+# all its bytes (its element was made in the interval).
+. /usr/lib/homenet/common.sh
+hn_prepare || { echo "ERR prepare_failed"; exit 2; }
+SNAP="$HN_RUN/live.snap"
+T="$HN_RUN/live.$$"
+trap 'rm -f "$T".*' EXIT
+
+tbl="inet homenet"; [ "$(uci -q get lg7200.state.mode)" = ap ] && tbl="bridge homenet_ap"
+# centiseconds since boot, then "up|down ip bytes" per address
+reading() {
+	awk '{ printf "%d\n", $1 * 100 }' /proc/uptime
+	for s in upload download; do
+		nft list set $tbl $s 2>/dev/null | awk -v dir="$([ $s = upload ] && echo up || echo down)" '
+			{ line = $0; gsub(/[{},]/, " ", line); n = split(line, a, /[[:space:]]+/)
+			  for (i = 1; i <= n; i++) if (a[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && a[i+1] == "counter" && a[i+5] ~ /^[0-9]+$/) print dir, a[i], a[i+5] }'
+	done
+}
+
+reading > "$T.b"
+cs_b="$(head -n 1 "$T.b")"; cs_a="$(head -n 1 "$SNAP" 2>/dev/null)"
+case "$cs_a" in ''|*[!0-9]*) cs_a=0 ;; esac
+dt=$(( cs_b - cs_a ))
+if [ "$dt" -lt 100 ] || [ "$dt" -gt 2000 ]; then
+	cp -f "$T.b" "$T.a"; sleep 1; reading > "$T.b"
+	cs_b="$(head -n 1 "$T.b")"; cs_a="$(head -n 1 "$T.a")"; dt=$(( cs_b - cs_a ))
+else
+	cp -f "$SNAP" "$T.a"
+fi
+cp -f "$T.b" "$SNAP"
+[ "$dt" -gt 0 ] || dt=100
+
+awk -F '[\t ]' -v dt="$dt" '
+	FILENAME == ARGV[1] { mac[$1] = $2; next }       # ipmap: ip mac
+	FILENAME == ARGV[2] { dev[$1] = $2; next }       # device-macs: mac device
+	FILENAME == ARGV[3] { if (FNR > 1) old[$1 " " $2] = $3; next }
+	FNR > 1 {
+		# an address new since the last reading (its set element was made in this interval: all its
+		# bytes are from now); a counter that went back counts from zero (test membership first:
+		# reading old[k] would create it)
+		k = $1 " " $2; if (!(k in old)) d = $3; else { d = $3 - old[k]; if (d < 0) d = $3 }
+		if (d <= 0) next
+		id = dev[mac[$2]]; if (id == "") id = "ip:" $2
+		b[id, $1] += d; ids[id] = 1; tot[$1] += d
+	}
+	END {
+		for (id in ids) printf "%s %.0f %.0f\n", id, b[id, "down"] * 100 / dt, b[id, "up"] * 100 / dt
+		printf "@total %.0f %.0f\n", tot["down"] * 100 / dt, tot["up"] * 100 / dt
+		printf "@seconds %.1f\n", dt / 100
+	}' "$HN_IPMAP" "$HN_MACS" "$T.a" "$T.b" | sort -t ' ' -k2,2nr -k3,3nr

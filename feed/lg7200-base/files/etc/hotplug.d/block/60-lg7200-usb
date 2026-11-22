@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A USB disk plugged in or out: its share follows (15.4 item 5), after block-mount mounted it
+case "$DEVNAME" in sd*) ;; *) exit 0 ;; esac
+[ "$ACTION" = add ] || [ "$ACTION" = remove ] || exit 0
+( sleep 4; /usr/libexec/lg7200/usb apply ) >/dev/null 2>&1 </dev/null &

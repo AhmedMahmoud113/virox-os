@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Nightly backup (P7) at 03:30. Idempotent (also runs after an upgrade that keeps settings).
+# Remote control and remote help were removed by the owner (BUILD-PLAN 15.9 item 1): their timer
+# and start script go away on units that had them.
+CRON=/etc/crontabs/root
+mkdir -p /etc/crontabs; touch "$CRON"
+grep -q "/usr/libexec/lg7200/backup nightly" "$CRON" ||
+	echo "30 3 * * * /usr/libexec/lg7200/backup nightly >/dev/null 2>&1" >> "$CRON"
+grep -q "/usr/libexec/lg7200/remote-help" "$CRON" && sed -i "/\/usr\/libexec\/lg7200\/remote-help/d" "$CRON"
+rm -f /etc/rc.d/S99lg7200-remote /etc/lg7200/remote-help.state /etc/lg7200/remote-help.key
+uci -q delete lg7200.remote && uci commit lg7200
+for s in vxhelp vxhelp_in vxremote vxremote_in vxremote_fwd; do uci -q delete firewall.$s; done
+uci -q changes firewall | grep -q . && uci commit firewall
+exit 0

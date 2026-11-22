@@ -1,0 +1,23 @@
+{
+	"homenet-admin": {
+		"description": "Virox API, computers, admin role",
+		"read": {
+			"ubus": {
+				"virox.pc": [ "list" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.pc": [ "code", "command", "rename", "forget" ]
+			}
+		}
+	},
+	"unauthenticated": {
+		"description": "Virox computer program: linking with the 6-digit code, and asking for a command with the token of the link",
+		"read": {
+			"ubus": {
+				"virox.pc": [ "pair", "poll" ]
+			}
+		}
+	}
+}

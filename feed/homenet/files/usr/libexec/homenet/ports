@@ -1,0 +1,105 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Open a port for a device (port forwarding), BUILD-PLAN 15.4 item 2. The rules live in uci
+# homenet (sections "portfwd", written by virox.ports):
+#   device    homenet device id (the rule follows the device: its reserved address)
+#   proto     tcp | udp | both
+#   ext       outside port or range "8000-8100"
+#   int       inside port (empty = the same as outside; not with a range)
+#   line      both | 1 | 2   (with two lines; "both" with one line)
+#   name      a label, enabled 0|1
+#
+#   ports apply      firewall redirects vxpf_<section> from the rules: the device's reserved address
+#                    (dhcp host of one of its MACs), on the chosen line (src_dip = that line's WAN
+#                    address); a rule whose device has no reserved address or whose line is down is
+#                    left out until it can work (ports status says why). Router mode only.
+#                    Changes the firewall only when the result differs.
+#   ports status     one line per rule: <section> ok|no_address|line_down|off <ip>
+#   ports wan        one line per line: <n> <ip or -> public|private|cgnat|down
+# Called by virox.ports, by hotplug when a WAN comes up (its address may have changed) and by
+# the minute tick (a reservation changed).
+. /usr/lib/homenet/common.sh
+
+RUN=/tmp/homenet
+mkdir -p "$RUN"
+STATE="$RUN/ports.state"
+
+wan_ip() { # <1|2>
+	local i; i="$(uci -q get lines.line$1.iface)"; [ -n "$i" ] || { i=wan; [ "$1" = 2 ] && i=wan2; }
+	ubus call network.interface.$i status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null
+}
+ip_kind() { # private / shared (CGNAT) / public
+	case "$1" in
+		'') echo down ;;
+		10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|169.254.*) echo private ;;
+		100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) echo cgnat ;;
+		*) echo public ;;
+	esac
+}
+two_lines() { [ "$(uci -q get lines.main.enabled)" = 1 ]; }
+
+# the reserved address of a device (any of its MACs)
+dev_ip() {
+	local d="$1" m s
+	for m in $(awk -F '\t' -v d="$d" '$2 == d { print tolower($1) }' "$HN_MACS" "$HN_DATA/device-macs.tsv" 2>/dev/null | sort -u); do
+		for s in $(uci -q show dhcp | sed -n "s/^dhcp\.\([^.]*\)=host$/\1/p"); do
+			uci -q get "dhcp.$s.mac" | tr 'A-F ' 'a-f\n' | grep -qx "$m" || continue
+			uci -q get "dhcp.$s.ip" && return 0
+		done
+	done
+	return 1
+}
+
+plan() { # <section> line per rule: sec status ip proto ext int line_ip
+	local s ip st l lip
+	for s in $(uci -q -X show homenet | sed -n "s/^homenet\.\([^.]*\)=portfwd$/\1/p"); do
+		st=ok; ip=""; lip=""
+		[ "$(uci -q get homenet.$s.enabled)" = 0 ] && st=off
+		ip="$(dev_ip "$(uci -q get homenet.$s.device)")" || { ip=""; [ $st = ok ] && st=no_address; }
+		l="$(uci -q get homenet.$s.line)"
+		if two_lines && [ "$l" = 1 -o "$l" = 2 ]; then
+			lip="$(wan_ip "$l")"; [ -n "$lip" ] || { [ $st = ok ] && st=line_down; }
+		fi
+		echo "$s $st ${ip:--} $(uci -q get homenet.$s.proto) $(uci -q get homenet.$s.ext) $(uci -q get homenet.$s.int || echo -) ${lip:--}"
+	done
+}
+
+apply() {
+	local mode p new
+	mode="$(uci -q get lg7200.state.mode)"
+	p="$(plan)"
+	[ "$mode" = ap ] && p=""
+	new="$(echo "$p" | awk '$2 == "ok"')"
+	[ "$new" = "$(cat "$STATE" 2>/dev/null)" ] && return 0
+	for s in $(uci -q show firewall | sed -n "s/^firewall\.\(vxpf_[^.]*\)=redirect$/\1/p"); do uci -q delete firewall.$s; done
+	echo "$new" | while read -r s st ip proto ext int lip; do
+		[ -n "$s" ] || continue
+		uci -q batch <<-EOF
+			set firewall.vxpf_$s=redirect
+			set firewall.vxpf_$s.name='Virox $(uci -q get homenet.$s.name | tr -d "'" | cut -c1-32)'
+			set firewall.vxpf_$s.src=wan
+			set firewall.vxpf_$s.dest=lan
+			set firewall.vxpf_$s.target=DNAT
+			set firewall.vxpf_$s.src_dport=$ext
+			set firewall.vxpf_$s.dest_ip=$ip
+			set firewall.vxpf_$s.proto='$( [ "$proto" = both ] && echo "tcp udp" || echo "$proto")'
+		EOF
+		[ "$int" != - ] && uci set firewall.vxpf_$s.dest_port="$int"
+		[ "$lip" != - ] && uci set firewall.vxpf_$s.src_dip="$lip"
+	done
+	uci commit firewall
+	echo "$new" > "$STATE"
+	/etc/init.d/firewall reload >/dev/null 2>&1
+	return 0
+}
+
+case "$1" in
+	apply) apply ;;
+	status) plan | awk '{ print $1, $2, $3 }' ;;
+	wan)
+		for n in 1 2; do
+			[ "$n" = 2 ] && ! two_lines && continue
+			ip="$(wan_ip $n)"; echo "$n ${ip:--} $(ip_kind "$ip")"
+		done ;;
+	*) echo "usage: $0 apply|status|wan" >&2; exit 1 ;;
+esac

@@ -1,0 +1,327 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-lg7200-setup\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+msgid "Quick setup"
+msgstr "الإعداد السريع"
+
+msgid "Step %d of %d"
+msgstr "الخطوة %d من %d"
+
+msgid "Next"
+msgstr "التالي"
+
+msgid "Back"
+msgstr "السابق"
+
+msgid "Save"
+msgstr "حفظ"
+
+msgid "Welcome"
+msgstr "مرحبًا"
+
+msgid "Choose the language of the router pages."
+msgstr "اختر لغة صفحات الراوتر."
+
+msgid "Protect your router"
+msgstr "احمِ الراوتر"
+
+msgid "Choose a password for these pages. Without it, anyone connected could change your settings."
+msgstr "اختر كلمة مرور لهذه الصفحات. بدونها يستطيع أي شخص متصل بالشبكة تغيير إعداداتك."
+
+msgid "Router password"
+msgstr "كلمة مرور الراوتر"
+
+msgid "Repeat the password"
+msgstr "أعد كتابة كلمة المرور"
+
+msgid "At least 6 characters. You will need it to open these pages again."
+msgstr "6 أحرف على الأقل. ستحتاجها كلما فتحت هذه الصفحات."
+
+msgid "Show"
+msgstr "عرض"
+
+msgid "The password is too short: use at least 6 characters."
+msgstr "كلمة المرور قصيرة: استخدم 6 أحرف على الأقل."
+
+msgid "The two passwords are not the same. Type them again."
+msgstr "كلمتا المرور غير متطابقتين. اكتبهما مرة أخرى."
+
+msgid "How will you use this router?"
+msgstr "كيف ستستخدم هذا الراوتر؟"
+
+msgid "Router (recommended)"
+msgstr "راوتر (موصى به)"
+
+msgid "This router connects to your internet modem and makes your home network."
+msgstr "يتصل هذا الراوتر بمودم الإنترنت وينشئ شبكة المنزل."
+
+msgid "Access point"
+msgstr "نقطة وصول"
+
+msgid "You already have a router. This one only adds Wi-Fi and more ports to it."
+msgstr "لديك راوتر رئيسي بالفعل. هذا الجهاز يضيف إليه الواي فاي ومنافذ كابل فقط."
+
+msgid "How does the internet reach this router?"
+msgstr "كيف يصل الإنترنت إلى هذا الراوتر؟"
+
+msgid "Automatic (recommended)"
+msgstr "تلقائي (موصى به)"
+
+msgid "The router gets its address from your internet modem. Works with most home modems."
+msgstr "يحصل الراوتر على عنوانه من مودم الإنترنت. يعمل مع معظم المودمات المنزلية."
+
+msgid "User name and password (PPPoE)"
+msgstr "اسم مستخدم وكلمة مرور (PPPoE)"
+
+msgid "For a modem in bridge mode. Your internet provider gives you the user name and password."
+msgstr "للمودم في وضع Bridge. تعطيك شركة الإنترنت اسم المستخدم وكلمة المرور."
+
+msgid "Fixed address"
+msgstr "عنوان ثابت"
+
+msgid "Only if your provider gave you a fixed IP address."
+msgstr "فقط إذا أعطتك شركة الإنترنت عنوان IP ثابتًا."
+
+msgid "Internet user name"
+msgstr "اسم مستخدم الإنترنت"
+
+msgid "Internet password"
+msgstr "كلمة مرور الإنترنت"
+
+msgctxt "Virox"
+msgid "IP address"
+msgstr "العنوان (IP)"
+
+msgid "Network mask"
+msgstr "قناع الشبكة (Netmask)"
+
+msgctxt "Virox"
+msgid "Gateway"
+msgstr "البوابة (Gateway)"
+
+msgid "DNS server (optional)"
+msgstr "خادم DNS (اختياري)"
+
+msgid "This is not a valid address. Example: 192.168.0.10"
+msgstr "هذا العنوان غير صحيح. مثال: 192.168.0.10"
+
+msgid "Access point mode"
+msgstr "وضع نقطة الوصول"
+
+msgid "Connect any port of this router to your main router. All ports and the Wi-Fi join your main network, which gives out the addresses. This router will be reachable at the address your main router gives it, and also at %s."
+msgstr "صِل أي منفذ في هذا الجهاز بالراوتر الرئيسي. تصبح كل المنافذ والواي فاي جزءًا من شبكتك الرئيسية، وهي التي توزع العناوين. يمكنك فتح صفحات هذا الجهاز على العنوان الذي يعطيه له الراوتر الرئيسي، وأيضًا على %s."
+
+msgid "Your Wi-Fi"
+msgstr "الواي فاي"
+
+msgid "A secure name and password were already made for this router. You can keep them or change them."
+msgstr "تم إنشاء اسم وكلمة مرور آمنين لهذا الراوتر. يمكنك إبقاؤهما أو تغييرهما."
+
+msgid "Wi-Fi name"
+msgstr "اسم الواي فاي"
+
+msgid "Wi-Fi password"
+msgstr "كلمة مرور الواي فاي"
+
+msgid "The name people see when they look for Wi-Fi."
+msgstr "الاسم الذي يظهر عند البحث عن شبكات الواي فاي."
+
+msgid "8 to 63 characters. Phones and laptops that are connected now will need the new password."
+msgstr "من 8 إلى 63 حرفًا. الهواتف وأجهزة الكمبيوتر المتصلة الآن ستحتاج كلمة المرور الجديدة."
+
+msgid "Use 1 to 32 characters for the name."
+msgstr "استخدم من 1 إلى 32 حرفًا للاسم."
+
+msgid "Use 8 to 63 English letters, digits or symbols."
+msgstr "استخدم من 8 إلى 63 حرفًا إنجليزيًا أو رقمًا أو رمزًا."
+
+msgid "Check and save"
+msgstr "المراجعة والحفظ"
+
+msgid "Language"
+msgstr "اللغة"
+
+msgid "Set"
+msgstr "تم تعيينها"
+
+msgid "Use"
+msgstr "طريقة الاستخدام"
+
+msgid "Router"
+msgstr "راوتر"
+
+msgid "Internet"
+msgstr "الإنترنت"
+
+msgctxt "Virox"
+msgid "Automatic"
+msgstr "تلقائي"
+
+msgid "Before you press Save"
+msgstr "قبل الضغط على «حفظ»"
+
+msgid "The router will apply the settings and check that you can still reach it. If not, it goes back to the old settings by itself after about one minute."
+msgstr "سيطبق الراوتر الإعدادات ثم يتأكد أنك ما زلت تستطيع الوصول إليه. إذا لم تستطع، يرجع إلى الإعدادات السابقة تلقائيًا بعد نحو دقيقة."
+
+msgid "The password could not be saved. Try again; if it keeps failing, restart the router."
+msgstr "تعذّر حفظ كلمة المرور. حاول مرة أخرى، وإذا تكررت المشكلة فأعد تشغيل الراوتر."
+
+msgid "Saving failed: %s"
+msgstr "فشل الحفظ: %s"
+
+msgid "Your router is ready"
+msgstr "الراوتر جاهز"
+
+msgid "Connect your phones and laptops to this Wi-Fi:"
+msgstr "صِل هواتفك وأجهزة الكمبيوتر بهذا الواي فاي:"
+
+msgid "Copy"
+msgstr "نسخ"
+
+msgid "Copied"
+msgstr "تم النسخ"
+
+msgid "Run the setup again"
+msgstr "إعادة الإعداد من البداية"
+
+msgid "Go to the router pages"
+msgstr "فتح صفحات الراوتر"
+
+msgid "based on"
+msgstr "مبني على"
+
+msgid "Source code"
+msgstr "الشيفرة المصدرية"
+
+msgid "Starting the setup…"
+msgstr "جارٍ تجهيز الإعداد…"
+
+msgctxt "Virox"
+msgid "Continue"
+msgstr "متابعة"
+
+msgid "Show password"
+msgstr "إظهار كلمة المرور"
+
+msgid "Hide password"
+msgstr "إخفاء كلمة المرور"
+
+msgid "Wi-Fi QR code"
+msgstr "رمز QR للواي فاي"
+
+msgid "Point the phone camera at this code to join the Wi-Fi."
+msgstr "وجّه كاميرا الهاتف إلى هذا الرمز للاتصال بالواي فاي مباشرة."
+
+msgid "The router moved to a new address: %s"
+msgstr "انتقل الراوتر إلى عنوان جديد: %s"
+
+msgid "Your internet modem uses %s too, so the router moved to avoid a clash. From now on open the router pages at the new address."
+msgstr "مودم الإنترنت يستخدم العنوان %s أيضًا، لذلك نقل الراوتر عنوانه لتجنب التعارض. افتح صفحات الراوتر من الآن على العنوان الجديد."
+
+msgid "Got it"
+msgstr "حسنًا"
+
+msgid "The device MAC was generated automatically"
+msgstr "تم إنشاء رقم الجهاز (MAC) تلقائيًا"
+
+msgid "Everything works normally. If you like, type the MAC printed on the label under the router."
+msgstr "كل شيء يعمل بشكل طبيعي. يمكنك إن أردت كتابة رقم MAC المطبوع على الملصق أسفل الراوتر من «الإعدادات»."
+
+msgid "MAC on the label"
+msgstr "رقم MAC المطبوع على الملصق"
+
+msgid "Saved. The router uses this MAC after its next restart."
+msgstr "تم الحفظ. سيستخدم الراوتر رقم MAC هذا بعد إعادة التشغيل التالية."
+
+msgid "This is not a valid MAC. On the label it looks like 00:11:22:33:44:55."
+msgstr "رقم MAC هذا غير صحيح. يكون على الملصق بهذا الشكل: 00:11:22:33:44:55."
+
+msgid "Light"
+msgstr "فاتح"
+
+msgid "Dark"
+msgstr "داكن"
+
+msgid "Main menu"
+msgstr "القائمة الرئيسية"
+
+msgid "Everything works normally."
+msgstr "كل شيء يعمل بشكل طبيعي."
+
+msgid "Type the MAC from the label"
+msgstr "كتابة رقم MAC من الملصق"
+
+msgid "Look based on"
+msgstr "التصميم مبني على"
+
+msgid "Light mode"
+msgstr "الوضع الفاتح"
+
+msgid "Dark mode"
+msgstr "الوضع الداكن"
+
+msgid "Follow system"
+msgstr "حسب الجهاز"
+
+msgid "Theme mode"
+msgstr "وضع العرض"
+
+msgid "Saving theme mode…"
+msgstr "جارٍ حفظ وضع العرض…"
+
+msgid "Unable to save theme mode. Please try again."
+msgstr "تعذّر حفظ وضع العرض. حاول مرة أخرى."
+
+msgid "Theme mode saved."
+msgstr "تم حفظ وضع العرض."
+
+msgid "Read-only"
+msgstr "للقراءة فقط"
+
+msgctxt "Virox"
+msgid "Skip to content"
+msgstr "انتقال إلى المحتوى"
+
+#. LuCI's own apply dialog (luci-base ui.js), shown when the setup changes the address the page came
+#. from: the upstream Arabic catalog leaves these empty (owner 2026-11-20: half the dialog was English)
+msgid ""
+"Changes have been made to the existing connection via \"%h\". This could "
+"inhibit access to this device. Any IP change requires <strong>connecting to "
+"the new IP</strong> within %d seconds to retain the changes."
+msgstr ""
+"تغيّرت إعدادات الاتصال الذي تستخدمه الآن عبر \"%h\"، وقد ينقطع وصولك إلى الجهاز. "
+"إذا تغيّر العنوان فيجب <strong>الدخول على العنوان الجديد</strong> خلال %d ثانية "
+"وإلا عادت الإعدادات السابقة."
+
+msgid "Apply checked"
+msgstr "تطبيق مع استعادة تلقائية"
+
+msgid "Apply unchecked"
+msgstr "تطبيق دون استعادة تلقائية"
+
+msgid "If the main router is a Virox router too, it finds this access point by itself: on the main router open Wi-Fi, Access points, and press Add. With any other main router there is nothing more to do."
+msgstr "إذا كان الراوتر الرئيسي من Virox أيضًا فسيجد نقطة الوصول هذه وحده: افتح على الراوتر الرئيسي الواي فاي ثم نقاط الوصول واضغط إضافة. ومع أي راوتر رئيسي آخر لا تحتاج إلى خطوة أخرى."
+
+msgid "Changes have been made to the existing connection via \"%h\". This could inhibit access to this device. Any IP change requires <strong>connecting to the new IP</strong> within %d seconds to retain the changes."
+msgstr "تغيّرت إعدادات الاتصال الذي تستخدمه الآن عبر \"%h\"، وقد ينقطع وصولك إلى الجهاز. إذا تغيّر العنوان فيجب <strong>الدخول على العنوان الجديد</strong> خلال %d ثانية وإلا عادت الإعدادات السابقة."
+
+msgid "This field is needed."
+msgstr "هذا الحقل مطلوب."
+
+msgid "JavaScript required!"
+msgstr "يلزم تفعيل JavaScript!"
+
+msgid "You must enable JavaScript in your browser or LuCI will not work properly."
+msgstr "فعّل JavaScript في المتصفح، وإلا فلن تعمل هذه الصفحات كما يجب."
+
+msgid "System running in recovery (initramfs) mode."
+msgstr "النظام يعمل في وضع الاسترداد (initramfs)."
+
+msgid "Note: a factory reset gives this router a new Wi-Fi name and password. To set it up again after a reset, connect a computer to it by cable. Installing an update (Settings, Update) keeps them for good."
+msgstr "ملاحظة: إعادة ضبط المصنع تعطي هذا الراوتر اسمًا وكلمة مرور جديدين للواي فاي. لإعداده بعد إعادة الضبط، صِل به كمبيوترًا بكابل. تثبيت تحديث (الإعدادات، التحديث) يحفظهما بشكل دائم."

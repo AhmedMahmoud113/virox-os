@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A radio that appears after first boot (the MT7615 loads late) gets the section 13 defaults once,
+# after 10-wifi-detect wrote it into /etc/config/wireless (wifi-defaults)
+[ "$ACTION" = add ] || exit 0
+( sleep 3; /usr/libexec/lg7200/wifi-defaults reload ) >/dev/null 2>&1 </dev/null &

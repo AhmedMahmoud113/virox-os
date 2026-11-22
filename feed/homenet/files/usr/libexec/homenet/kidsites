@@ -1,0 +1,67 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Sites opened by kids devices (owner 2026-11-22: "only on the devices I mark as a child's", that is
+# kids mode). The DNS of a kids device already goes through its own dnsmasq (homenet/dns); with
+# homenet.main.kids_log on (default) that dnsmasq logs the names asked, into $KLOG/<port>.log. This
+# script turns the log into one row per day, device and site, and empties the log:
+#   kidsites.tsv  day  device  site  label  first(HH:MM)  last(HH:MM)  count
+# site = the app of the site catalog when the name belongs to one (label = its name, e.g. YouTube),
+# else the registrable part of the name (example.com, example.com.eg); names every phone asks in the
+# background (system services, analytics, content networks) are left out. Only names, never what was
+# seen on a site. 7 days are kept, at most 3000 rows (the oldest go first).
+#
+#   kidsites run     cron, every 2 minutes
+. /usr/lib/homenet/common.sh
+hn_prepare || exit 1
+KLOG=/var/log/homenet-kids
+OUT="$HN_RUN/kidsites.tsv"
+T="$HN_RUN/kidsites.$$"
+trap 'rm -f "$T".*' EXIT
+[ "$1" = run ] || { echo "usage: $0 run" >&2; exit 1; }
+exec 5>"$HN_RUN.kidsites.lock"; flock -n 5 || exit 0
+[ -f "$OUT" ] || : > "$OUT"
+ls "$KLOG"/*.log >/dev/null 2>&1 || exit 0
+
+# take the logs (dnsmasq appends: emptying the file is enough)
+for f in "$KLOG"/*.log; do cat "$f"; : > "$f"; done > "$T.log"
+[ -s "$T.log" ] || exit 0
+today="$(date +%F)"; now="$(date +%H:%M)"
+
+awk -v day="$today" -v now="$now" -v cat=/usr/share/homenet/site-catalog.tsv '
+	BEGIN {
+		FS = "\t"
+		while ((getline l < cat) > 0) { split(l, c, "\t"); n = split(c[4], ds, ","); for (i = 1; i <= n; i++) { app[ds[i]] = c[1]; lab[c[1]] = c[3] } }
+		split("gstatic.com googleapis.com gvt1.com gvt2.com gvt3.com google-analytics.com googletagmanager.com doubleclick.net googlesyndication.com googleadservices.com app-measurement.com crashlytics.com firebaseio.com firebaseinstallations.googleapis.com akamai.net akamaiedge.net akamaized.net akamaihd.net edgekey.net edgesuite.net cloudfront.net cloudflare.com cloudflare-dns.com amazonaws.com azureedge.net msftconnecttest.com msftncsi.com windowsupdate.com microsoft.com live.com office.com apple.com icloud.com mzstatic.com apple-dns.net aaplimg.com samsung.com samsungcloud.com samsungapps.com xiaomi.com miui.com huawei.com hicloud.com ntp.org pool.ntp.org arpa local lan home ggpht.com 1e100.net whatsapp.net", nz, " ")
+		for (i in nz) noise[nz[i]] = 1
+		split("com net org gov edu co ac gob or ne mil", sl, " ")
+		for (i in sl) second[sl[i]] = 1
+	}
+	FILENAME == ARGV[1] { mac[$1] = $2; next }          # ipmap: ip mac
+	FILENAME == ARGV[2] { dev[$1] = $2; next }          # device-macs: mac device
+	FILENAME == ARGV[3] { split($0, f, "\t"); k = f[1] SUBSEP f[2] SUBSEP f[3]; row[k] = $0; seen[k] = 1; next }
+	{
+		# "... dnsmasq[123]: query[A] www.example.com from 192.168.72.101"
+		if (!match($0, /query\[(A|AAAA|HTTPS)\] [^ ]+ from [0-9.]+/)) next
+		split(substr($0, RSTART, RLENGTH), q, " "); name = tolower(q[2]); ip = q[4]
+		d = dev[mac[ip]]; if (d == "") next
+		sub(/\.$/, "", name)
+		# the app of the catalog: the name or one of its parents
+		site = ""; label = ""; x = name
+		while (x != "") { if (x in app) { site = app[x]; label = lab[site]; break } j = index(x, "."); x = j ? substr(x, j + 1) : "" }
+		if (site == "") {
+			n = split(name, p, "."); if (n < 2) next
+			site = p[n - 1] "." p[n]
+			if (n >= 3 && length(p[n]) == 2 && (p[n - 1] in second)) site = p[n - 2] "." site
+			if (site in noise || p[n] in noise) next
+			label = ""
+		}
+		k = day SUBSEP d SUBSEP site
+		if (k in seen) { split(row[k], f, "\t"); row[k] = f[1] "\t" f[2] "\t" f[3] "\t" f[4] "\t" f[5] "\t" now "\t" (f[7] + 1) }
+		else { row[k] = day "\t" d "\t" site "\t" label "\t" now "\t" now "\t1"; seen[k] = 1 }
+	}
+	END { for (k in row) print row[k] }
+' "$HN_IPMAP" "$HN_MACS" "$OUT" "$T.log" > "$T.new"
+# 7 days, at most 3000 rows (newest days first kept)
+cut="$(date -d "@$(( $(date +%s) - 6 * 86400 ))" +%F 2>/dev/null)"
+awk -F '\t' -v c="${cut:-0000}" '$1 >= c' "$T.new" | sort -t "$TAB" -k1,1r -k2,2 -k7,7nr | head -n 3000 | sort > "$T.out"
+cmp -s "$T.out" "$OUT" || cp -f "$T.out" "$OUT"

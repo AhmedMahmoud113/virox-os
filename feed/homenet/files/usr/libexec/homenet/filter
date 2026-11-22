@@ -1,0 +1,316 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Whole-house DNS filter (B7 feature 9), ported from the old homefilter-control / homefilter-data
+# (which drove the adblock package with the HaGeZi lists). Here the same lists are fetched by
+# this script and handed to the main dnsmasq; no list is shipped in the image (BUILD-PLAN B7.3).
+#
+#   filter set <ads> <adult> <gambling> <bypass> <safesearch> <youtube> [ads_size]   each 0|1;
+#                                      ads_size light|normal|pro|pro.plus (default normal); fetches
+#                                      the lists that are now needed (in the background)
+#   filter block|unblock <domain>      a site blocked for everyone (custom list)
+#   filter allow|unallow <domain>      a site never blocked (also its subdomains)
+#   filter update [missing]            fetch the enabled lists (all, or only those not in RAM yet:
+#                                      after a boot), then build. cron: daily 04:20 + every 10 min
+#                                      "missing"
+#   filter build                       write the dnsmasq file from the lists in RAM and restart
+#                                      dnsmasq; if dnsmasq does not come back, the filter file is
+#                                      taken out again (the network must never lose DNS and DHCP
+#                                      because of a list, BUILD-PLAN B7.5b) and filter_failed goes
+#                                      to the event list
+# Output "OK" or "ERR <code>" (exit 2).
+#
+# Categories (uci homenet.filter.<name>; list file names from HaGeZi "wildcard onlydomains"):
+#   ads       ads, trackers, malware, in four sizes (homenet.filter.ads_size, B7.3e item 2):
+#             light-onlydomains.txt, multi-onlydomains.txt ("normal", the default),
+#             pro-onlydomains.txt, pro.plus-onlydomains.txt
+#   adult     nsfw-onlydomains.txt
+#   gambling  gambling.medium-onlydomains.txt
+#   bypass    doh-vpn-proxy-bypass-onlydomains.txt  encrypted DNS / VPN / proxy services that
+#                                                   would go around the filter (old "anti-bypass")
+#   safesearch  Google, Bing, DuckDuckGo in safe mode for every device (kids devices always)
+#   youtube     YouTube Restricted Mode for every device (with safesearch)
+# Base address homenet.filter.base_url (default below); one list may be overridden with
+# homenet.filter.url_<category>. Lists live in RAM (/tmp/homenet/filter), never on flash.
+# Always allowed (the router needs them): the package repositories, the NTP servers, the update
+# server, openwrt.org, tailscale.
+# Data: filter-block.txt, filter-allow.txt (domains, flash)
+#
+# Memory guard (B7.3e item 2): 256 MB are shared with counting, the DNS profiles and Wi-Fi.
+# MemAvailable is checked before a list is handed to dnsmasq (estimate: 120 bytes per name) and
+# again once dnsmasq has loaded it. If it would fall or has fallen below 64 MB, the next smaller
+# ads list is used instead (down to none), filter_memory goes to the event list, and that cap
+# holds until the next full update (daily, or a change of the settings), which tries the chosen
+# size again. Tests fake the reading with $HN_RUN/test-memavail-kb (RAM only, gone at reboot).
+umask 077
+. /usr/lib/homenet/common.sh
+T="${HN_RUN:?}/filter.$$"
+trap 'rm -f "$T".*' EXIT
+FD="$HN_RUN/filter"
+STATUS="$FD/status"
+BLOCK="$HN_DATA/filter-block.txt"
+ALLOW="$HN_DATA/filter-allow.txt"
+BASE_DEFAULT=https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/
+CATS="ads adult gambling bypass"
+MAXDOMAINS=600000
+
+err() { echo "ERR $1"; exit 2; }
+
+hn_prepare || err prepare_failed
+mkdir -p "$FD"
+for f in "$BLOCK" "$ALLOW"; do [ -f "$f" ] || : > "$f"; done
+
+ADS_SIZES="pro.plus pro normal light"       # largest first
+MEM_FLOOR_KB=65536
+ads_size() {
+	local z; z="$(uci -q get homenet.filter.ads_size)"
+	case "$z" in light|normal|pro|pro.plus) echo "$z" ;; *) echo normal ;; esac
+}
+# the ads size in use: the chosen one, unless the memory guard capped it ("none" = no ads list)
+ads_want() {
+	local want cap z seen=0
+	want="$(ads_size)"; cap="$(cat "$FD/ads.cap" 2>/dev/null)"
+	[ -n "$cap" ] || { echo "$want"; return; }
+	[ "$cap" = none ] && { echo none; return; }
+	for z in $ADS_SIZES; do
+		[ "$z" = "$cap" ] && seen=1
+		[ "$z" = "$want" ] && { [ "$seen" = 1 ] && echo "$want" || echo "$cap"; return; }
+	done
+	echo "$want"
+}
+mem_kb() {
+	if [ -s "$HN_RUN/test-memavail-kb" ]; then cat "$HN_RUN/test-memavail-kb"
+	else awk '/^MemAvailable:/ { print $2 }' /proc/meminfo; fi
+}
+list_file() {
+	case "$1" in
+		ads)
+			case "$(ads_want)" in
+				light) echo light-onlydomains.txt ;;
+				pro) echo pro-onlydomains.txt ;;
+				pro.plus) echo pro.plus-onlydomains.txt ;;
+				*) echo multi-onlydomains.txt ;;
+			esac ;;
+		adult) echo nsfw-onlydomains.txt ;;
+		gambling) echo gambling.medium-onlydomains.txt ;;
+		bypass) echo doh-vpn-proxy-bypass-onlydomains.txt ;;
+	esac
+}
+on() { [ "$(uci -q get homenet.filter."$1")" = 1 ]; }
+url_of() {
+	local u base
+	u="$(uci -q get homenet.filter.url_"$1")"
+	[ -n "$u" ] && { echo "$u"; return; }
+	base="$(uci -q get homenet.filter.base_url)"
+	echo "${base:-$BASE_DEFAULT}$(list_file "$1")"
+}
+
+norm_domain() {
+	local d
+	d="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's|^[a-z]*://||; s|[/:?#].*$||; s/^\*\.//; s/^www\.//; s/\.$//')"
+	[ "${#d}" -le 253 ] || return 1
+	printf '%s\n' "$d" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' || return 1
+	echo "$d"
+}
+
+# a build finished (time + a counter: two builds can end in the same second)
+built_now() { status_set built "$(date +%s)"; status_set builds $(( $(sed -n "s/^builds=//p" "$STATUS" 2>/dev/null || echo 0) + 1 )); }
+
+status_set() { # key value
+	[ -f "$STATUS" ] || : > "$STATUS"
+	{ grep -v "^$1=" "$STATUS"; echo "$1=$2"; } > "$T.st"; mv -f "$T.st" "$STATUS"
+}
+
+# confdir of the main dnsmasq (inside its jail it is mounted read-write)
+confdir() {
+	local d
+	d="$(sed -n 's/^conf-dir=\([^,]*\).*/\1/p' /var/etc/dnsmasq.conf.* 2>/dev/null | head -n 1)"
+	echo "${d:-/tmp/dnsmasq.d}"
+}
+
+dnsmasq_up() { # the main instance runs and stays up for 3 s
+	local p
+	p="$(ubus call service list '{"name":"dnsmasq"}' 2>/dev/null | jsonfilter -e '@.dnsmasq.instances[*].pid' | head -n 1)"
+	[ -n "$p" ] || return 1
+	sleep 3
+	[ -d "/proc/$p" ] && [ "$p" = "$(ubus call service list '{"name":"dnsmasq"}' 2>/dev/null | jsonfilter -e '@.dnsmasq.instances[*].pid' | head -n 1)" ]
+}
+
+# fetch one list into RAM: valid domain lines only; an empty or broken download keeps the
+# previous copy
+fetch() { # category
+	local c="$1" n
+	rm -f "$T.dl"
+	if ! uclient-fetch -q -T 30 -O "$T.dl" "$(url_of "$c")" 2>/dev/null; then
+		status_set "$c" "failed $(date +%s)"; logger -t homenet "filter: download of the $c list failed"; return 1
+	fi
+	tr 'A-Z' 'a-z' < "$T.dl" | sed 's/\r$//; s/^\*\.//' | grep -E '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)+$' > "$T.ok"
+	n="$(wc -l < "$T.ok")"
+	if [ "$n" -lt 1 ]; then
+		status_set "$c" "failed $(date +%s)"; logger -t homenet "filter: the $c list was empty or not a domain list"; return 1
+	fi
+	mv -f "$T.ok" "$FD/$c.txt"
+	[ "$c" = ads ] && ads_want > "$FD/ads.size"
+	status_set "$c" "ok $(date +%s) $n"
+}
+
+# memory guard: one step down (pro.plus -> pro -> normal -> light -> none), event, refetch
+step_down() { # <before|after> <mem_kb>
+	local cur next="none" z take=0
+	cur="$(cat "$FD/ads.size" 2>/dev/null)"; [ -n "$cur" ] || cur="$(ads_want)"
+	for z in $ADS_SIZES; do
+		[ "$take" = 1 ] && { next="$z"; break; }
+		[ "$z" = "$cur" ] && take=1
+	done
+	echo "$next" > "$FD/ads.cap"
+	logger -t homenet "filter: memory $2 kB $1 loading the $cur ads list; using ${next} instead"
+	hn_event filter_memory warn from="$cur" to="$next" mem_kb="$2" when="$1" >/dev/null 2>&1
+	status_set ads_effective "$next"
+	[ "$next" = none ] || fetch ads || true
+}
+
+always_allowed() {
+	{
+		echo openwrt.org; echo tailscale.com; echo tailscale.io; echo ts.net
+		sed -n 's|^[^#]*https\{0,1\}://\([^/:]*\).*|\1|p' /etc/apk/repositories.d/*.list /etc/apk/repositories 2>/dev/null
+		uci -q get system.ntp.server | tr ' ' '\n'
+		uci -q get lg7200.update.url 2>/dev/null | sed -n 's|^https\{0,1\}://\([^/:]*\).*|\1|p'
+	} | tr 'A-Z' 'a-z' | grep . | sort -u
+}
+
+# build, stepping the ads list down while the memory guard asks for it (at most 5 rounds)
+build() {
+	local i rc
+	for i in 1 2 3 4 5; do
+		build_once; rc=$?
+		[ "$rc" = 3 ] || return "$rc"
+	done
+	echo OK
+}
+
+build_once() {
+	local cd file n m yt=0 any=0
+	cd="$(confdir)"; file="$cd/homenet-filter.conf"
+	: > "$T.lists"
+	for c in $CATS; do
+		on "$c" || continue
+		any=1
+		[ "$c" = ads ] && [ "$(ads_want)" = none ] && continue
+		[ -s "$FD/$c.txt" ] && cat "$FD/$c.txt" >> "$T.lists"
+	done
+	[ -s "$BLOCK" ] && { any=1; cat "$BLOCK" >> "$T.lists"; }
+	on safesearch && any=1
+	if [ "$any" = 0 ]; then
+		if [ -f "$file" ]; then rm -f "$file"; /etc/init.d/dnsmasq restart >/dev/null 2>&1; fi
+		status_set domains 0; built_now
+		echo OK; return 0
+	fi
+	{ cat "$ALLOW"; always_allowed; } | sort -u > "$T.allow"
+	# blocked names minus the allowed ones and everything under an allowed name
+	sort -u "$T.lists" | awk 'FILENAME == ARGV[1] { a[$1] = 1; next }
+		{ d = $1; while (d != "") { if (d in a) next; i = index(d, "."); d = i ? substr(d, i + 1) : "" } print "local=/" $1 "/" }' \
+		"$T.allow" - > "$T.conf"
+	n="$(wc -l < "$T.conf")"
+	[ "$n" -le "$MAXDOMAINS" ] || { status_set error too_many_domains; logger -t homenet "filter: $n names, more than $MAXDOMAINS"; err too_many_domains; }
+	if on safesearch; then
+		on youtube && yt=1
+		/usr/libexec/homenet/dns safe-lines youtube "$yt" >> "$T.conf"
+	fi
+	# memory guard, before: would dnsmasq with these names leave less than 64 MB? (also when the
+	# list did not change: memory can run short while the same list is loaded)
+	m="$(mem_kb)"
+	if on ads && [ "$(ads_want)" != none ] && [ $(( m - n * 120 / 1024 )) -lt "$MEM_FLOOR_KB" ]; then
+		step_down before "$m"; return 3
+	fi
+	if [ -f "$file" ] && cmp -s "$T.conf" "$file"; then
+		status_set domains "$n"; built_now; status_set ads_effective "$(on ads && ads_want || echo none)"; echo OK; return 0
+	fi
+	dnsmasq --test -C "$T.conf" >/dev/null 2>&1 || { status_set error invalid_list; err invalid_list; }
+	[ -f "$file" ] && cp -f "$file" "$T.prev"
+	mkdir -p "$cd"
+	cp -f "$T.conf" "$file.new" && chmod 644 "$file.new" && mv -f "$file.new" "$file"
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	if dnsmasq_up; then
+		status_set domains "$n"; built_now; status_set error ""
+		status_set ads_effective "$(on ads && ads_want || echo none)"
+		# memory guard, after: what is left now that dnsmasq holds the names
+		m="$(mem_kb)"
+		if on ads && [ "$(ads_want)" != none ] && [ "$m" -lt "$MEM_FLOOR_KB" ]; then
+			step_down after "$m"; return 3
+		fi
+		echo OK; return 0
+	fi
+	# dnsmasq did not come back: without the new file (the previous one, if there was one)
+	if [ -f "$T.prev" ]; then cp -f "$T.prev" "$file"; else rm -f "$file"; fi
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	dnsmasq_up || { rm -f "$file"; /etc/init.d/dnsmasq restart >/dev/null 2>&1; }
+	status_set error dnsmasq_failed
+	logger -t homenet "filter: dnsmasq did not start with the new list; previous state restored"
+	hn_event filter_failed danger domains="$n"
+	err dnsmasq_failed
+}
+
+update() { # [missing]
+	local c got=0
+	# a full update tries the chosen ads size again (the memory guard decides anew)
+	[ "$1" = missing ] || rm -f "$FD/ads.cap"
+	for c in $CATS; do
+		on "$c" || continue
+		[ "$c" = ads ] && [ "$(ads_want)" = none ] && continue
+		[ "$1" = missing ] && [ -s "$FD/$c.txt" ] && { [ "$c" != ads ] || [ "$(cat "$FD/ads.size" 2>/dev/null)" = "$(ads_want)" ]; } && continue
+		fetch "$c" && got=1
+	done
+	[ "$1" = missing ] && [ "$got" = 0 ] && { echo OK; return 0; }
+	build
+}
+
+edit() { # file add|remove domain
+	{ grep -vxF "$3" "$1"; [ "$2" = add ] && echo "$3"; } > "$T.e"
+	[ "$(grep -c . "$T.e")" -le 2000 ] || err too_many
+	hn_write "$1" < "$T.e"
+}
+
+exec 6>"$HN_RUN.filter.lock"
+case "$1" in
+	update) flock -n 6 || { echo OK; exit 0; } ;;
+	*) flock 6 ;;
+esac
+
+case "$1" in
+	set)
+		shift
+		[ "$#" -eq 6 ] || [ "$#" -eq 7 ] || err invalid_value
+		z="${7:-$(ads_size)}"
+		case "$z" in light|normal|pro|pro.plus) ;; *) err invalid_size ;; esac
+		set -- "$1" "$2" "$3" "$4" "$5" "$6"
+		for v in "$@"; do case "$v" in 0|1) ;; *) err invalid_value ;; esac; done
+		uci -q get homenet.filter >/dev/null || uci set homenet.filter=filter
+		i=0
+		for k in ads adult gambling bypass safesearch youtube; do
+			i=$((i + 1)); eval "v=\${$i}"
+			uci set homenet.filter."$k"="$v"
+		done
+		uci set homenet.filter.ads_size="$z"
+		uci commit homenet
+		rm -f "$FD/ads.cap"     # a new choice: the memory guard decides anew
+		# lists that are needed now are fetched in the background; the page shows the status
+		flock -u 6
+		( /usr/libexec/homenet/filter update missing; /usr/libexec/homenet/filter build ) >/dev/null 2>&1 6>&- &
+		echo OK ;;
+	block|unblock|allow|unallow)
+		d="$(norm_domain "$2")" || err invalid_domain
+		case "$1" in
+			block) edit "$BLOCK" add "$d" ;;
+			unblock) edit "$BLOCK" remove "$d" ;;
+			allow) edit "$ALLOW" add "$d" ;;
+			unallow) edit "$ALLOW" remove "$d" ;;
+		esac
+		# the build (sort of the lists, dnsmasq restart) runs in the background: with big lists
+		# it can take longer than an API call may (rpcd: 30 s); `virox.homenet filter` shows
+		# "built" and "error"
+		flock -u 6
+		( /usr/libexec/homenet/filter build ) >/dev/null 2>&1 6>&- &
+		echo OK ;;
+	update) update "$2" ;;
+	build) build ;;
+	*) echo "usage: $0 set|block|unblock|allow|unallow|update|build ..." >&2; exit 1 ;;
+esac

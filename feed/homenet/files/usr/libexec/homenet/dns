@@ -1,0 +1,340 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Kids mode (B7 feature 7, with BUILD-PLAN P8) and site locks (B7 feature 8): filtered DNS per
+# device. Ported from the old kids-mode / site-lock-* scripts (one engine for both).
+#
+#   dns kids <target> 0|1                 kids mode on a device or a person
+#   dns kids-block <domain>               a site blocked for kids devices only
+#   dns kids-unblock <domain>
+#   dns lock <target> <minutes> <sites> [domain]   site lock for 5..1440 minutes, or 0 = until it
+#                                         is removed (owner 2026-11-22): catalog ids
+#                                         (comma, /usr/share/homenet/site-catalog.tsv) and/or
+#                                         one domain; prints "OK <id>"
+#   dns unlock <lock_id>                  end a site lock now
+#   dns apply                             rebuild (after `controls apply`, every minute, and
+#                                         after each change)
+#   dns safe-lines [youtube 0|1]          dnsmasq lines for SafeSearch (also used by `filter`)
+# <target> is a device id (dN) or a person id (pN). Output "OK" or "ERR <code>" (exit 2).
+#
+# How it works: every device in kids mode and/or with running site locks gets a DNS "profile"
+# (kids: SafeSearch + YouTube restricted + the kids list; locks: the locked sites). Each
+# distinct profile is one extra dnsmasq (service homenet-dns, ports 5301-5350, listening on the
+# LAN address) that forwards to the main dnsmasq, so the house filter still applies, and
+# answers "no such name" for the blocked names.
+#  - DNS (udp/tcp 53) from the device's MACs, to any server, is redirected to its profile;
+#  - filter bypass (P8), for every device with a profile: DNS-over-TLS (853) is dropped, HTTPS
+#    and QUIC (443) to the known public DNS-over-HTTPS servers (doh-servers.txt) are dropped,
+#    and the DoH host names plus the canary names that make Firefox and iPhones switch their
+#    own encrypted DNS off (doh-names.txt) answer "no such name". IPv6 is off on the LAN while
+#    homenet runs (P1), so nothing goes around these rules over IPv6;
+#  - the addresses of locked / kids-blocked names are looked up every minute through the main
+#    dnsmasq and kept for 3 minutes in a per-profile set the device cannot reach, so a name the
+#    device cached before does not help either;
+#  - when a device gets new restrictions (kids mode on, a lock starts) its open connections are
+#    cut (B7.3c), so an app that is already connected must reconnect through the new rules.
+# Data: kids.tsv  target;  kids-blocklist.txt  domain;
+#       sitelocks.tsv  id  target  until(epoch, 0 = no end)  sites(comma)  domain
+umask 077
+. /usr/lib/homenet/common.sh
+T="${HN_RUN:?}/dns.$$"
+trap 'rm -f "$T".*' EXIT
+SHARE=/usr/share/homenet
+CATALOG="$SHARE/site-catalog.tsv"
+KIDS="$HN_DATA/kids.tsv"
+KBL="$HN_DATA/kids-blocklist.txt"
+SL="$HN_DATA/sitelocks.tsv"
+CONF=/var/etc/homenet-dns
+DEVPREV="$HN_RUN/dns-devices"
+APPLIED="$HN_RUN/dns.applied"
+SAFE="$HN_RUN/safe-ips.tsv"          # name  ipv4  epoch   (SafeSearch addresses, 1 hour)
+PORT0=5301; PORTN=5350
+
+err() { echo "ERR $1"; exit 2; }
+
+hn_prepare || err prepare_failed
+for f in "$KIDS" "$KBL" "$SL"; do [ -f "$f" ] || : > "$f"; done
+
+target_ok() {
+	case "$1" in
+		d[0-9]*) awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_DEVICES" ;;
+		p[0-9]*) awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_PEOPLE" ;;
+		*) return 1 ;;
+	esac
+}
+
+# domain from what a user typed: lower case, no scheme, path, port, "www." or trailing dot
+norm_domain() {
+	local d
+	d="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's|^[a-z]*://||; s|[/:?#].*$||; s/^\*\.//; s/^www\.//; s/\.$//')"
+	[ "${#d}" -le 253 ] || return 1
+	printf '%s\n' "$d" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' || return 1
+	echo "$d"
+}
+
+# IPv4 addresses of names, through the main dnsmasq, in parallel, at most 3 s in all
+# (BusyBox nslookup has no timeout option, and the WAN may be down)
+resolve() { # name... -> "name ip" lines
+	local n i=0 pids=""
+	for n in "$@"; do
+		i=$((i + 1))
+		nslookup -type=a "$n" 127.0.0.1 > "$T.r$i" 2>/dev/null &
+		pids="$pids $!"
+		echo "$n" > "$T.n$i"
+	done
+	[ -n "$pids" ] || return 0
+	for n in 1 2 3; do
+		alive=0
+		for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+		[ "$alive" = 1 ] || break
+		sleep 1
+	done
+	kill $pids 2>/dev/null; wait 2>/dev/null
+	while [ "$i" -gt 0 ]; do
+		awk -v n="$(cat "$T.n$i")" 'f && /^Address/ { a = $NF; sub(/:53$/, "", a); if (a ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print n, a } /^Name:/ { f = 1 }' "$T.r$i"
+		i=$((i - 1))
+	done
+}
+
+# SafeSearch: the search pages of Google, Bing and DuckDuckGo answer with their "safe" address,
+# YouTube with the strict Restricted Mode address. host-record answers only the exact name
+# (address=/google.com/ would also send mail.google.com and every other subdomain there).
+# The addresses are looked up through the main dnsmasq and kept for an hour; when one cannot
+# be looked up (no internet yet) its lines are left out and added on a later run, never a
+# made-up address.
+safe_lines() { # [youtube 0|1]
+	local now yt="${2:-1}" need=""
+	now="$(date +%s)"
+	[ -f "$SAFE" ] || : > "$SAFE"
+	for n in forcesafesearch.google.com strict.bing.com safe.duckduckgo.com restrict.youtube.com; do
+		awk -v n="$n" -v now="$now" '$1 == n && now - $3 < 3600 { f = 1 } END { exit !f }' "$SAFE" || need="$need $n"
+	done
+	if [ -n "$need" ]; then
+		resolve $need > "$T.safe"
+		if [ -s "$T.safe" ]; then
+			awk -v now="$now" 'FILENAME == ARGV[1] { new[$1] = $2; next } !($1 in new) { print } END { for (n in new) print n, new[n], now }' \
+				"$T.safe" "$SAFE" > "$T.safe2" && mv -f "$T.safe2" "$SAFE"
+		fi
+	fi
+	awk -v yt="$yt" '
+		function rec(names, ip,   n, a, i) { n = split(names, a, " "); for (i = 1; i <= n; i++) print "host-record=" a[i] "," ip }
+		$1 == "forcesafesearch.google.com" { rec("google.com www.google.com google.com.eg www.google.com.eg", $2) }
+		$1 == "strict.bing.com" { rec("bing.com www.bing.com", $2) }
+		$1 == "safe.duckduckgo.com" { rec("duckduckgo.com www.duckduckgo.com", $2) }
+		$1 == "restrict.youtube.com" && yt == 1 { rec("www.youtube.com m.youtube.com youtubei.googleapis.com youtube.googleapis.com www.youtube-nocookie.com", $2) }
+	' "$SAFE" | sort
+}
+
+lan_ip() { local a; a="$(uci -q get network.lan.ipaddr)"; a="${a%%/*}"; echo "${a%% *}"; }
+
+apply() {
+	local now lan lanip p key list kids macs ips n
+	now="$(date +%s)"; lan="$(hn_lan_dev)"; lanip="$(lan_ip)"
+	mkdir -p "$CONF"
+	# locks that ended are removed (until 0: no end)
+	awk -F '\t' -v now="$now" '$3 == "0" || $3 + 0 > now' "$SL" > "$T.sl"
+	cmp -s "$T.sl" "$SL" || hn_write "$SL" < "$T.sl"
+	# per device: kids flag and blocked names (device, its person, the kids list)
+	awk -F '\t' -v OFS='\t' -v cat="$CATALOG" -v klist="$KBL" '
+		BEGIN {
+			while ((getline l < cat) > 0) { split(l, c, "\t"); dom[c[1]] = c[4] }
+			while ((getline l < klist) > 0) if (l != "") kb = kb "," l
+		}
+		FILENAME == ARGV[1] { person[$1] = $3; all[$1] = 1; next }
+		FILENAME == ARGV[2] { kid[$1] = 1; next }
+		{ n = split($4, s, ","); for (i = 1; i <= n; i++) if (s[i] in dom) lk[$2] = lk[$2] "," dom[s[i]]
+		  if ($5 != "") lk[$2] = lk[$2] "," $5 }
+		END {
+			for (d in all) {
+				p = person[d]; k = (kid[d] || (p != "" && kid[p])) ? 1 : 0
+				l = lk[d] (p != "" ? lk[p] : "") (k ? kb : "")
+				if (k || l != "") print d, k, l
+			}
+		}' "$HN_DEVICES" "$KIDS" "$T.sl" > "$T.raw"
+	# normalised: device  kids  sorted unique names  -> profile key = kids|names
+	while IFS="$TAB" read -r d kids list; do
+		list="$(printf '%s' "$list" | tr ',' '\n' | grep . | sort -u | tr '\n' ',')"
+		printf '%s\t%s\t%s\n' "$d" "$kids" "${list%,}"
+	done < "$T.raw" > "$T.dev"
+	sort "$T.dev" > "$T.dev2"; mv -f "$T.dev2" "$T.dev"
+	# one port per distinct profile
+	awk -F '\t' -v OFS='\t' -v p0=$PORT0 -v pn=$PORTN '{ key = $2 "|" $3; if (!(key in port)) { if (p0 + n > pn) next; port[key] = p0 + n++ } print $1, port[key], $2, $3 }' \
+		"$T.dev" > "$T.devport"
+	# device MACs per port; addresses of devices with NEW restrictions (to cut)
+	awk -F '\t' 'FILENAME == ARGV[1] { port[$1] = $2; next } ($2 in port) { print port[$2] "\t" $1 }' "$T.devport" "$HN_MACS" | sort > "$T.macs"
+	[ -f "$DEVPREV" ] || : > "$DEVPREV"
+	awk -F '\t' '
+		FILENAME == ARGV[1] { had[$1] = 1; k[$1] = $3; n = split($4, a, ","); for (i = 1; i <= n; i++) old[$1, a[i]] = 1; next }
+		{ new = !had[$1] || ($3 == 1 && k[$1] != 1); n = split($4, a, ","); for (i = 1; i <= n; i++) if (!old[$1, a[i]]) new = 1; if (new) print $1 }
+	' "$DEVPREV" "$T.devport" > "$T.tighter"
+	# dnsmasq configuration per profile; kids profiles log the names asked (owner 2026-11-22, sites
+	# opened by kids devices, homenet/kidsites), readable by root and dnsmasq only
+	klog=0
+	if [ "$(uci -q get homenet.main.kids_log)" != 0 ]; then
+		klog=1; mkdir -p /var/log/homenet-kids; chown dnsmasq:dnsmasq /var/log/homenet-kids 2>/dev/null; chmod 700 /var/log/homenet-kids
+	fi
+	rm -f "$T.conf."*
+	cut -f2- "$T.devport" | sort -u | while IFS="$TAB" read -r p kids list; do
+		{
+			echo "port=$p"
+			echo "listen-address=$lanip"
+			echo "listen-address=127.0.0.1"
+			echo "bind-interfaces"
+			echo "no-resolv"
+			echo "no-hosts"
+			echo "server=127.0.0.1#53"
+			echo "cache-size=500"
+			echo "pid-file="
+			echo "user=dnsmasq"
+			echo "group=dnsmasq"
+			grep -v '^#' "$SHARE/doh-names.txt" | grep . | sed 's|.*|local=/&/|'
+			printf '%s' "$list" | tr ',' '\n' | grep . | sed 's|.*|local=/&/|'
+			if [ "$kids" = 1 ] && [ "$klog" = 1 ]; then
+				echo "log-queries"
+				echo "log-async=20"
+				echo "log-facility=/var/log/homenet-kids/$p.log"
+			fi
+			if [ "$kids" = 1 ]; then
+				# a SafeSearch record is local data and would be answered instead of the block,
+				# so it is left out for a name that is blocked here (or under a blocked name)
+				safe_lines youtube 1 | awk -v bl=",$list," '
+					{ d = substr($0, 13); sub(/,.*/, "", d)
+					  while (d != "") { if (index(bl, "," d ",")) next; j = index(d, "."); d = j ? substr(d, j + 1) : "" }
+					  print }'
+			fi
+		} > "$T.conf.$p"
+	done
+	# configurations -> /var/etc/homenet-dns (only changed files are rewritten: procd restarts
+	# an instance only when its file changed)
+	for f in "$CONF"/*.conf; do
+		[ -f "$f" ] || continue
+		p="${f##*/}"; p="${p%.conf}"
+		[ -f "$T.conf.$p" ] || rm -f "$f"
+	done
+	for f in "$T.conf."*; do
+		[ -f "$f" ] || continue
+		p="${f##*.}"
+		cmp -s "$f" "$CONF/$p.conf" || { cp -f "$f" "$CONF/$p.conf.new"; chmod 644 "$CONF/$p.conf.new"; mv -f "$CONF/$p.conf.new" "$CONF/$p.conf"; }
+	done
+	# nft: redirect, P8 guard, blocked addresses (rewritten only when it changes)
+	{
+		echo "add table inet homenet"
+		echo "add set inet homenet dns_guard { type ether_addr; }"
+		echo "add set inet homenet doh_v4 { type ipv4_addr; flags interval; auto-merge; }"
+		echo "add chain inet homenet dns_redirect { type nat hook prerouting priority -105; policy accept; }"
+		echo "add chain inet homenet dns_guard_fw { type filter hook forward priority -5; policy accept; }"
+		for p in $(cut -f1 "$T.macs" | sort -u); do
+			echo "add set inet homenet blk_$p { type ipv4_addr; flags timeout; timeout 3m; }"
+		done
+		echo "flush chain inet homenet dns_redirect"
+		echo "flush chain inet homenet dns_guard_fw"
+		echo "flush set inet homenet dns_guard"
+		echo "flush set inet homenet doh_v4"
+		if [ -s "$T.macs" ]; then
+			echo "add element inet homenet dns_guard { $(cut -f2 "$T.macs" | sort -u | tr '\n' ',' | sed 's/,$//; s/,/, /g') }"
+			echo "add element inet homenet doh_v4 { $(grep -v '^#' "$SHARE/doh-servers.txt" | grep . | tr '\n' ',' | sed 's/,$//; s/,/, /g') }"
+			echo "add rule inet homenet dns_guard_fw iifname \"$lan\" ether saddr @dns_guard meta l4proto { tcp, udp } th dport 853 counter drop comment \"P8 DNS-over-TLS\""
+			echo "add rule inet homenet dns_guard_fw iifname \"$lan\" ether saddr @dns_guard ip daddr @doh_v4 meta l4proto { tcp, udp } th dport 443 counter drop comment \"P8 DNS-over-HTTPS\""
+		fi
+		for p in $(cut -f1 "$T.macs" | sort -u); do
+			macs="$(awk -F '\t' -v p="$p" '$1 == p { printf "%s%s", (n++ ? ", " : ""), $2 }' "$T.macs")"
+			echo "add rule inet homenet dns_redirect iifname \"$lan\" ether saddr { $macs } meta l4proto { tcp, udp } th dport 53 counter redirect to :$p"
+			echo "add rule inet homenet dns_guard_fw iifname \"$lan\" ether saddr { $macs } ip daddr @blk_$p counter drop comment \"blocked names\""
+		done
+	} > "$T.nft"
+	if [ ! -s "$T.macs" ] && [ ! -s "$APPLIED" ] && ! nft list chain inet homenet dns_redirect >/dev/null 2>&1; then
+		: # nothing in use, nothing created
+	elif ! cmp -s "$T.nft" "$APPLIED" || ! nft list chain inet homenet dns_redirect >/dev/null 2>&1; then
+		# sets of profiles that ended (after the rules that used them are gone)
+		nft list sets table inet homenet 2>/dev/null | sed -n 's/^[[:space:]]*set \(blk_[0-9]*\) .*/\1/p' > "$T.oldsets"
+		cp -f "$T.nft" "$T.nft2"
+		while read -r s; do
+			grep -q "set inet homenet $s " "$T.nft" || echo "delete set inet homenet $s" >> "$T.nft2"
+		done < "$T.oldsets"
+		if nft -f "$T.nft2"; then cp -f "$T.nft" "$APPLIED"
+		else logger -t homenet "dns: nft failed"; rm -f "$APPLIED"; fi
+	fi
+	# the extra dnsmasq instances (procd: unchanged instances keep running)
+	if ls "$CONF"/*.conf >/dev/null 2>&1; then
+		/etc/init.d/homenet-dns start >/dev/null 2>&1
+	elif [ -n "$(ubus call service list '{"name":"homenet-dns"}' 2>/dev/null | jsonfilter -e '@["homenet-dns"]' 2>/dev/null)" ]; then
+		/etc/init.d/homenet-dns stop >/dev/null 2>&1
+	fi
+	# devices with new restrictions: open connections cut (they come back through the rules)
+	if [ -s "$T.tighter" ] && command -v conntrack >/dev/null 2>&1; then
+		awk -F '\t' 'FILENAME == ARGV[1] { c[$1] = 1; next } FILENAME == ARGV[2] { if (c[$2]) m[$1] = 1; next } m[$2] { print $1 }' \
+			"$T.tighter" "$HN_MACS" "$HN_IPMAP" | while read -r ip; do
+			conntrack -D -s "$ip" >/dev/null 2>&1
+			conntrack -D -d "$ip" >/dev/null 2>&1
+		done
+	fi
+	# any other profile change (relaxed, ended, another port): the device's DNS flows are
+	# forgotten, otherwise a flow still redirected to a profile that is gone would go unanswered
+	# until conntrack expires it
+	awk -F '\t' 'FILENAME == ARGV[1] { o[$1] = $0; next } { if (o[$1] != $0) print $1; delete o[$1] } END { for (d in o) print d }' \
+		"$DEVPREV" "$T.devport" > "$T.changed"
+	if [ -s "$T.changed" ] && command -v conntrack >/dev/null 2>&1; then
+		awk -F '\t' 'FILENAME == ARGV[1] { c[$1] = 1; next } FILENAME == ARGV[2] { if (c[$2]) m[$1] = 1; next } m[$2] { print $1 }' \
+			"$T.changed" "$HN_MACS" "$HN_IPMAP" | while read -r ip; do
+			for p in udp tcp; do conntrack -D -s "$ip" -p "$p" --dport 53 >/dev/null 2>&1; done
+		done
+	fi
+	cp -f "$T.devport" "$DEVPREV"
+	# addresses of blocked names (not the DoH names: their servers are blocked by address);
+	# at most 60 names per run
+	cut -f2,4 "$T.devport" | sort -u | while IFS="$TAB" read -r p list; do
+		printf '%s' "$list" | tr ',' '\n' | grep . | sed "s/^/$p /"
+	done | head -n 60 > "$T.names"
+	if [ -s "$T.names" ]; then
+		resolve $(cut -d' ' -f2 "$T.names" | sort -u) > "$T.addr"
+		awk 'FILENAME == ARGV[1] { a[$1] = a[$1] " " $2; next } { n = split(a[$2], x, " "); for (i = 1; i <= n; i++) print "add element inet homenet blk_" $1 " { " x[i] " timeout 3m }" }' \
+			"$T.addr" "$T.names" | sort -u > "$T.elem"
+		# an element that exists is refreshed: destroy (no error when missing) + add, one
+		# transaction, so its 3-minute timeout restarts
+		if [ -s "$T.elem" ]; then
+			{ sed 's/^add \(element inet homenet blk_[0-9]*\) { \([0-9.]*\) timeout 3m }$/destroy \1 { \2 }/' "$T.elem"; cat "$T.elem"; } > "$T.elem2"
+			nft -f "$T.elem2" 2>/dev/null || logger -t homenet "dns: blocked addresses not refreshed"
+		fi
+	fi
+	return 0
+}
+
+# serialise: the API and the 1-minute run never rebuild at the same time
+exec 6>"$HN_RUN.dns.lock"
+case "$1" in apply) flock -n 6 || exit 0 ;; *) flock 6 ;; esac
+
+case "$1" in
+	kids)
+		target_ok "$2" || err unknown_target
+		case "$3" in 0|1) ;; *) err invalid_value ;; esac
+		{ awk -F '\t' -v t="$2" '$1 != t' "$KIDS"; [ "$3" = 1 ] && printf '%s\n' "$2"; } > "$T.k"
+		hn_write "$KIDS" < "$T.k"; apply; echo OK ;;
+	kids-block|kids-unblock)
+		d="$(norm_domain "$2")" || err invalid_domain
+		{ grep -vxF "$d" "$KBL"; [ "$1" = kids-block ] && echo "$d"; } > "$T.kb"
+		[ "$(grep -c . "$T.kb")" -le 500 ] || err too_many
+		hn_write "$KBL" < "$T.kb"; apply; echo OK ;;
+	lock)
+		target_ok "$2" || err unknown_target
+		case "$3" in ''|*[!0-9]*) err invalid_minutes ;; esac
+		[ "$3" = 0 ] || { [ "$3" -ge 5 ] && [ "$3" -le 1440 ]; } || err invalid_minutes
+		sites=""
+		for s in $(printf '%s' "$4" | tr ',' ' '); do
+			awk -F '\t' -v id="$s" '$1 == id { f = 1 } END { exit !f }' "$CATALOG" || err unknown_site
+			case ",$sites," in *",$s,"*) ;; *) sites="${sites:+$sites,}$s" ;; esac
+		done
+		dom=""
+		[ -z "$5" ] || dom="$(norm_domain "$5")" || err invalid_domain
+		[ -n "$sites$dom" ] || err nothing_to_lock
+		[ "$(grep -c . "$SL")" -lt 64 ] || err too_many
+		id="$(hn_new_id l)"
+		lend=0; [ "$3" = 0 ] || lend=$(( $(date +%s) + $3 * 60 ))
+		{ cat "$SL"; printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$2" "$lend" "$sites" "$dom"; } > "$T.sl0"
+		hn_write "$SL" < "$T.sl0"; apply; echo "OK $id" ;;
+	unlock)
+		awk -F '\t' -v id="$2" '$1 == id { f = 1 } END { exit !f }' "$SL" || err unknown_lock
+		awk -F '\t' -v id="$2" '$1 != id' "$SL" > "$T.sl0"
+		hn_write "$SL" < "$T.sl0"; apply; echo OK ;;
+	apply) apply; echo OK ;;
+	safe-lines) shift; safe_lines "$@" ;;
+	*) echo "usage: $0 kids|kids-block|kids-unblock|lock|unlock|apply|safe-lines ..." >&2; exit 1 ;;
+esac

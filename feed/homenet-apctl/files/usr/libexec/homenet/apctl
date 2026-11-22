@@ -1,0 +1,629 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Access points (BUILD-PLAN B9 Y1/Y3, docs/dualwan-spec.md section 5), both sides.
+#
+# On an access point (lg7200.state.mode = ap):
+#   apctl join <code>      pair with the main router (the gateway of the LAN) using the 6-digit
+#                          code it shows; keeps the token in uci apctl.agent. "OK" | "ERR <code>"
+#   apctl sync             report version, uptime and connected devices (signal, band, which
+#                          personal password); copy the Wi-Fi settings, channels and fast roaming it
+#                          gets back; install the firmware update when the main router asks
+# On the main router:
+#   apctl local-scan       its own connected devices -> the "which access point" list (ap id main)
+#   (tick also keeps the guest tunnel: vx-guest in br-guest, one entry per reporting access point)
+#   apctl roaming-local    fast roaming on its own home networks as set in apctl.main.roaming
+#   apctl keyid <mac> <person>   a device on an access point used this person's password
+#   apctl event <code> <id>      an event for the owner (ap_paired)
+# Both:
+#   apctl tick             cron every minute: sync (access point) or local-scan (main router)
+. /usr/lib/homenet/common.sh
+. /usr/share/libubox/jshn.sh
+# wireless access points: mesh, join without a cable, repeater (15.4 item 1)
+. /usr/lib/homenet/apctl-mesh.sh
+
+RUN=/tmp/homenet/apctl
+CLIENTS=/tmp/homenet/ap-clients.tsv
+mkdir -p "$RUN"
+
+my_mode() { uci -q get lg7200.state.mode || echo router; }
+my_version() { . /etc/openwrt_release 2>/dev/null; echo "${DISTRIB_RELEASE:-}"; }
+my_mac() { cat "/sys/class/net/$(uci -q get network.lan.device || echo br-lan)/address" 2>/dev/null; }
+my_ip() { ip -4 addr show dev "$(uci -q get network.lan.device || echo br-lan)" 2>/dev/null | awk '/inet / { sub("/.*", "", $2); print $2; exit }'; }
+
+# Y2 guest network through access points: one VXLAN (VNI 7373, UDP 4789) between each access point
+# and the main router, members of br-guest on both sides. Guests get address, DNS and firewall from
+# the main router only; the access point's guest bridge has no address, so guests cannot reach it.
+VNI=7373
+vx_up() { # <remote or ""> : the tunnel device vx-guest in br-guest
+	local lan; lan="$(uci -q get network.lan.device || echo br-lan)"
+	ip link show vx-guest >/dev/null 2>&1 ||
+		ip link add vx-guest type vxlan id $VNI dstport 4789 ${1:+remote "$1"} local "$(my_ip)" dev "$lan" 2>/dev/null || return 1
+	ip link set vx-guest master br-guest 2>/dev/null
+	ip link set vx-guest up
+}
+vx_down() { ip link del vx-guest 2>/dev/null; }
+
+# JSON-RPC call to the main router's /ubus without a login (only pair and sync are allowed so)
+rpc() { # <main> <method> <json args> -> the result object
+	local body
+	body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"call\",\"params\":[\"00000000000000000000000000000000\",\"virox.apctl\",\"$2\",$3]}"
+	uclient-fetch -q -T 10 --no-check-certificate -O - --post-data="$body" "https://$1/ubus" 2>/dev/null |
+		jsonfilter -e '@.result[1]' 2>/dev/null
+}
+
+# home access-point networks of this unit: section name and band
+home_ifaces() {
+	uci -q -X show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-iface$/\1/p" | while read -r s; do
+		[ "$(uci -q get wireless.$s.mode)" = ap ] || continue
+		[ "$(uci -q get wireless.$s.network)" = guest ] && continue
+		echo "$s $(uci -q get "wireless.$(uci -q get wireless.$s.device).band")"
+	done
+}
+
+# connected devices of this unit: mac signal band keyid
+stations() {
+	local ifc band kids
+	# the password each device used (identity keyids: hostapd_cli is not in the image)
+	kids="$([ -x /usr/libexec/homenet/identity ] && /usr/libexec/homenet/identity keyids 2>/dev/null)"
+	for ifc in $(ubus list 'hostapd.*' 2>/dev/null | sed 's/^hostapd\.//'); do
+		# iw (the iwinfo command is not in the image)
+		band=2g
+		iw dev "$ifc" info 2>/dev/null | grep -q "channel [0-9]* (5[0-9][0-9][0-9] MHz" && band=5g
+		iw dev "$ifc" station dump 2>/dev/null | awk -v b="$band" '
+			$1 == "Station" { if (m != "") print m, s, b; m = tolower($2); s = 0 }
+			$1 == "signal:" { s = $2 }
+			END { if (m != "") print m, s, b }' |
+		while read -r mac sig b; do
+			kid="$(echo "$kids" | awk -v m="$mac" '$1 == m { print $2; exit }')"
+			echo "$mac ${sig:-0} $b ${kid:--}"
+		done
+	done
+}
+
+a_join() {
+	local code="$1" main mac r id token
+	[ "$(my_mode)" = ap ] || { echo "ERR not_ap"; return 0; }
+	main="$(ip -4 route show default | awk '{ print $3; exit }')"
+	[ -n "$main" ] || { echo "ERR no_main"; return 0; }
+	mac="$(my_mac)"
+	r="$(rpc "$main" pair "{\"code\":\"$code\",\"mac\":\"$mac\",\"model\":\"$(cat /tmp/sysinfo/model 2>/dev/null | tr -d '\"\\')\",\"version\":\"$(my_version)\"}")"
+	[ -n "$r" ] || { echo "ERR no_answer"; return 0; }
+	if [ "$(echo "$r" | jsonfilter -e '@.result')" != true ]; then echo "ERR $(echo "$r" | jsonfilter -e '@.error' || echo failed)"; return 0; fi
+	id="$(echo "$r" | jsonfilter -e '@.id')"; token="$(echo "$r" | jsonfilter -e '@.token')"
+	uci -q batch <<-EOF
+		set apctl.agent=agent
+		set apctl.agent.main='$main'
+		set apctl.agent.id='$id'
+		set apctl.agent.token='$token'
+	EOF
+	uci commit apctl
+	a_sync >/dev/null 2>&1
+	echo OK
+}
+
+# not joined yet: say hello to the main router (the gateway) every minute; the owner adds this
+# unit there with one tap (no code); the answer to the next hello carries id and token
+a_hello() {
+	local main mac nonce r hello via=gateway
+	[ "$(my_mode)" = ap ] || return 0
+	# answer the broadcast ping of the other access points: that is how they find each other under
+	# a router that is not a Virox (most phones and PCs do not answer one)
+	[ "$(cat /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts 2>/dev/null)" = 0 ] || echo 0 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+	[ -n "$(uci -q get apctl.agent.token)" ] && return 0
+	main="$(ip -4 route show default | awk '{ print $3; exit }')"
+	[ -n "$main" ] || return 0
+	nonce="$(uci -q get apctl.agent.nonce)"
+	if [ -z "$nonce" ]; then
+		nonce="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
+		uci -q batch <<-EOF
+			set apctl.agent=agent
+			set apctl.agent.nonce='$nonce'
+		EOF
+		uci commit apctl
+	fi
+	mac="$(my_mac)"
+	hello="{\"mac\":\"$mac\",\"model\":\"$(cat /tmp/sysinfo/model 2>/dev/null | tr -d '\"\\')\",\"version\":\"$(my_version)\",\"nonce\":\"$nonce\"}"
+	r="$(rpc "$main" hello "$hello")"
+	# what the gateway is, for the Access points page: any answer = a Virox main router; none =
+	# another router (an ISP router: this unit then works on its own, owner 2026-11-20)
+	if [ -n "$r" ]; then echo virox; else echo other; fi > "$RUN/main-kind"
+	if [ -z "$r" ]; then
+		# not a Virox: the access points of this LAN choose a lead among themselves; a member says
+		# hello to the lead instead (added there with one tap, as on a Virox main router)
+		a_role || return 0
+		[ "$(cat "$RUN/role" 2>/dev/null)" = member ] || return 0
+		main="$(cat "$RUN/lead-ip" 2>/dev/null)"; [ -n "$main" ] || return 0
+		via=lead
+		r="$(rpc "$main" hello "$hello")"
+	else
+		rm -f "$RUN/role" "$RUN/lead-ip"
+	fi
+	[ "$(echo "$r" | jsonfilter -e '@.result' 2>/dev/null)" = true ] || return 0
+	uci -q batch <<-EOF
+		set apctl.agent.main='$main'
+		set apctl.agent.via='$via'
+		set apctl.agent.lead_mac='$( [ "$via" = lead ] && cat "$RUN/lead-mac" 2>/dev/null)'
+		set apctl.agent.id='$(echo "$r" | jsonfilter -e '@.id')'
+		set apctl.agent.token='$(echo "$r" | jsonfilter -e '@.token')'
+		delete apctl.agent.nonce
+	EOF
+	uci commit apctl
+	logger -t homenet "access point joined $main ($via; added there)"
+	a_sync >/dev/null 2>&1
+}
+
+# The Virox access points of this LAN (they answer the broadcast ping, a_hello) as
+# "ip mac lead paired main_kind", in RUN/peers; asked again every 5 minutes at most
+a_peers() {
+	local bc me ip r now
+	now="$(date +%s)"
+	[ -f "$RUN/peers" ] && [ $((now - $(cat "$RUN/peers-time" 2>/dev/null || echo 0))) -lt 300 ] && return 0
+	bc="$(ip -4 addr show dev "$(uci -q get network.lan.device || echo br-lan)" 2>/dev/null | awk '/inet / { for (i = 1; i < NF; i++) if ($i == "brd") { print $(i + 1); exit } }')"
+	[ -n "$bc" ] || return 1
+	me="$(my_ip)"
+	: > "$RUN/peers.new"
+	for ip in $(ping -c 2 -W 2 "$bc" 2>/dev/null | sed -n 's/^[0-9]* bytes from \([0-9.]*\):.*/\1/p' | sort -u); do
+		[ "$ip" = "$me" ] && continue
+		r="$(rpc "$ip" peer '{}')"
+		[ "$(echo "$r" | jsonfilter -e '@.mode' 2>/dev/null)" = ap ] || continue
+		printf '%s %s %s %s %s\n' "$ip" "$(echo "$r" | jsonfilter -e '@.mac')" \
+			"$( [ "$(echo "$r" | jsonfilter -e '@.lead')" = true ] && echo 1 || echo 0)" \
+			"$( [ "$(echo "$r" | jsonfilter -e '@.paired')" = true ] && echo 1 || echo 0)" \
+			"$(echo "$r" | jsonfilter -e '@.main_kind' 2>/dev/null || echo -)" >> "$RUN/peers.new"
+	done
+	mv -f "$RUN/peers.new" "$RUN/peers"; echo "$now" > "$RUN/peers-time"
+}
+
+# lead or member: a unit that already leads keeps it; otherwise the one with the lowest MAC among
+# the access points not joined yet whose gateway is not a Virox leads (every unit finds the same)
+a_role() {
+	local me low ip
+	a_peers || return 1
+	# a lead stays the lead (a newcomer with a lower MAC joins it, it does not take over)
+	[ "$(cat "$RUN/role" 2>/dev/null)" = lead ] && return 0
+	me="$(my_mac)"
+	ip="$(awk '$3 == 1 { print $1, $2; exit }' "$RUN/peers")"
+	if [ -n "$ip" ]; then
+		echo member > "$RUN/role"; echo "${ip% *}" > "$RUN/lead-ip"; echo "${ip#* }" > "$RUN/lead-mac"
+		return 0
+	fi
+	low="$( { echo "$me"; awk '$4 == 0 && $5 == "other" { print $2 }' "$RUN/peers"; } | tr 'A-F' 'a-f' | sort | head -n 1)"
+	if [ "$low" = "$(echo "$me" | tr 'A-F' 'a-f')" ]; then
+		[ "$(cat "$RUN/role" 2>/dev/null)" = lead ] || logger -t homenet "access point: no Virox main router; this unit leads the access points of the LAN"
+		echo lead > "$RUN/role"; rm -f "$RUN/lead-ip" "$RUN/lead-mac"
+	else
+		echo member > "$RUN/role"
+		awk -v m="$low" 'tolower($2) == m { print $1; exit }' "$RUN/peers" > "$RUN/lead-ip"; echo "$low" > "$RUN/lead-mac"
+	fi
+}
+
+# MACs that reach this unit through a cable port where another Virox unit is too (access points
+# in a chain: house router <- this unit <- another Virox <- its devices). Their traffic crosses this
+# unit's bridge, so it counts them as well; the unit they are on counts and reports them itself,
+# so this one leaves them out of its report (else the lead booked them twice). By the bridge's own
+# table (port of each MAC), so it holds for any chain, a switch in between, and any order of units.
+a_behind_peers() {
+	[ -s "$RUN/peers" ] || return 0
+	bridge fdb show br "$(uci -q get network.lan.device || echo br-lan)" 2>/dev/null | awk '
+		FILENAME == ARGV[1] { peer[tolower($2)] = 1; next }
+		/permanent/ { next }
+		{
+			d = ""; for (i = 2; i < NF; i++) if ($i == "dev") d = $(i + 1)
+			if (d == "") next
+			m = tolower($1); port[m] = d
+			if (m in peer) vport[d] = 1
+		}
+		END { for (m in port) if (vport[port[m]] && !(m in peer)) print m }' "$RUN/peers" - | sort -u
+}
+
+# this unit's usage of today and yesterday per device, by the device's first MAC, for the lead:
+# day  mac  up  down  name   (running totals of the day); devices behind another Virox unit are left
+# to that unit (a_behind_peers)
+a_usage_rows() {
+	local today yday
+	hn_prepare >/dev/null 2>&1 || return 0
+	today="$(date +%F)"; yday="$(date -d "@$(( $(date +%s) - 86400 ))" +%F)"
+	a_behind_peers > "$RUN/behind"
+	awk -F '\t' -v OFS='\t' -v t="$today" -v y="$yday" '
+		FILENAME == ARGV[1] { skip[$1] = 1; next }
+		FILENAME == ARGV[2] { if (!($2 in mac)) mac[$2] = $1; if ($5 != "") host[$2] = $5; all[$2] = all[$2] " " tolower($1); next }
+		FILENAME == ARGV[3] { if ($2 != "") nm[$1] = $2; next }
+		($1 == t || $1 == y) && ($2 in mac) {
+			# a device with any of its MACs behind another Virox unit is that unit'"'"'s
+			k = split(all[$2], ms, " "); behind = 0
+			for (i = 1; i <= k; i++) if (ms[i] in skip) behind = 1
+			if (behind) next
+			n = (nm[$2] != "" ? nm[$2] : host[$2]); gsub(/[\t\n"\\]/, " ", n)
+			print $1, mac[$2], $3, $4, n
+		}' "$RUN/behind" "$HN_MACS" "$HN_DEVICES" "$HN_HISTORY" 2>/dev/null | head -n 300
+}
+
+# a member whose lead stopped answering: the lead's new address, by its MAC (DHCP may move it)
+a_find_lead() {
+	local m ip
+	m="$(uci -q get apctl.agent.lead_mac)"; [ -n "$m" ] || return 1
+	rm -f "$RUN/peers-time"; a_peers || return 1
+	ip="$(awk -v m="$m" 'tolower($2) == tolower(m) { print $1; exit }' "$RUN/peers")"
+	[ -n "$ip" ] || return 1
+	uci set apctl.agent.main="$ip"; uci commit apctl
+	echo "$ip"
+}
+
+a_sync() {
+	local main id token r cfg old s band ssid key enc changed=0 ch2 ch5 dev via body
+	main="$(uci -q get apctl.agent.main)"; id="$(uci -q get apctl.agent.id)"; token="$(uci -q get apctl.agent.token)"
+	[ -n "$main" ] && [ -n "$token" ] || return 0
+	via="$(uci -q get apctl.agent.via)"
+	# the main router may have a new address (DHCP): follow the gateway (a lead: a_find_lead below)
+	if [ "$via" != lead ]; then
+		r="$(ip -4 route show default | awk '{ print $3; exit }')"
+		[ -n "$r" ] && [ "$r" != "$main" ] && { main="$r"; uci set apctl.agent.main="$main"; uci commit apctl; }
+	fi
+	json_init
+	json_add_string id "$id"; json_add_string token "$token"; json_add_string version "$(my_version)"
+	json_add_int uptime "$(cut -d . -f 1 /proc/uptime)"
+	json_add_string ip "$(my_ip)"
+	json_add_string uplink "$(a_uplink)"
+	json_add_array clients
+	stations | while read -r mac sig b kid; do echo "$mac $sig $b $kid"; done > "$RUN/st"
+	while read -r mac sig b kid; do
+		json_add_object ""; json_add_string mac "$mac"; json_add_int signal "$sig"; json_add_string band "$b"
+		[ "$kid" != - ] && json_add_string keyid "$kid"
+		json_close_object
+	done < "$RUN/st"
+	json_close_array
+	# under a lead (no Virox main router counts the house): this unit's own counting of its devices,
+	# today and yesterday, per MAC; running totals, so a lost report is covered by the next one
+	if [ "$via" = lead ]; then
+		a_peers >/dev/null 2>&1
+		json_add_array usage
+		a_usage_rows | while IFS="$TAB" read -r day mac up down name; do echo "$day $mac $up $down $name"; done > "$RUN/us"
+		while read -r day mac up down name; do
+			# (byte counts as text: a day's bytes pass the 32-bit integers of jshn)
+			json_add_object ""; json_add_string day "$day"; json_add_string mac "$mac"
+			json_add_string up "$up"; json_add_string down "$down"; json_add_string name "$name"
+			json_close_object
+		done < "$RUN/us"
+		json_close_array
+	fi
+	body="$(json_dump)"
+	r="$(rpc "$main" sync "$body")"
+	# a lead that moved to another address (DHCP): find it by its MAC, once
+	if [ -z "$r" ] && [ "$via" = lead ] && main="$(a_find_lead)"; then r="$(rpc "$main" sync "$body")"; fi
+	[ "$(echo "$r" | jsonfilter -e '@.result' 2>/dev/null)" = true ] || return 0
+	date +%s > "$RUN/agent-last"
+	# apply only what changed since the last contact
+	cfg="$(echo "$r" | jsonfilter -e '@.wifi')"
+	old="$(cat /etc/homenet/apctl-applied 2>/dev/null)"
+	if [ "$cfg" != "$old" ]; then
+		ssid="$(echo "$r" | jsonfilter -e '@.wifi.ssid')"; key="$(echo "$r" | jsonfilter -e '@.wifi.key')"
+		enc="$(echo "$r" | jsonfilter -e '@.wifi.encryption')"
+		home_ifaces | while read -r s band; do
+			if [ "$band" = 5g ]; then uci set wireless.$s.ssid="$(echo "$r" | jsonfilter -e '@.wifi.ssid5')"
+			else uci set wireless.$s.ssid="$ssid"; fi
+			uci set wireless.$s.key="$key"
+			if [ "$(echo "$r" | jsonfilter -e "@.wifi.hidden_$band")" = true ]; then uci set wireless.$s.hidden='1'; else uci -q delete wireless.$s.hidden; fi
+			# personal passwords make identity switch to WPA2 (and keep the encryption to restore)
+			[ -n "$(uci -q get wireless.$s.wpa_psk_file)" ] || uci set wireless.$s.encryption="$enc"
+			if [ "$(echo "$r" | jsonfilter -e '@.wifi.roaming')" = true ]; then
+				uci set wireless.$s.ieee80211r='1'
+				uci set wireless.$s.mobility_domain="$(echo "$r" | jsonfilter -e '@.wifi.mobility_domain')"
+				uci set wireless.$s.ft_over_ds='0'; uci set wireless.$s.ft_psk_generate_local='1'
+				uci set wireless.$s.ieee80211k='1'; uci set wireless.$s.bss_transition='1'
+			else
+				for o in ieee80211r mobility_domain ft_over_ds ft_psk_generate_local ieee80211k bss_transition; do uci -q delete wireless.$s.$o; done
+			fi
+		done
+		# signal strength as on the main router: its "high" puts the radios on the US rules (2.4 GHz
+		# up to 25 dBm; 5 GHz held to the Egyptian rules by wifi-power), otherwise the unit's country
+		uci -q get lg7200.wifi >/dev/null || uci set lg7200.wifi=wifi
+		if [ "$(echo "$r" | jsonfilter -e '@.wifi.power_high')" = true ]; then uci set lg7200.wifi.power=high; else uci set lg7200.wifi.power=normal; fi
+		uci commit lg7200
+		uci commit wireless
+		/usr/libexec/lg7200/wifi-power apply
+		# the personal passwords: the same sections as on the main router, applied by identity
+		for s in $(uci -q show homenet | sed -n "s/^homenet\.\([^.]*\)=wifikey$/\1/p"); do uci -q delete homenet.$s; done
+		i=0
+		while :; do
+			p="$(echo "$r" | jsonfilter -e "@.wifi.keys[$i].person" 2>/dev/null)"; [ -n "$p" ] || break
+			s="$(uci add homenet wifikey)"; uci set homenet.$s.person="$p"; uci set homenet.$s.key="$(echo "$r" | jsonfilter -e "@.wifi.keys[$i].key")"
+			i=$((i + 1))
+		done
+		uci commit homenet
+		echo "$cfg" > /etc/homenet/apctl-applied; chmod 600 /etc/homenet/apctl-applied
+		[ -x /usr/libexec/homenet/identity ] && /usr/libexec/homenet/identity keys-apply >/dev/null 2>&1
+		wifi reload >/dev/null 2>&1
+	fi
+	a_mesh "$r"
+	a_channels "$r"
+	a_guest "$r" "$main"
+	a_schedule "$r"
+	a_backup "$main" "$id" "$token"
+	# the main router restarted by its schedule and now restarts the access points, one at a time
+	if [ "$(echo "$r" | jsonfilter -e '@.restart')" = true ] && [ "$(cut -d. -f1 /proc/uptime)" -gt 300 ]; then
+		logger -t homenet "access point: restart asked by the main router (scheduled restart)"
+		[ -x /usr/libexec/homenet/accounting ] && /usr/libexec/homenet/accounting save >/dev/null 2>&1
+		[ -x /usr/libexec/homenet/persist ] && /usr/libexec/homenet/persist >/dev/null 2>&1
+		[ "${APCTL_NO_REBOOT:-0}" = 1 ] && { echo restart > "$RUN/restart-asked"; return 0; }
+		sync; ( sleep 2; reboot ) >/dev/null 2>&1 &
+	fi
+	if [ "$(echo "$r" | jsonfilter -e '@.install')" = true ] && [ ! -f "$RUN/installing" ]; then
+		: > "$RUN/installing"
+		# update all: from the main router first (one download for the house; signature and sha256
+		# are checked here with this unit's keys), from the update server if that fails
+		url="$(echo "$r" | jsonfilter -e '@.install_url' 2>/dev/null)"
+		case "$url" in http://[0-9]*/virox-update) ;; *) url="" ;; esac
+		( if [ -n "$url" ]; then
+			LG7200_UPDATE_URL="$url" lg7200-update install >/dev/null 2>&1 || lg7200-update install >/dev/null 2>&1
+		  else lg7200-update install >/dev/null 2>&1; fi
+		  rm -f "$RUN/installing" ) &
+	fi
+}
+
+# main router (or lead), update all: check, download once, offer it on the LAN (virox.apctl
+# update_all reads the result from RUN/update-prep: "ok <version>" | "err <code>")
+m_update_prepare() {
+	local out v
+	out="$(lg7200-update check 2>&1)"
+	case "$out" in OK*) ;; *) echo "err ${out#ERR }" > "$RUN/update-prep"; return 0 ;; esac
+	v="$(lg7200-update status | sed -n 's/^latest=//p')"
+	out="$(lg7200-update download 2>&1)"
+	case "$out" in OK*) ;; *) echo "err ${out#ERR }" > "$RUN/update-prep"; return 0 ;; esac
+	out="$(lg7200-update serve 2>&1)"
+	case "$out" in OK*) ;; *) echo "err ${out#ERR }" > "$RUN/update-prep"; return 0 ;; esac
+	echo "ok $v" > "$RUN/update-prep"
+}
+
+# access point: the Wi-Fi and light schedules of the main router (15.4 item 3); this unit's own
+# schedule tick (lg7200-base, every minute) switches them
+a_schedule() {
+	local r="$1" sc s i k v
+	sc="$(echo "$r" | jsonfilter -e '@.schedule' 2>/dev/null)"
+	[ -n "$sc" ] || return 0
+	[ "$sc" = "$(cat /etc/homenet/apctl-schedule 2>/dev/null)" ] && return 0
+	for s in $(uci -q -X show lg7200 | sed -n "s/^lg7200\.\([^.]*\)=wifisched$/\1/p"); do uci -q delete lg7200.$s; done
+	i=0
+	while [ -n "$(echo "$r" | jsonfilter -e "@.schedule.wifi[$i].target" 2>/dev/null)" ]; do
+		s="$(uci add lg7200 wifisched)"
+		for k in target days off on; do uci set lg7200.$s.$k="$(echo "$r" | jsonfilter -e "@.schedule.wifi[$i].$k")"; done
+		if [ "$(echo "$r" | jsonfilter -e "@.schedule.wifi[$i].enabled")" = false ]; then uci set lg7200.$s.enabled=0; else uci set lg7200.$s.enabled=1; fi
+		i=$((i + 1))
+	done
+	uci -q get lg7200.leds >/dev/null || uci set lg7200.leds=leds
+	for k in mode off on; do v="$(echo "$r" | jsonfilter -e "@.schedule.leds.$k")"; [ -n "$v" ] && uci set lg7200.leds.$k="$v"; done
+	uci commit lg7200
+	echo "$sc" > /etc/homenet/apctl-schedule
+	[ -x /usr/libexec/lg7200/schedule ] && /usr/libexec/lg7200/schedule tick >/dev/null 2>&1
+}
+
+# access point: channel plan and transmit power (section 13 items 4 and 9); changes only at night
+# (03:00-03:59), when nobody is disturbed, except the first time
+a_channels() {
+	local r="$1" want ch2 ch5 ht5 pw dev
+	want="$(echo "$r" | jsonfilter -e '@.channels')"
+	[ "$want" = "$(cat /etc/homenet/apctl-channels 2>/dev/null)" ] && return 0
+	[ -f /etc/homenet/apctl-channels ] && [ "$(date +%H)" != 03 ] && return 0
+	ch2="$(echo "$r" | jsonfilter -e '@.channels.ch2')"; ch5="$(echo "$r" | jsonfilter -e '@.channels.ch5')"
+	ht5="$(echo "$r" | jsonfilter -e '@.channels.ht5')"; pw="$(echo "$r" | jsonfilter -e '@.channels.power')"
+	for dev in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-device$/\1/p"); do
+		case "$(uci -q get wireless.$dev.band)" in
+			5g) [ -n "$ch5" ] && uci set wireless.$dev.channel="$ch5"; [ -n "$ht5" ] && uci set wireless.$dev.htmode="$ht5" ;;
+			*)  [ -n "$ch2" ] && uci set wireless.$dev.channel="$ch2"; uci set wireless.$dev.htmode='HT20' ;;
+		esac
+		if [ -n "$pw" ]; then uci set wireless.$dev.txpower="$pw"; else uci -q delete wireless.$dev.txpower; fi
+		uci -q delete wireless.$dev.lg7200_txcap
+	done
+	uci commit wireless
+	# the limits of the rules in force (5 GHz 36-64, 20 dBm on 52-64 under the US rules)
+	/usr/libexec/lg7200/wifi-power apply
+	echo "$want" > /etc/homenet/apctl-channels
+	wifi reload >/dev/null 2>&1
+}
+
+# access point: P7 item 1, once a night (03:40-03:59): keep the main router's backup here, and give
+# the main router this unit's own backup; root-only files
+a_backup() {
+	local main="$1" id="$2" token="$3" off=0 r d done today f
+	today="$(date +%F)"
+	[ "$(date +%H)" = 03 ] && [ "$(date +%M | sed 's/^0//')" -ge 40 ] || return 0
+	[ "$(cat "$RUN/backup-day" 2>/dev/null)" = "$today" ] && return 0
+	mkdir -p /etc/homenet/peer-backups; chmod 700 /etc/homenet/peer-backups
+	f=/etc/homenet/peer-backups/main.part; : > "$f"; chmod 600 "$f"
+	while :; do
+		r="$(rpc "$main" backup_get "{\"id\":\"$id\",\"token\":\"$token\",\"offset\":$off}")"
+		[ "$(echo "$r" | jsonfilter -e '@.result')" = true ] || { rm -f "$f"; break; }
+		echo "$r" | jsonfilter -e '@.data' | base64 -d >> "$f" 2>/dev/null
+		off="$(wc -c < "$f")"
+		[ "$(echo "$r" | jsonfilter -e '@.done')" = true ] && { mv "$f" /etc/homenet/peer-backups/main.tar.gz; break; }
+		[ "$off" -lt 8388608 ] || { rm -f "$f"; break; }
+	done
+	# this unit's own backup holds its root password hash and the Wi-Fi passwords: it goes to a Virox
+	# main router (the gateway of the LAN) only, never to a lead. A lead is an access point found by
+	# a broadcast on the LAN and nothing proves it is a Virox: any device on the LAN could answer as
+	# one (review 2026-11-20). The lead's backup is still kept here (stored, never applied).
+	if [ "$(uci -q get apctl.agent.via)" = lead ]; then echo "$today" > "$RUN/backup-day"; return 0; fi
+	/usr/libexec/lg7200/backup create "$RUN/own.tar.gz" >/dev/null 2>&1 || return 0
+	off=0; d="$(wc -c < "$RUN/own.tar.gz")"
+	while [ "$off" -lt "$d" ]; do
+		done=false; [ $((off + 49152)) -ge "$d" ] && done=true
+		r="$(rpc "$main" backup_put "{\"id\":\"$id\",\"token\":\"$token\",\"offset\":$off,\"final\":$done,\"data\":\"$(dd if="$RUN/own.tar.gz" bs=49152 skip=$((off / 49152)) count=1 2>/dev/null | base64 | tr -d '\n')\"}")"
+		[ "$(echo "$r" | jsonfilter -e '@.result')" = true ] || break
+		off=$((off + 49152))
+	done
+	rm -f "$RUN/own.tar.gz"
+	echo "$today" > "$RUN/backup-day"
+}
+
+# access point: the guest network of the main router on this unit's radios, through the tunnel
+a_guest() {
+	local r="$1" main="$2" on ssid key s rad changed=0 want band hid
+	on="$(echo "$r" | jsonfilter -e '@.guest.enabled')"
+	if [ "$on" = true ]; then
+		ssid="$(echo "$r" | jsonfilter -e '@.guest.ssid')"; key="$(echo "$r" | jsonfilter -e '@.guest.key')"
+		band="$(echo "$r" | jsonfilter -e '@.guest.band')"; case "$band" in 5g|both) ;; *) band=2g ;; esac
+		hid=0; [ "$(echo "$r" | jsonfilter -e '@.guest.hidden')" = true ] && hid=1
+		want="$ssid|$key|$band|$hid"
+		if [ "$(cat /etc/homenet/apctl-guest 2>/dev/null)" != "$want" ]; then
+			uci -q batch <<-EOF
+				set network.guest_dev=device
+				set network.guest_dev.type='bridge'
+				set network.guest_dev.name='br-guest'
+				set network.guest_dev.bridge_empty='1'
+				set network.guest=interface
+				set network.guest.proto='none'
+				set network.guest.device='br-guest'
+			EOF
+			for rad in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-device$/\1/p"); do
+				s="guest_$rad"
+				# the band chosen on the main router (2.4 GHz by default)
+				[ "$band" = both ] || [ "$(uci -q get wireless.$rad.band)" = "$band" ] || { uci -q delete wireless.$s; continue; }
+				uci set wireless.$s=wifi-iface; uci set wireless.$s.device="$rad"; uci set wireless.$s.mode='ap'
+				uci set wireless.$s.network='guest'; uci set wireless.$s.ssid="$ssid"; uci set wireless.$s.key="$key"
+				uci set wireless.$s.encryption='sae-mixed'; uci set wireless.$s.isolate='1'; uci set wireless.$s.disabled='0'
+				if [ "$hid" = 1 ]; then uci set wireless.$s.hidden='1'; else uci -q delete wireless.$s.hidden; fi
+			done
+			uci commit network; uci commit wireless
+			echo "$want" > /etc/homenet/apctl-guest; chmod 600 /etc/homenet/apctl-guest
+			/etc/init.d/network reload; wifi reload >/dev/null 2>&1
+			sleep 3
+		fi
+		ip link show br-guest >/dev/null 2>&1 && { ip link show vx-guest >/dev/null 2>&1 || vx_up "$main"; }
+	elif [ -f /etc/homenet/apctl-guest ]; then
+		vx_down
+		for s in $(uci -q show wireless | sed -n "s/^wireless\.\(guest_[^.]*\)=wifi-iface$/\1/p"); do uci -q delete wireless.$s; done
+		uci -q delete network.guest; uci -q delete network.guest_dev
+		uci commit network; uci commit wireless; rm -f /etc/homenet/apctl-guest
+		/etc/init.d/network reload; wifi reload >/dev/null 2>&1
+	fi
+}
+
+# main router: the tunnel end in br-guest, one forwarding entry per access point that reported
+m_guest_tunnel() {
+	local f ip now
+	if [ "$(uci -q get homenet.guest.enabled)" != 1 ] || ! ip link show br-guest >/dev/null 2>&1 || [ -z "$(uci -q show apctl | grep "=ap$")" ]; then
+		vx_down; return 0
+	fi
+	vx_up "" || return 0
+	now="$(date +%s)"
+	bridge fdb show dev vx-guest 2>/dev/null | awk '/^00:00:00:00:00:00/ { for (i = 1; i < NF; i++) if ($i == "dst") print $(i + 1) }' | sort > "$RUN/vx-have"
+	for f in "$RUN"/ap*.json; do
+		[ -f "$f" ] || continue
+		[ $((now - $(jsonfilter -i "$f" -e '@.seen' 2>/dev/null || echo 0))) -lt 300 ] || continue
+		jsonfilter -i "$f" -e '@.ip' 2>/dev/null
+	done | sort -u > "$RUN/vx-want"
+	awk 'FILENAME == ARGV[1] { h[$1]; next } !($1 in h)' "$RUN/vx-have" "$RUN/vx-want" | while read -r ip; do bridge fdb append 00:00:00:00:00:00 dev vx-guest dst "$ip"; done
+	awk 'FILENAME == ARGV[1] { w[$1]; next } !($1 in w)' "$RUN/vx-want" "$RUN/vx-have" | while read -r ip; do bridge fdb del 00:00:00:00:00:00 dev vx-guest dst "$ip"; done
+}
+
+# main router: its own connected devices in the "which access point" list
+m_local_scan() {
+	local now
+	now="$(date +%s)"
+	{ awk -F '\t' '$2 != "main"' "$CLIENTS" 2>/dev/null
+	  stations | while read -r mac sig b kid; do printf '%s\tmain\t%s\t%s\t%s\n' "$mac" "$sig" "$b" "$now"; done
+	} > "$CLIENTS.new" && mv "$CLIENTS.new" "$CLIENTS"
+	# rows of access points that stopped reporting are dropped after 5 minutes
+	awk -F '\t' -v n="$now" 'n - $5 < 300' "$CLIENTS" > "$CLIENTS.new" && mv "$CLIENTS.new" "$CLIENTS"
+}
+
+m_roaming_local() {
+	local s band on md ssid
+	on="$(uci -q get apctl.main.roaming)"
+	home_ifaces | while read -r s band; do
+		if [ "$on" = 1 ]; then
+			ssid="$(uci -q get wireless.$s.ssid)"
+			md="$(printf '%s' "${ssid%-5G}" | awk 'BEGIN { for (i = 1; i < 256; i++) o[sprintf("%c", i)] = i } { h = 0; for (i = 1; i <= length($0); i++) h = (h * 31 + o[substr($0, i, 1)]) % 65536; printf "%04x", h }')"
+			uci set wireless.$s.ieee80211r='1'; uci set wireless.$s.ft_over_ds='0'; uci set wireless.$s.ft_psk_generate_local='1'
+			uci set wireless.$s.ieee80211k='1'; uci set wireless.$s.bss_transition='1'
+			[ -n "$md" ] && uci set wireless.$s.mobility_domain="$md"
+		else
+			for o in ieee80211r mobility_domain ft_over_ds ft_psk_generate_local ieee80211k bss_transition; do uci -q delete wireless.$s.$o; done
+		fi
+	done
+	uci commit wireless
+	wifi reload >/dev/null 2>&1 &
+}
+
+# lead (access points under a router that is not a Virox): the usage a member reported (RUN/usage-
+# <id>.tsv: day mac up down name, running totals of the day) is booked here as the growth since its
+# last report, on the device with that MAC (made here if new, named as on the member), so the
+# lead's pages show the whole house. Those MACs then go to the lead's own bridge set "remote":
+# a member plugged into the lead's port is not counted a second time by the lead.
+m_usage_import() {
+	local id="$1" f prev m
+	# the members' last reports (ap_id day mac up down): in RAM, kept on flash with the usage
+	# history every 10 minutes (common.sh HN_HOT), so both come back together after a restart
+	f="$RUN/usage-$id.tsv"; prev="$HN_RUN/ap-usage.tsv"
+	case "$id" in ap[0-9]*) ;; *) return 0 ;; esac
+	[ -s "$f" ] || return 0
+	hn_prepare || return 0
+	[ -f "$prev" ] || : > "$prev"
+	exec 9>"$HN_RUN.save.lock"; flock 9        # the accounting lock: one writer of the history
+	while IFS="$TAB" read -r day mac up down name; do
+		hn_is_mac "$mac" && hn_device_for_mac "$mac" "$name" >/dev/null
+	done < "$f"
+	awk -F '\t' -v OFS='\t' -v ap="$id" -v bk="$RUN/usage-$id.book" '
+		FILENAME == ARGV[1] { if ($1 == ap) { pu[$2 SUBSEP $3] = $4; pd[$2 SUBSEP $3] = $5 } else print; next }
+		FILENAME == ARGV[2] { dev[$1] = $2; next }
+		{
+			k = $1 SUBSEP $2; id = dev[$2]
+			du = ($3 >= pu[k] ? $3 - pu[k] : $3); dd = ($4 >= pd[k] ? $4 - pd[k] : $4)
+			if (id != "" && du + dd > 0) printf "%s\t%s\t%.0f\t%.0f\n", $1, id, du, dd > bk
+			print ap, $1, $2, $3, $4
+		}' "$prev" "$HN_MACS" "$f" > "$RUN/usage-$id.prev"
+	if [ -s "$RUN/usage-$id.book" ]; then
+		awk -F '\t' -v OFS='\t' '
+			{ k = $1 SUBSEP $2; u[k] += $3; d[k] += $4 }
+			END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+		' "$HN_HISTORY" "$RUN/usage-$id.book" | sort > "$RUN/usage-$id.hist" && hn_write "$HN_HISTORY" < "$RUN/usage-$id.hist"
+	fi
+	hn_write "$prev" < "$RUN/usage-$id.prev"
+	rm -f "$RUN/usage-$id.book" "$RUN/usage-$id.hist" "$RUN/usage-$id.prev"
+	flock -u 9
+	# every member's MACs, in one go (the set is refilled, so a MAC no longer reported leaves it),
+	# but not the devices on this unit's own Wi-Fi now: those are counted here (a phone that moved)
+	awk -F '\t' '{ print $2 }' "$f" | sort -u > "$RUN/usage-$id.macs"
+	stations | awk '{ print $1 }' > "$RUN/own-stations"
+	m="$(cat "$RUN"/usage-ap*.macs 2>/dev/null | sort -u | awk 'FILENAME == ARGV[1] { own[$1] = 1; next } !own[$1]' "$RUN/own-stations" - | tr '\n' ',' | sed 's/,$//')"
+	{ echo "flush set bridge homenet_ap remote"; [ -n "$m" ] && echo "add element bridge homenet_ap remote { $m }"; } | nft -f - 2>/dev/null
+	return 0
+}
+
+m_keyid() {
+	local mac="$1" kid="$2" dev cur
+	hn_prepare >/dev/null 2>&1
+	dev="$(hn_device_for_mac "$mac")" || return 0
+	cur="$(awk -F '\t' -v d="$dev" '$1 == d { print $3; exit }' "$HN_DEVICES")"
+	[ -z "$cur" ] || return 0
+	/usr/libexec/homenet/devices set-person "$dev" "$kid" >/dev/null 2>&1 && hn_event device_person_from_key info device_id="$dev" person_id="$kid"
+}
+
+case "$1" in
+	join) a_join "$2" ;;
+	sync) a_sync ;;
+	local-scan) m_local_scan ;;
+	roaming-local) m_roaming_local ;;
+	keyid) m_keyid "$2" "$3" ;;
+	event) case "$2" in update_all_failed) hn_event "$2" warn ap_id="$3" ;; *) hn_event "$2" info ap_id="$3" ;; esac ;;
+	update-prepare) m_update_prepare ;;
+	tick) if [ "$(my_mode)" = ap ]; then
+			a_join_wireless; a_hello; a_sync; a_repeat_check
+			# a lead is the main router of the other access points
+			[ "$(cat "$RUN/role" 2>/dev/null)" = lead ] && { m_local_scan; m_guest_tunnel; m_mesh; }
+		else m_local_scan; m_guest_tunnel; m_mesh; fi
+		# update all: the next unit, or the stop when one did not come back (also with no sync)
+		[ -s "$RUN/rolling.json" ] && ubus call virox.apctl update_status >/dev/null 2>&1
+		grep -q '"running"' "$RUN/restart.json" 2>/dev/null && ubus call virox.apctl list >/dev/null 2>&1 ;;
+	usage-import) m_usage_import "$2" ;;
+	role) a_role; cat "$RUN/role" 2>/dev/null ;;     # lead | member (tests, diagnosis)
+	behind) a_behind_peers ;;                          # devices left to another unit (tests, diagnosis)
+	usage-rows) a_usage_rows ;;                        # what a member reports to its lead (tests, diagnosis)
+	hello) a_hello ;;
+	mesh) m_mesh ;;                                    # main router: mesh and join window now
+	uplink) a_uplink ;;                                # access point: cable | wireless <dBm> | repeat <dBm> | none
+	main-channel) main_channel ;;
+	repeat) a_repeat "$2" "$3" "$4" ;;                 # repeat <2g|5g> <ssid> <key>
+	repeat-off) a_repeat_off ;;
+	scan) a_scan ;;
+	*) echo "usage: apctl join <code> | sync | local-scan | roaming-local | keyid <mac> <person> | event <code> <id> | tick" >&2; exit 2 ;;
+esac

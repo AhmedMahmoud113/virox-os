@@ -1,0 +1,15 @@
+{
+	"homenet-admin": {
+		"description": "Virox API, VPN client, admin role",
+		"read": {
+			"ubus": {
+				"virox.vpn": [ "status" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.vpn": [ "import", "set", "remove" ]
+			}
+		}
+	}
+}

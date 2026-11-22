@@ -1,0 +1,5 @@
+/etc/lg7200/unitcfg
+/etc/ksmbd/
+/etc/lg7200/events
+/etc/lg7200/events.seq
+/etc/lg7200/dhcp.good

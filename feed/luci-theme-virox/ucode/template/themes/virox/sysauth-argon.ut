@@ -1,0 +1,84 @@
+{#
+	Virox theme: login page. Layout derived from luci-theme-argon v2.4.3 (sysauth.ut,
+	login_background.ut, login_form.ut, footer_login.ut)
+	Copyright 2020 Jerrykuku <jerrykuku@qq.com>, Licensed to the public under the Apache License 2.0
+	(LICENSE.argon); the form from LuCI (Copyright 2022 Jo-Philipp Wich, Apache-2.0).
+	Virox (owner review B3, BUILD-PLAN 10b): "Sign in to Virox", password only (user root is
+	implied), eye button, plain-language errors, language switch, forgotten-password hint; Argon's
+	background picture and glass panel; no LuCI scripts on this anonymous page (10b item 7). While
+	root has no password (fresh unit) it logs in automatically so the user lands on the setup
+	wizard; this grants nothing new, the stock login accepts an empty password then.
+	Repeated wrong passwords: lg7200-loginguard (BUILD-PLAN 12.3).
+-#}
+{%
+	import { getspnam } from 'luci.core';
+	import { cursor } from 'uci';
+	import { texts } from 'luci.virox-login';
+
+	const nopass = (getspnam('root')?.pwdp === '');
+	const product = cursor().get('lg7200', 'product', 'name') ?? 'Virox';
+	const ar = (dispatcher.lang == 'ar');
+	const hostname = striptags(ubus.call('system', 'board')?.hostname ?? '?');
+
+	const T = texts(product);
+	const t = ar ? T.ar : T.en;
+	include('themes/' + theme + '/head', { hostname: hostname, is_login: true });
+-%}
+<body class="lang_{{ dispatcher.lang }} node-main-login">
+{% if (nopass && !fuser): %}
+<form method="post" id="virox-autologin">
+	<input type="hidden" name="luci_username" value="root">
+	<input type="hidden" name="luci_password" value="">
+	<p class="virox-center">{{ t.starting }}</p>
+	<noscript><button class="btn cbi-button-positive">{{ _('Continue', 'Virox') }}</button></noscript>
+</form>
+<script>document.getElementById('virox-autologin').submit();</script>
+{% else %}
+<div class="login-page">
+	<div class="main-bg" id="main-bg" style="background-image:url({{ media }}/img/bg1.jpg)"></div>
+	<main class="login-container vx-login" id="vx-login">
+		<div class="login-form">
+			<div class="vx-top">
+				<button type="button" class="vx-langswitch" id="vx-login-lang">{{ t.other }}</button>
+			</div>
+			<a class="brand" href="/"><img src="{{ media }}/logo.svg" class="icon" alt="">
+				<span class="brand-text" data-t="title">{{ t.title }}</span>
+			</a>
+			<form class="form-login" method="post">
+				{% if (fuser): %}
+				<div class="errorbox" role="alert" data-t="error">{{ t.error }}</div>
+				{% endif %}
+				<input type="hidden" name="luci_username" value="root">
+				<div class="input-container">
+					<label for="luci_password" class="vx-label" data-t="label">{{ t.label }}</label>
+					<div class="input-group pass-icon vx-pw-wrap">
+						<input class="cbi-input-password" name="luci_password" id="luci_password" type="password" dir="ltr"
+						       autocomplete="current-password" autofocus required>
+						<button type="button" class="vx-eye" aria-pressed="false" aria-label="{{ t.show }}" data-t-label="show"
+						        onclick="var i=document.getElementById('luci_password'),s=i.type=='password';i.type=s?'text':'password';this.setAttribute('aria-pressed',String(s));">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+						</button>
+						<span class="border" aria-hidden="true"></span>
+					</div>
+				</div>
+				<div>
+					<button type="submit" class="cbi-button cbi-button-apply" data-t="button">{{ t.button }}</button>
+				</div>
+				<p class="vx-hint" data-t="tries">{{ t.tries }}</p>
+				<p class="vx-hint" data-t="forgot">{{ t.forgot }}</p>
+			</form>
+		</div>
+		<footer>
+			<div class="login-footer-links vx-footer">
+				<span>{{ version.distname }} <bdi dir="ltr">{{ version.distversion }}</bdi></span>
+				<a href="https://openwrt.org" target="_blank" rel="noreferrer">OpenWrt</a>
+				<a href="https://github.com/jerrykuku/luci-theme-argon" target="_blank" rel="noreferrer">Argon</a>
+			</div>
+		</footer>
+	</main>
+</div>
+<script type="application/json" id="vx-login-texts">{{ replace(sprintf('%J', { texts: T, lang: ar ? 'ar' : 'en' }), '</', '<\\/') }}</script>
+<script src="{{ media }}/vx-login.js"></script>
+{% endif %}
+</body>
+</html>

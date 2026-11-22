@@ -1,0 +1,138 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Setup with only a phone (BUILD-PLAN P6, accepted): holding the WPS or mode button for 3 seconds
+# opens an open, isolated network "<product>-Setup" for 10 minutes. It reaches only this router's
+# web pages (address 10.72.255.1; plain web requests are redirected there), no internet and no
+# other device, and closes by itself when the setup wizard finishes or the time runs out.
+# Physical access to the button is the security.
+# A unit that is not set up yet opens it by itself at every boot, for 60 minutes (owner,
+# 2026-11-19: a new router must be reachable from a phone without a cable or a password); it
+# closes when the wizard is saved, like the button's network.
+#
+# usage: setupnet start [minutes] | firstboot | stop | status | cleanup   (cleanup: at boot, after a power cut)
+
+. /lib/functions.sh
+
+ADDR=10.72.255.1
+MINUTES=10
+PIDF=/var/run/lg7200-setupnet.pid
+MINF=/var/run/lg7200-setupnet.minutes
+NAME="$(uci -q get lg7200.product.name)-Setup"
+
+radio_2g() {
+	local r=""
+	_r() { [ -z "$r" ] && [ "$(uci -q get wireless.$1.band)" = 2g ] && r="$1"; }
+	config_load wireless
+	config_foreach _r wifi-device
+	echo "$r"
+}
+
+active() { [ -n "$(uci -q get wireless.lg7200_setup)" ]; }
+
+remove_config() {
+	uci -q delete wireless.lg7200_setup
+	uci -q delete network.lg7200_setup
+	uci -q delete dhcp.lg7200_setup
+	uci -q delete firewall.lg7200_setup
+	uci -q delete firewall.lg7200_setup_in
+	uci -q delete firewall.lg7200_setup_web
+	uci commit wireless; uci commit network; uci commit dhcp; uci commit firewall
+}
+
+reload_all() {
+	/etc/init.d/network reload
+	/etc/init.d/firewall reload
+	/etc/init.d/dnsmasq reload
+	wifi reload
+}
+
+start() {
+	case "$1" in ''|*[!0-9]*) ;; *) [ "$1" -ge 1 ] && [ "$1" -le 120 ] && MINUTES="$1" ;; esac
+	active && { echo "already open"; return 0; }
+	local radio="$(radio_2g)"
+	[ -n "$radio" ] || { logger -t lg7200 "setup network: no 2.4 GHz radio"; return 1; }
+	uci batch <<-EOF
+		set network.lg7200_setup=interface
+		set network.lg7200_setup.proto=static
+		set network.lg7200_setup.ipaddr=$ADDR/24
+		set wireless.lg7200_setup=wifi-iface
+		set wireless.lg7200_setup.device=$radio
+		set wireless.lg7200_setup.mode=ap
+		set wireless.lg7200_setup.network=lg7200_setup
+		set wireless.lg7200_setup.ssid=$NAME
+		set wireless.lg7200_setup.encryption=none
+		set wireless.lg7200_setup.isolate=1
+		set dhcp.lg7200_setup=dhcp
+		set dhcp.lg7200_setup.interface=lg7200_setup
+		set dhcp.lg7200_setup.start=10
+		set dhcp.lg7200_setup.limit=100
+		set dhcp.lg7200_setup.leasetime=15m
+		set firewall.lg7200_setup=zone
+		set firewall.lg7200_setup.name=lg7200_setup
+		set firewall.lg7200_setup.network=lg7200_setup
+		set firewall.lg7200_setup.input=REJECT
+		set firewall.lg7200_setup.output=ACCEPT
+		set firewall.lg7200_setup.forward=REJECT
+		set firewall.lg7200_setup_in=rule
+		set firewall.lg7200_setup_in.name=lg7200-setup-dhcp-dns-web
+		set firewall.lg7200_setup_in.src=lg7200_setup
+		set firewall.lg7200_setup_in.proto=tcpudp
+		set firewall.lg7200_setup_in.dest_port='53 67 68 80'
+		set firewall.lg7200_setup_in.target=ACCEPT
+		set firewall.lg7200_setup_web=redirect
+		set firewall.lg7200_setup_web.name=lg7200-setup-to-wizard
+		set firewall.lg7200_setup_web.src=lg7200_setup
+		set firewall.lg7200_setup_web.proto=tcp
+		set firewall.lg7200_setup_web.src_dport=80
+		set firewall.lg7200_setup_web.dest_ip=$ADDR
+		set firewall.lg7200_setup_web.dest_port=80
+		set firewall.lg7200_setup_web.target=DNAT
+	EOF
+	uci commit wireless; uci commit network; uci commit dhcp; uci commit firewall
+	reload_all
+	logger -t lg7200 "setup network $NAME open for $MINUTES minutes"
+
+	# the watcher runs under procd (a plain background job dies with the button handler)
+	echo "$(uci -q get lg7200.state.setup_time)" > "$PIDF"
+	echo "$MINUTES" > "$MINF"
+	/etc/init.d/lg7200-setupnet start
+}
+
+# close after the time limit or when the wizard is saved
+# (the wizard backend records lg7200.state.setup_time each time setup is saved)
+watch() {
+	local stamp0 end
+	stamp0="$(cat "$PIDF" 2>/dev/null)"
+	MINUTES="$(cat "$MINF" 2>/dev/null)"; case "$MINUTES" in ''|*[!0-9]*) MINUTES=10 ;; esac
+	end=$(( $(date +%s) + MINUTES * 60 ))
+	while [ "$(date +%s)" -lt "$end" ]; do
+		sleep 5
+		active || exit 0
+		[ "$(uci -q get lg7200.state.setup_time)" != "$stamp0" ] && break
+	done
+	close_net
+}
+
+close_net() {
+	active || return 0
+	rm -f "$PIDF" "$MINF"
+	remove_config
+	reload_all
+	logger -t lg7200 "setup network closed"
+}
+
+stop() {
+	close_net
+	/etc/init.d/lg7200-setupnet stop 2>/dev/null
+}
+
+case "$1" in
+	start) start "$2" ;;
+	# not set up yet (no wizard saved, router mode not chosen): open for 60 minutes
+	firstboot) [ "$(uci -q get lg7200.state.setup_done)" = 1 ] || start 60 ;;
+	stop) stop ;;
+	watch) watch ;;
+	status) active && echo open || echo closed ;;
+	cleanup) active && { remove_config; logger -t lg7200 "setup network left over from before the restart: removed"; } ;;
+	*) echo "usage: $0 start [minutes]|firstboot|stop|status|cleanup" >&2; exit 1 ;;
+esac

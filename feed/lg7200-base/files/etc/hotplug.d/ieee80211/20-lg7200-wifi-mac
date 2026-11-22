@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Per-unit Wi-Fi MACs from the base MAC (2.4 GHz = base+2, 5 GHz = base+3), after the
+# board's own 10_fix_wifi_mac. Only on the Mercury GAPM-7200 (one MT7615 DBDC: phy0, phy1).
+[ "$ACTION" = add ] || exit 0
+. /lib/functions.sh
+[ "$(board_name)" = "mercury,gapm7200" ] || exit 0
+. /lib/functions/lg7200.sh
+case "${DEVPATH##*/}" in
+	phy0) m="$(lg7200_port_mac phy0)" ;;
+	phy1) m="$(lg7200_port_mac phy1)" ;;
+	*) exit 0 ;;
+esac
+[ -n "$m" ] && echo "$m" > "/sys${DEVPATH}/macaddress"

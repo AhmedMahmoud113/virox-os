@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Access point mode: the fixed fallback address (interface lan_fb) only while the main router gives
+# no address. Every unit starts with the same LAN address, so on an access point that is connected
+# to the main router a fallback that stays up answers for the main router's own address: phones
+# would then send their internet traffic to the access point now and then.
+#   ap-fallback lan-up    (hotplug, lan got its address) lan_fb goes down after 90 s, longer than
+#                         the 60 s in which the setup wizard confirms the change from the old
+#                         address; it stops coming up by itself at boot (auto 0)
+#   ap-fallback boot      (init, 60 s after boot) no address from a main router: lan_fb comes up,
+#                         so the unit can still be reached on its old address with a cable
+. /lib/functions.sh
+[ "$(uci -q get lg7200.state.mode)" = ap ] || exit 0
+uci -q get network.lan_fb >/dev/null || exit 0
+[ "$(uci -q get network.lan.proto)" = dhcp ] || exit 0
+
+lan_has_addr() { ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' | grep -q .; }
+
+case "$1" in
+	lan-up)
+		(
+			sleep 90
+			lan_has_addr || exit 0
+			[ "$(uci -q get network.lan_fb.auto)" = 0 ] || { uci set network.lan_fb.auto=0; uci commit network; }
+			# both addresses are in one subnet: the main router's is the secondary one, and Linux
+			# drops secondaries with their primary unless they are promoted
+			dev="$(uci -q get network.lan.device || echo br-lan)"
+			echo 1 > "/proc/sys/net/ipv4/conf/$dev/promote_secondaries" 2>/dev/null
+			ifdown lan_fb
+			sleep 2
+			ip -4 addr show dev "$dev" | grep -q 'inet ' || ifup lan
+			logger -t lg7200 "access point: address from the main router, fallback address off"
+		) >/dev/null 2>&1 </dev/null &
+		;;
+	boot)
+		(
+			sleep 60
+			lan_has_addr && exit 0
+			ifup lan_fb
+			logger -t lg7200 "access point: no address from a main router, fallback address on"
+		) >/dev/null 2>&1 </dev/null &
+		;;
+	*) echo "usage: ap-fallback lan-up | boot" >&2; exit 2 ;;
+esac

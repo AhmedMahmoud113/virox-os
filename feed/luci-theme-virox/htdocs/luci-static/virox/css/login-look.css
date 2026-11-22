@@ -1,0 +1,19 @@
+/*
+ * The Virox colours on the Vantage login layout: the blue of the main router's pages instead of
+ * Vantage's lime, and the system font. SPDX-License-Identifier: Apache-2.0
+ */
+html[data-darkmode] {
+	--accent: #2563eb !important;
+	--accent-hover: #1d4ed8 !important;
+	--accent-ink: #ffffff !important;
+	--accent-line: rgba(37, 99, 235, .5) !important;
+	--accent-soft: rgba(37, 99, 235, .12) !important;
+	--accent-text: #1d4ed8 !important;
+	--font: system-ui, "Segoe UI", Tahoma, sans-serif !important;
+}
+html[data-darkmode="true"] { --accent-text: #93c5fd !important; --accent: #3b82f6 !important; --accent-hover: #60a5fa !important; }
+html[data-darkmode] body { font-family: system-ui, "Segoe UI", Tahoma, sans-serif; }
+.vt-login-card { border-radius: 14px; }
+.vt-login-submit { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; font-weight: 700; }
+.vt-login-submit:hover { background: var(--accent-hover) !important; }
+.vt-login-title { font-weight: 800; }

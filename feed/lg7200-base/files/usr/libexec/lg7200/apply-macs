@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Apply the unit's base MAC to the LAN and WAN devices (LAN = base, WAN = base+1; Wi-Fi gets
+# base+2/+3 from the ieee80211 hotplug). Called by the first-boot script, and at boot by
+# lg7200-gate when lg7200.state.mac_reapply is set (label MAC entered through the API).
+# Does not commit other settings and does not reload the network (runs before it starts).
+
+. /lib/functions.sh
+. /lib/functions/lg7200.sh
+
+set -- $(lg7200_base_mac)
+base_mac="$1"; mac_source="$2"
+[ -n "$base_mac" ] || exit 1
+
+uci -q get lg7200.state >/dev/null || uci set lg7200.state=state
+uci set lg7200.state.mac_source="$mac_source"
+uci -q delete lg7200.state.mac_reapply
+
+set_dev_mac() { # $1 device name, $2 MAC
+	local sec=""
+	_find() { [ "$(uci -q get network.$1.name)" = "$2" ] && sec="$1"; }
+	config_load network
+	config_foreach _find device "$1"
+	if [ -z "$sec" ]; then
+		sec="$(uci add network device)"
+		uci set network.$sec.name="$1"
+	fi
+	uci set network.$sec.macaddr="$2"
+}
+
+lan_dev="$(uci -q get network.lan.device)"
+[ -n "$lan_dev" ] && set_dev_mac "$lan_dev" "$(lg7200_mac_add "$base_mac" 0)"
+wan_dev="$(uci -q get network.wan.device)"
+[ -n "$wan_dev" ] && set_dev_mac "$wan_dev" "$(lg7200_mac_add "$base_mac" 1)"
+
+uci commit network
+uci commit lg7200
+echo "$base_mac $mac_source"

@@ -1,0 +1,11 @@
+Cairo font: Copyright 2009 The Cairo Project Authors (https://github.com/Gue3bara/Cairo).
+Licensed under the SIL Open Font License 1.1 (Cairo-OFL.txt).
+Shipped file: subset (Arabic, basic Latin, punctuation, direction marks), weights 400-700, no slant,
+made with fonttools 4.55.3 from google/fonts ofl/cairo/Cairo[slnt,wght].ttf on 2026-11-17.
+The subset is a Modified Version under the OFL; it keeps the reserved-name-free family name Cairo.
+
+google-sans-flex-latin.woff2: Google Sans Flex (the open version of Google Sans, the font of the
+Argon look), Latin subset, weights 400-700, as served by Google Fonts (v26, 2026-11-19).
+SIL Open Font License 1.1 (GoogleSansFlex-OFL.txt), https://github.com/google/fonts/tree/main/ofl/googlesansflex
+Argon's own GoogleSans-Regular.woff2 (Google proprietary: "Google Sans is not one of them") and
+TypoGraphica (Sharkshock, all rights reserved) are not shipped.

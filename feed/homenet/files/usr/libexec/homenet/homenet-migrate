@@ -1,0 +1,378 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Import the data of the old homenet scripts (PLAN 10.2, BUILD-PLAN B7.3a / B7.5b).
+#
+#   homenet-migrate check <backup.tar.gz>    report what would be imported; nothing is written;
+#                                            lists every old group with its MACs (B7.3b)
+#   homenet-migrate import <backup.tar.gz>   import once (refused if an import was done already)
+#
+# Input: a sysupgrade backup or a traffic-backup tarball of the old router (root/*.tsv,
+# root/trafficmon-startdate, etc/config/homenet, etc/config/dhcp, etc/homenet-dhcp-hosts).
+#  - every old MAC becomes a device (or joins the device that already has it here); names,
+#    DHCP host names and first-seen dates are kept;
+#  - every old group (several MACs under one name) becomes a person owning those devices
+#    (nothing is merged: a merge cannot be undone, `devices merge` can be done afterwards);
+#  - usage history moves from MAC to device id; days that already have usage here are added;
+#    rows the old router could only book to an IP ("ip:...") go to the device "unknown"
+#    (shown as غير معروف; B7.5d: no usage disappears);
+#  - fixed addresses: duplicates (same IP for different MACs, or the same MAC twice) and
+#    entries with several MACs are REPORTED and not imported; the others go through
+#    virox.homenet reserve, which applies the same checks as the pages (B7.5b);
+#  - tables of features not ported yet (limits, schedules, blocks, ...) are kept unchanged in
+#    /etc/homenet/data/import/ for the port of each feature.
+# Report: one line per finding, "<kind> <key=value> ...", then "summary ...".
+# Never run on the owner's files before PLAN Phase 10 (tested with a synthetic dataset).
+umask 077
+. /usr/lib/homenet/common.sh
+
+MODE="${1#--}"; TB="$2"          # "check" or "--check", "import" or "--import"
+W="${HN_RUN:?}.migrate.$$"
+trap 'rm -rf "$W"' EXIT
+
+die() { echo "error $1"; exit 1; }
+
+case "$MODE" in check|import) ;; *) echo "usage: $0 check|import <backup.tar.gz>" >&2; exit 2 ;; esac
+[ -f "$TB" ] || die no_file
+mkdir -p "$W/x" || die no_space
+tar -tzf "$TB" > "$W/list" 2> "$W/list.err" || die not_a_tarball
+# absolute or ../ member names (BusyBox tar strips them with a warning; refuse such a file anyway)
+grep -qE '^/|(^|/)\.\.(/|$)' "$W/list" && die unsafe_tarball
+grep -qi 'leading' "$W/list.err" && die unsafe_tarball
+tar -xzf "$TB" -C "$W/x" 2>/dev/null || die not_a_tarball
+X="$W/x"
+[ -f "$X/root/trafficmon-history.tsv" ] || [ -f "$X/root/trafficmon-names.tsv" ] || \
+	[ -f "$X/etc/homenet-dhcp-hosts" ] || die not_a_homenet_backup
+mkdir -p "$X/root" "$X/etc"
+for f in trafficmon-names.tsv trafficmon-groups.tsv trafficmon-history.tsv trafficmon-firstseen.tsv \
+	trafficmon-hostnames.tsv trafficmon-startdate; do
+	[ -f "$X/root/$f" ] || : > "$X/root/$f"
+done
+[ -f "$X/etc/homenet-dhcp-hosts" ] || : > "$X/etc/homenet-dhcp-hosts"
+R="$X/root"
+
+# ------------------------------------------------------------------ devices (one per old MAC)
+# all MACs with data: names, groups, history, first seen, host names
+{
+	awk -F '\t' '{ print tolower($1) }' "$R/trafficmon-names.tsv"
+	awk -F '\t' '{ print tolower($3) }' "$R/trafficmon-groups.tsv"
+	awk -F '\t' '$2 !~ /^ip:/ { print tolower($2) }' "$R/trafficmon-history.tsv"
+	awk -F '\t' '{ print tolower($1) }' "$R/trafficmon-firstseen.tsv"
+	awk '{ print tolower($1) }' "$R/trafficmon-hostnames.tsv"
+} | grep -E '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' | sort -u > "$W/macs"
+ndev=$(wc -l < "$W/macs")
+ngrp=$(awk -F '\t' '$1 != "" && $2 != "" { print $1 }' "$R/trafficmon-groups.tsv" | sort -u | wc -l)
+awk -F '\t' '$2 ~ /^ip:/ { u += $4; d += $5; n++ } END { printf "%.0f %.0f %d\n", u, d, n }' \
+	"$R/trafficmon-history.tsv" > "$W/iprows"
+read -r ipu ipd ipn < "$W/iprows"
+hdays=$(awk -F '\t' '$2 !~ /^ip:/ { print $1 }' "$R/trafficmon-history.tsv" | sort -u | wc -l)
+
+# ------------------------------------------------------------------ fixed addresses
+# entries: source  macs(comma)  ip  name   from etc/homenet-dhcp-hosts and uci dhcp hosts
+awk -F ',' '/^[0-9a-fA-F]/ {
+	macs = ""; ip = ""; name = ""
+	for (i = 1; i <= NF; i++) {
+		v = tolower($i)
+		if (v ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/) macs = (macs == "" ? v : macs "," v)
+		else if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) ip = $i
+		else name = $i
+	}
+	if (macs != "" && ip != "") printf "file\t%s\t%s\t%s\n", macs, ip, name
+}' "$X/etc/homenet-dhcp-hosts" > "$W/res"
+if [ -f "$X/etc/config/dhcp" ]; then
+	awk '
+	function flush() { if (inhost && macs != "" && ip != "") printf "uci\t%s\t%s\t%s\n", macs, ip, name; inhost = 0; macs = ""; ip = ""; name = "" }
+	function val(s) { sub(/^[ \t]*(option|list)[ \t]+[a-z_]+[ \t]+/, "", s); gsub(/\047|"/, "", s); return s }
+	/^config/ { flush(); inhost = ($2 == "host") }
+	inhost && /^[ \t]*(option|list)[ \t]+mac[ \t]/ { n = split(tolower(val($0)), a, /[ \t]+/); for (i = 1; i <= n; i++) if (a[i] != "") macs = (macs == "" ? a[i] : macs "," a[i]) }
+	inhost && /^[ \t]*option[ \t]+ip[ \t]/ { ip = val($0) }
+	inhost && /^[ \t]*option[ \t]+name[ \t]/ { name = val($0) }
+	END { flush() }' "$X/etc/config/dhcp" >> "$W/res"
+fi
+# verdict per entry: ok | duplicate_ip | duplicate_mac | several_macs
+awk -F '\t' -v OFS='\t' '
+	{ src[NR] = $1; macs[NR] = $2; ip[NR] = $3; name[NR] = $4; n = NR
+	  ipset[$3] = ipset[$3] (ipset[$3] == "" ? "" : " ") $2
+	  k = split($2, m, ","); for (i = 1; i <= k; i++) mc[m[i]]++ }
+	END {
+		for (r = 1; r <= n; r++) {
+			v = "ok"
+			k = split(macs[r], m, ",")
+			# same IP held by different MAC sets
+			split(ipset[ip[r]], others, " "); for (o in others) if (others[o] != macs[r]) v = "duplicate_ip"
+			if (v == "ok") for (i = 1; i <= k; i++) if (mc[m[i]] > 1) v = "duplicate_mac"
+			if (v == "ok" && k > 1) v = "several_macs"
+			print v, src[r], macs[r], ip[r], name[r]
+		}
+	}' "$W/res" > "$W/verdict"
+
+# ------------------------------------------------------------------ feature tables
+# every old table is ported now (B7 features 2-8); LATER stays for tables of future ports
+LATER=""
+for f in device-timelimits.tsv device-speed-limits.tsv trafficmon-limits.tsv trafficmon-group-limits.tsv \
+	kids-devices.tsv site-locks.tsv; do
+	[ -f "$R/$f" ] || : > "$R/$f"
+done
+# old schedules: id target(MAC or g:MAC group) days start end enabled label
+[ -f "$R/device-schedules.tsv" ] || : > "$R/device-schedules.tsv"
+for f in device-blocked.list device-pause.tsv; do [ -f "$R/$f" ] || : > "$R/$f"; done
+# controls (B7 feature 2): blocked MACs, and pauses still running ("macs(comma) expiry-epoch")
+NOW="$(date +%s)"
+{
+	awk '{ m = tolower($1); if (m ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/) print m "\tblock\t" }' "$R/device-blocked.list"
+	awk -F '\t' -v now="$NOW" '$2 + 0 > now { n = split(tolower($1), a, ","); for (i = 1; i <= n; i++) print a[i] "\tpause\t" $2 }' "$R/device-pause.tsv"
+} > "$W/ctl"
+
+# Old groups (B7.3b): each becomes a person with one device per MAC, nothing merged. List every
+# group with its MACs and what is known about each MAC, so the owner can mark MACs that are the
+# same physical device (PLAN Phase 10) and join them afterwards with `devices link/merge`.
+#   group name=<group> macs=<m1>,<m2>,...
+#   group_member group=<group> mac=<m> old_name=<n> host=<h> first_seen=<d> last_used=<day>
+groups() {
+	awk -F '\t' '
+		FILENAME == ARGV[1] { nm[tolower($1)] = $2; next }
+		FILENAME == ARGV[2] { split($0, a, /[ \t]+/); hs[tolower(a[1])] = a[2]; next }
+		FILENAME == ARGV[3] { fs[tolower($1)] = $2; next }
+		FILENAME == ARGV[4] { m = tolower($2); if ($1 > lu[m]) lu[m] = $1; next }
+		$1 != "" && $3 != "" {
+			m = tolower($3)
+			if (!($1 in gname)) { order[++n] = $1; gname[$1] = $2 }
+			if (!seen[$1, m]++) { macs[$1] = macs[$1] (macs[$1] == "" ? "" : ",") m; mem[$1, ++cnt[$1]] = m }
+		}
+		END {
+			for (i = 1; i <= n; i++) {
+				g = order[i]
+				printf "group name=%s macs=%s\n", gname[g], macs[g]
+				for (j = 1; j <= cnt[g]; j++) {
+					m = mem[g, j]
+					printf "group_member group=%s mac=%s old_name=%s host=%s first_seen=%s last_used=%s\n", gname[g], m, nm[m], hs[m], fs[m], lu[m]
+				}
+			}
+		}' "$R/trafficmon-names.tsv" "$R/trafficmon-hostnames.tsv" "$R/trafficmon-firstseen.tsv" \
+		"$R/trafficmon-history.tsv" "$R/trafficmon-groups.tsv"
+}
+
+report() {
+	local f
+	groups
+	# BUILD-PLAN 15.9 item 4: the two ranges of this router (Virox units, devices). An imported fixed
+	# address is never dropped for being inside one: it is kept and reported. An access point that
+	# joins later with its old fixed address keeps it when it is in the units range, and is moved
+	# into the units range otherwise (virox.apctl, event ap_address_moved).
+	us="$(uci -q get lg7200.addr.units_start || echo 2)"; ue="$(uci -q get lg7200.addr.units_end || echo 49)"
+	ds="$(uci -q get dhcp.lan.start || echo 100)"; de=$(( ds + $(uci -q get dhcp.lan.limit || echo 150) - 1 ))
+	while IFS="$TAB" read -r v src macs ip name; do
+		case "$v" in
+			ok) echo "reservation to_import mac=$macs ip=$ip name=$name source=$src"
+			    n="${ip##*.}"
+			    if [ "$n" -ge "$us" ] 2>/dev/null && [ "$n" -le "$ue" ]; then echo "reservation range=units kept mac=$macs ip=$ip (an access point keeps it; another device keeps it too)"
+			    elif [ "$n" -ge "$ds" ] 2>/dev/null && [ "$n" -le "$de" ]; then echo "reservation range=devices kept mac=$macs ip=$ip"
+			    else echo "reservation range=outside kept mac=$macs ip=$ip (outside both ranges; an access point with it is moved into the units range when it joins)"; fi ;;
+			*) echo "reservation not_imported reason=$v mac=$macs ip=$ip name=$name source=$src" ;;
+		esac
+	done < "$W/verdict"
+	[ "$ipn" -gt 0 ] && echo "history unknown_device rows=$ipn up=$ipu down=$ipd"
+	awk -F '\t' '{ printf "control %s mac=%s%s\n", $2, $1, ($3 != "" ? " until=" $3 : "") }' "$W/ctl"
+	awk -F '\t' 'NF >= 5 { printf "schedule target=%s days=%s start=%s end=%s enabled=%s\n", tolower($2), $3, $4, $5, $6 }' "$R/device-schedules.tsv"
+	awk -F '\t' '$2 + 0 > 0 { printf "timelimit target=%s minutes=%s\n", tolower($1), $2 }' "$R/device-timelimits.tsv"
+	awk -F '\t' '$2 + $3 > 0 { printf "speed target=%s down_kbit=%.0f up_kbit=%.0f\n", tolower($1), $2 * 1000, $3 * 1000 }' "$R/device-speed-limits.tsv"
+	awk -F '\t' '$2 + 0 > 0 { printf "usage_limit target=%s bytes=%s warn=%s\n", tolower($1), $2, $3 }' \
+		"$R/trafficmon-group-limits.tsv" "$R/trafficmon-limits.tsv"
+	awk 'NF { printf "kids target=%s\n", tolower($1) }' "$R/kids-devices.tsv"
+	awk -F '|' -v now="$NOW" '$2 + 0 > now { printf "site_lock target=%s until=%s sites=%s custom=%s\n", tolower($1), $2, $3, $4 }' "$R/site-locks.tsv"
+	for f in $LATER; do [ -s "$R/$f" ] && echo "kept_for_later file=$f"; done
+}
+
+if [ "$MODE" = check ]; then
+	report
+	echo "summary mode=check devices=$ndev people=$ngrp history_days=$hdays reservations_ok=$(grep -c '^ok' "$W/verdict") reservations_not_imported=$(grep -vc '^ok' "$W/verdict")"
+	exit 0
+fi
+
+# ------------------------------------------------------------------ import
+[ -f "$HN_DATA/imported" ] && die already_imported
+hn_prepare || die prepare_failed
+exec 9>"$HN_RUN.save.lock"
+flock 9
+
+today="$(hn_today)"
+# 1. devices: existing device for a MAC known here, otherwise a new one
+: > "$W/map"
+while read -r mac; do
+	id="$(awk -F '\t' -v m="$mac" '$1 == m { print $2; exit }' "$HN_MACS")"
+	if [ -z "$id" ]; then
+		id="$(hn_new_id d)"
+		fs="$(awk -F '\t' -v m="$mac" 'tolower($1) == m { print $2; exit }' "$R/trafficmon-firstseen.tsv")"
+		echo "$fs" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || fs="$today"
+		host="$(awk -v m="$mac" 'tolower($1) == m { print $2; exit }' "$R/trafficmon-hostnames.tsv" | tr -d '\t' | cut -c1-40)"
+		printf '%s\t\t\t\t\t%s\n' "$id" "$fs" >> "$HN_DEVICES"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$mac" "$id" "$fs" "$fs" "$host" >> "$HN_MACS"
+		echo "device new id=$id mac=$mac"
+	else
+		echo "device existing id=$id mac=$mac"
+	fi
+	printf '%s\t%s\n' "$mac" "$id" >> "$W/map"
+done < "$W/macs"
+# names: the old name, else the DHCP host name; never overwrite a name given here
+awk -F '\t' -v OFS='\t' '
+	FILENAME == ARGV[1] { dev[$1] = $2; next }
+	FILENAME == ARGV[2] { if (dev[tolower($1)] != "" && $2 != "") nm[dev[tolower($1)]] = substr($2, 1, 40); next }
+	FILENAME == ARGV[3] { split($0, a, /[ \t]+/); m = tolower(a[1])
+		if (dev[m] != "" && a[2] != "" && !(dev[m] in hn)) hn[dev[m]] = substr(a[2], 1, 40); next }
+	{ if ($2 == "") $2 = ($1 in nm ? nm[$1] : hn[$1]); print }
+' "$W/map" "$R/trafficmon-names.tsv" "$R/trafficmon-hostnames.tsv" "$HN_DEVICES" > "$W/devs"
+# 2. people from old groups (a device keeps a person it already has)
+: > "$W/pmap"
+awk -F '\t' '$1 != "" && $2 != "" && !seen[$1]++ { print $1 "\t" $2 }' "$R/trafficmon-groups.tsv" |
+while IFS="$TAB" read -r gid gname; do
+	pid="$(hn_new_id p)"
+	printf '%s\t%s\n' "$pid" "$(printf '%s' "$gname" | cut -c1-40)" >> "$HN_PEOPLE"
+	printf '%s\t%s\n' "$gid" "$pid" >> "$W/pmap"
+	echo "person new id=$pid name=$gname"
+done
+awk -F '\t' -v OFS='\t' '
+	FILENAME == ARGV[1] { dev[$1] = $2; next }
+	FILENAME == ARGV[2] { pid[$1] = $2; next }
+	FILENAME == ARGV[3] { d = dev[tolower($3)]; if (d != "" && pid[$1] != "") person[d] = pid[$1]; next }
+	{ if ($3 == "" && ($1 in person)) $3 = person[$1]; print }
+' "$W/map" "$W/pmap" "$R/trafficmon-groups.tsv" "$W/devs" > "$W/devs2"
+hn_write_records "$HN_DEVICES" < "$W/devs2" || die write_refused
+# 3. usage history: old (day, mac) -> (day, device id), added to what is here
+awk -F '\t' -v OFS='\t' '
+	FILENAME == ARGV[1] { dev[$1] = $2; next }
+	FILENAME == ARGV[2] { k = $1 SUBSEP $2; u[k] += $3; d[k] += $4; next }
+	{ id = ($2 ~ /^ip:/ ? "unknown" : dev[tolower($2)]); if (id == "") next; k = $1 SUBSEP id; u[k] += $4; d[k] += $5 }
+	END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+' "$W/map" "$HN_HISTORY" "$R/trafficmon-history.tsv" | sort > "$W/hist"
+hn_write "$HN_HISTORY" < "$W/hist"
+# 4. settings
+sd="$(head -n 1 "$R/trafficmon-startdate" | tr -d ' \r')"
+echo "$sd" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' && uci set homenet.main.counting_since="$sd"
+if [ -f "$X/etc/config/homenet" ]; then
+	for o in renew_day package_gb; do
+		v="$(sed -n "s/^[[:space:]]*option[[:space:]]*$o[[:space:]]*['\"]\{0,1\}\([0-9.]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" "$X/etc/config/homenet" | head -n 1)"
+		[ -n "$v" ] || continue
+		if [ "$o" = package_gb ]; then
+			# whole MB since B7.3e (GB = 1024 MB, like the old homenet)
+			v="$(awk -v g="$v" 'BEGIN { printf "%.0f", g * 1024 }')"; o=package_mb
+			uci -q delete homenet.main.package_gb
+		fi
+		uci set homenet.main.$o="$v" && echo "setting $o=$v"
+	done
+fi
+uci commit homenet
+# 4b. controls: old MACs -> device ids; a pause or block applies to the whole device
+if [ -s "$W/ctl" ]; then
+	[ -f "$HN_DATA/controls.tsv" ] || : > "$HN_DATA/controls.tsv"
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { k = $1 SUBSEP $2; if (!(k in row)) { row[k] = $0; order[++n] = k } next }
+		{ id = dev[$1]; if (id == "") next; k = id SUBSEP $2; if (!(k in row)) { row[k] = id OFS $2 OFS $3; order[++n] = k } }
+		END { for (i = 1; i <= n; i++) print row[order[i]] }
+	' "$W/map" "$HN_DATA/controls.tsv" "$W/ctl" > "$W/ctl2"
+	hn_write "$HN_DATA/controls.tsv" < "$W/ctl2"
+fi
+# 4c. schedules: MAC -> device, g:MAC (old group) -> person
+if [ -s "$R/device-schedules.tsv" ]; then
+	[ -f "$HN_DATA/schedules.tsv" ] || : > "$HN_DATA/schedules.tsv"
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { pid[$1] = $2; next }
+		NF >= 5 { t = tolower($2); id = (t ~ /^g:/ ? pid[t] : dev[t]); if (id == "") next
+		          print id, $3, $4, $5, ($6 == "0" ? 0 : 1), $7 }
+	' "$W/map" "$W/pmap" "$R/device-schedules.tsv" > "$W/sch"
+	while IFS="$TAB" read -r t d a b e l; do
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(hn_new_id s)" "$t" "$d" "$a" "$b" "$e" "$l"
+	done < "$W/sch" > "$W/sch2"
+	cat "$HN_DATA/schedules.tsv" "$W/sch2" | hn_write "$HN_DATA/schedules.tsv"
+	echo "schedules imported=$(wc -l < "$W/sch2")"
+fi
+# 4d. daily time limits: MAC -> device, g:MAC -> person
+if [ -s "$R/device-timelimits.tsv" ]; then
+	[ -f "$HN_DATA/timelimits.tsv" ] || : > "$HN_DATA/timelimits.tsv"
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { pid[$1] = $2; next }
+		FILENAME == ARGV[3] { have[$1] = 1; print; next }
+		$2 + 0 > 0 { t = tolower($1); id = (t ~ /^g:/ ? pid[t] : dev[t]); if (id != "" && !(id in have)) { have[id] = 1; print id, $2 + 0 } }
+	' "$W/map" "$W/pmap" "$HN_DATA/timelimits.tsv" "$R/device-timelimits.tsv" > "$W/tl"
+	hn_write "$HN_DATA/timelimits.tsv" < "$W/tl"
+fi
+# 4e. speed limits (Mbit/s per MAC) -> device rows in kbit/s. The old script also gave an old
+# group whose MACs all had the same limit one shared limiter for the group: a person row.
+if [ -s "$R/device-speed-limits.tsv" ]; then
+	[ -f "$HN_DATA/speed.tsv" ] || : > "$HN_DATA/speed.tsv"
+	awk -F '\t' -v OFS='\t' '
+		function kb(x) { x = x + 0; return (x > 0 && x <= 1000) ? sprintf("%.0f", x * 1000) : 0 }
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { pid[$1] = $2; next }
+		FILENAME == ARGV[3] { g = tolower($1); m = tolower($3); if (g != "" && m != "" && !seen[g, m]++) { grp[m] = g; n[g]++ } next }
+		FILENAME == ARGV[4] { have[$1] = 1; print; next }
+		{
+			m = tolower($1); d = kb($2); u = kb($3); if (d == 0 && u == 0) next
+			id = dev[m]; if (id != "" && !(id in have)) { have[id] = 1; print id, d, u }
+			g = grp[m]; if (g != "") { c[g]++; v = d " " u; if (!(g in val)) val[g] = v; else if (val[g] != v) diff[g] = 1 }
+		}
+		END { for (g in c) if (n[g] > 1 && c[g] == n[g] && !diff[g] && pid[g] != "" && !(pid[g] in have)) { split(val[g], a, " "); print pid[g], a[1], a[2] } }
+	' "$W/map" "$W/pmap" "$R/trafficmon-groups.tsv" "$HN_DATA/speed.tsv" "$R/device-speed-limits.tsv" > "$W/spd"
+	hn_write "$HN_DATA/speed.tsv" < "$W/spd"
+fi
+# 4f. usage limits per billing cycle: group limits (g:MAC) -> person, MAC limits -> device;
+# warn outside 50-100 % -> 80
+if [ -s "$R/trafficmon-limits.tsv" ] || [ -s "$R/trafficmon-group-limits.tsv" ]; then
+	[ -f "$HN_DATA/limits.tsv" ] || : > "$HN_DATA/limits.tsv"
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { pid[$1] = $2; next }
+		FILENAME == ARGV[3] { have[$1] = 1; print; next }
+		$2 + 0 > 0 {
+			t = tolower($1); id = (t ~ /^g:/ ? pid[t] : dev[t]); w = $3 + 0; if (w < 50 || w > 100) w = 80
+			if (id != "" && !(id in have)) { have[id] = 1; print id, sprintf("%.0f", $2), w }
+		}
+	' "$W/map" "$W/pmap" "$HN_DATA/limits.tsv" "$R/trafficmon-group-limits.tsv" "$R/trafficmon-limits.tsv" > "$W/lim"
+	hn_write "$HN_DATA/limits.tsv" < "$W/lim"
+fi
+# 4g. kids mode: MAC -> device, g:MAC -> person
+if [ -s "$R/kids-devices.tsv" ]; then
+	[ -f "$HN_DATA/kids.tsv" ] || : > "$HN_DATA/kids.tsv"
+	awk -F '\t' '
+		FILENAME == ARGV[1] { dev[$1] = $2; next }
+		FILENAME == ARGV[2] { pid[$1] = $2; next }
+		FILENAME == ARGV[3] { have[$1] = 1; print; next }
+		NF { t = tolower($1); id = (t ~ /^g:/ ? pid[t] : dev[t]); if (id != "" && !(id in have)) { have[id] = 1; print id } }
+	' "$W/map" "$W/pmap" "$HN_DATA/kids.tsv" "$R/kids-devices.tsv" > "$W/kids"
+	hn_write "$HN_DATA/kids.tsv" < "$W/kids"
+fi
+# 4h. site locks still running (mac|until|sites|custom) -> device
+if [ -s "$R/site-locks.tsv" ]; then
+	[ -f "$HN_DATA/sitelocks.tsv" ] || : > "$HN_DATA/sitelocks.tsv"
+	awk -F '|' -v OFS='\t' -v now="$NOW" '
+		FILENAME == ARGV[1] { split($0, f, "\t"); dev[f[1]] = f[2]; next }
+		$2 + 0 > now { id = dev[tolower($1)]; if (id != "") print id, $2, $3, $4 }
+	' "$W/map" "$R/site-locks.tsv" > "$W/sl"
+	while IFS="$TAB" read -r t u s c; do
+		printf '%s\t%s\t%s\t%s\t%s\n' "$(hn_new_id l)" "$t" "$u" "$s" "$c"
+	done < "$W/sl" > "$W/sl2"
+	cat "$HN_DATA/sitelocks.tsv" "$W/sl2" | hn_write "$HN_DATA/sitelocks.tsv"
+fi
+# 5. tables of features not ported yet
+mkdir -p "$HN_DATA/import"
+for f in $LATER; do [ -s "$R/$f" ] && cp -f "$R/$f" "$HN_DATA/import/$f"; done
+# 6. to flash now; marker (an import is done once)
+hn_write_records "$HN_DATA/device-macs.tsv" < "$HN_MACS" || die write_refused
+hn_persist
+{ echo "date=$today"; echo "sha256=$(sha256sum "$TB" | cut -d' ' -f1)"; } | hn_write "$HN_DATA/imported"
+flock -u 9
+
+# 7. fixed addresses through the API (same checks as the pages, and the DHCP guard)
+nres=0; nrej=0
+while IFS="$TAB" read -r v src macs ip name; do
+	[ "$v" = ok ] || continue
+	r="$(ubus call virox.homenet reserve "{\"mac\":\"$macs\",\"ip\":\"$ip\",\"name\":\"$(printf '%s' "$name" | tr -cd 'A-Za-z0-9-')\"}" 2>/dev/null |
+		jsonfilter -e '@.error' -e '@.result' | head -n 1)"
+	if [ "$r" = true ]; then nres=$((nres + 1)); echo "reservation imported mac=$macs ip=$ip"
+	else nrej=$((nrej + 1)); echo "reservation not_imported reason=${r:-api_failed} mac=$macs ip=$ip source=$src"; fi
+done < "$W/verdict"
+/usr/libexec/homenet/controls apply >/dev/null 2>&1
+report | grep -v '^reservation to_import'
+hn_event import_done info devices="$ndev" people="$ngrp" reservations="$nres"
+echo "summary mode=import devices=$ndev people=$ngrp history_days=$hdays reservations_imported=$nres reservations_not_imported=$(( $(grep -vc '^ok' "$W/verdict") + nrej ))"

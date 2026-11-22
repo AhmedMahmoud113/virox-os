@@ -1,0 +1,3 @@
+# HTTPS cannot be redirected to a plain page: refuse it while locked out.
+ip saddr @lg7200_locked4 tcp dport 443 counter reject with tcp reset comment "lg7200 login lockout"
+ip6 saddr @lg7200_locked6 tcp dport 443 counter reject with tcp reset comment "lg7200 login lockout"

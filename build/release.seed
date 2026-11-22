@@ -1,0 +1,79 @@
+CONFIG_TARGET_ramips=y
+CONFIG_TARGET_ramips_mt7621=y
+CONFIG_TARGET_ramips_mt7621_DEVICE_mercury_gapm7200=y
+CONFIG_ALL_KMODS=y
+CONFIG_KERNEL_KEXEC=y
+CONFIG_KERNEL_MPTCP=y
+CONFIG_TARGET_ROOTFS_INITRAMFS=y
+CONFIG_IB=y
+CONFIG_IB_STANDALONE=y
+# CONFIG_BUILDBOT is not set
+# --- in the image (=y)
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_kmod-wireguard=y
+CONFIG_PACKAGE_wireguard-tools=y
+# VPN client (homenet vpn, owner 2026-11-20): the OpenVPN files of VPN services
+CONFIG_PACKAGE_openvpn-mbedtls=y
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-sched-cake=y
+CONFIG_PACKAGE_kmod-ifb=y
+CONFIG_PACKAGE_sqm-scripts=y
+CONFIG_PACKAGE_luci-app-sqm=y
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-usb-storage-uas=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_kexec-tools=y
+CONFIG_PACKAGE_lg7200-base=y
+CONFIG_PACKAGE_luci-theme-virox=y
+CONFIG_PACKAGE_luci-theme-virox-vantage=y
+CONFIG_PACKAGE_luci-app-lg7200-setup=y
+CONFIG_PACKAGE_luci-i18n-lg7200-setup-ar=y
+CONFIG_PACKAGE_lg7200-update=y
+CONFIG_PACKAGE_lg7200-support=y
+# Wi-Fi (BUILD-PLAN B9 roaming + section 13): full wpad for 802.11k/v/r, usteer band steering
+CONFIG_PACKAGE_wpad-mbedtls=y
+# CONFIG_PACKAGE_wpad-basic-mbedtls is not set
+CONFIG_PACKAGE_usteer=y
+CONFIG_PACKAGE_luci-app-usteer=y
+# Games mode (P4): shipped switched off
+CONFIG_PACKAGE_miniupnpd-nftables=y
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-i18n-upnp-ar=y
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+CONFIG_LUCI_LANG_ar=y
+CONFIG_PACKAGE_luci-i18n-base-ar=y
+CONFIG_PACKAGE_luci-i18n-firewall-ar=y
+CONFIG_PACKAGE_luci-i18n-sqm-ar=y
+CONFIG_PACKAGE_luci-i18n-package-manager-ar=y
+# Repeater under a router that is not a Virox (15.4 item 1), when it does not take a 4-address client
+CONFIG_PACKAGE_relayd=y
+# USB disk sharing and USB printer (15.4 item 5): ksmbd (SMB2/3, no SMB1), p910nd (port 9100),
+# the file systems of USB sticks and disks
+CONFIG_PACKAGE_ksmbd-server=y
+CONFIG_PACKAGE_p910nd=y
+CONFIG_PACKAGE_kmod-usb-printer=y
+CONFIG_PACKAGE_kmod-fs-exfat=y
+CONFIG_PACKAGE_kmod-fs-ntfs3=y
+CONFIG_PACKAGE_kmod-nls-utf8=y
+CONFIG_PACKAGE_kmod-nls-cp437=y
+CONFIG_PACKAGE_kmod-nls-iso8859-1=y
+# --- built as packages (=m), not in the image
+CONFIG_PACKAGE_tcpdump=m
+CONFIG_PACKAGE_iperf3=m
+CONFIG_PACKAGE_ethtool=m
+CONFIG_PACKAGE_strace=m
+CONFIG_PACKAGE_mptcpd=m
+# Product identity: appended by tools/build.sh from config/product.conf (CONFIG_VERSION_*).
+# NAND health: ubihealthd ships in ubi-utils (package/utils/mtd-utils), which base-files
+# already pulls in through +NAND_SUPPORT:ubi-utils. Nothing to add.
+# Settled: dnsmasq stays plain (homenet uses no nftset); wpad is the full wpad-mbedtls (B9 roaming, 2026-11-17).
+# One public image with everything (BUILD-PLAN 15.8 item 1, Q3 changed 2026-11-21: preinstalled):
+# the home network, its pages and Arabic, two lines, access points
+CONFIG_PACKAGE_homenet=y
+CONFIG_PACKAGE_luci-app-homenet=y
+CONFIG_PACKAGE_luci-i18n-homenet-ar=y
+CONFIG_PACKAGE_homenet-dualwan=y
+CONFIG_PACKAGE_homenet-apctl=y

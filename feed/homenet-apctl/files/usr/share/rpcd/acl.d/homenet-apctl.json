@@ -1,0 +1,23 @@
+{
+	"homenet-admin": {
+		"description": "Virox API, access points, admin role",
+		"read": {
+			"ubus": {
+				"virox.apctl": [ "list", "agent_status", "update_status", "addresses" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.apctl": [ "addresses_set", "pair_code", "approve", "set_ap", "forget", "update", "update_all", "settings", "join", "restart_aps", "join_open", "join_close", "mesh_set", "repeat", "repeat_off", "scan" ]
+			}
+		}
+	},
+	"unauthenticated": {
+		"description": "Virox access points: pairing with the 6-digit code, the reports and backups of paired units (each checks its own proof: the code or the token of the pairing)",
+		"read": {
+			"ubus": {
+				"virox.apctl": [ "pair", "hello", "peer", "sync", "backup_get", "backup_put" ]
+			}
+		}
+	}
+}

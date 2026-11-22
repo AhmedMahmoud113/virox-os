@@ -1,0 +1,296 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# VPN client (owner 2026-11-20: any VPN, ExpressVPN was only an example). The owner gives the file
+# the VPN service offers for routers: a WireGuard .conf, or an OpenVPN .ovpn with its user name and
+# password. Everyone, or only chosen devices and people, then go to the internet through it. Kill
+# switch (on by default): while the VPN is down they have no internet rather than going out without
+# it. The router's own traffic, and everyone else, keep the normal line.
+#
+# How: chosen devices' packets get mark 0x10000 (nft table inet hn_vpn, by MAC); rule 881 sends that
+# mark to table 110, whose default route is the VPN device (WireGuard: netifd with ip4table 110;
+# OpenVPN: its up script); rule 880 keeps house and router addresses on the main table; an
+# "unreachable" default in table 110 is the kill switch. The tunnel's own packets carry mark 0x20000
+# (WireGuard fwmark, OpenVPN mark): homenet does not count them as the router's own traffic, since
+# what goes through the VPN is counted on each device (accounting rules, hn_vpn_dev).
+#
+# usage: vpn import <file> [username] [password] | apply | tick | status | remove
+#        (OpenVPN calls it as its up / down script: script_type=up|down, dev=...)
+. /usr/lib/homenet/common.sh
+
+DIR=/etc/homenet/vpn
+TABLE=110
+MARK=0x10000
+SMARK=131072        # 0x20000, the tunnel's own packets (OpenVPN wants it in decimal)
+OVDEV=tun-vpn
+
+# OpenVPN runs this file as its up / down script
+if [ -n "$script_type" ] && [ "$dev" = "$OVDEV" ]; then
+	case "$script_type" in
+		up) ip route replace default dev "$dev" table $TABLE ;;
+		down) ip route del default dev "$dev" table $TABLE 2>/dev/null ;;
+	esac
+	exit 0
+fi
+
+err() { echo "ERR $1"; exit 0; }
+kind() { uci -q get homenet.vpn.type; }
+on() { [ "$(uci -q get homenet.vpn.enabled)" = 1 ] && [ -n "$(kind)" ]; }
+vdev() { case "$(kind)" in wireguard) echo vpn ;; openvpn) echo "$OVDEV" ;; esac; }
+b64key() { echo "$1" | grep -qE '^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$'; }
+section() { uci -q get homenet.vpn >/dev/null || uci set homenet.vpn=vpn; }
+
+# ------------------------------------------------------------------ the file of the VPN service
+wg_import() {
+	local f="$1" pk addr mtu pub psk ep host port ka a
+	val() { awk -v s="$1" -v k="$2" '
+		/^[ \t]*\[/ { cur = tolower($0); gsub(/[^a-z]/, "", cur); next }
+		cur == s { line = $0; sub(/[ \t]*#.*/, "", line); n = index(line, "="); if (!n) next
+			key = tolower(substr(line, 1, n - 1)); gsub(/[ \t]/, "", key)
+			v = substr(line, n + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
+			if (key == k) { print v; exit } }' "$f"; }
+	pk="$(val interface privatekey)"; addr="$(val interface address)"; mtu="$(val interface mtu)"
+	pub="$(val peer publickey)"; psk="$(val peer presharedkey)"; ep="$(val peer endpoint)"; ka="$(val peer persistentkeepalive)"
+	b64key "$pk" && b64key "$pub" || err invalid_vpn_key
+	[ -z "$psk" ] || b64key "$psk" || err invalid_vpn_key
+	host="${ep%:*}"; port="${ep##*:}"; host="${host#[}"; host="${host%]}"
+	echo "$host" | grep -qE '^[A-Za-z0-9.:-]{1,253}$' && echo "$port" | grep -qE '^[0-9]{1,5}$' || err invalid_endpoint
+	# the house is IPv4-only while homenet is on (P1): the IPv4 addresses of the tunnel
+	addr="$(echo "$addr" | tr ',' '\n' | tr -d ' ' | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$')"
+	[ -n "$addr" ] || err invalid_address
+	echo "$mtu" | grep -qE '^[0-9]{3,4}$' || mtu=1420
+	uci -q delete network.vpn; uci -q delete network.vpn_peer
+	uci set network.vpn=interface
+	uci set network.vpn.proto=wireguard
+	uci set network.vpn.private_key="$pk"
+	for a in $addr; do uci add_list network.vpn.addresses="$a"; done
+	uci set network.vpn.mtu="$mtu"
+	uci set network.vpn.fwmark=0x20000
+	uci set network.vpn.ip4table=$TABLE
+	# the tunnel's packets find the server by the main table (their mark has no rule), so no host
+	# route and no waiting for the server's address on a netifd interface
+	uci set network.vpn.nohostroute=1
+	uci set network.vpn.disabled=1
+	uci set network.vpn_peer=wireguard_vpn
+	uci set network.vpn_peer.public_key="$pub"
+	[ -n "$psk" ] && uci set network.vpn_peer.preshared_key="$psk"
+	uci set network.vpn_peer.endpoint_host="$host"
+	uci set network.vpn_peer.endpoint_port="$port"
+	uci add_list network.vpn_peer.allowed_ips=0.0.0.0/0
+	uci set network.vpn_peer.route_allowed_ips=1
+	uci set network.vpn_peer.persistent_keepalive="${ka:-25}"
+	uci commit network
+	section; uci set homenet.vpn.type=wireguard; uci set homenet.vpn.server="$host"
+}
+
+ov_import() {
+	local f="$1" user="$2" pass="$3" remote
+	remote="$(awk '/^[ \t]*remote[ \t]/ { print $2; exit }' "$f")"
+	echo "$remote" | grep -qE '^[A-Za-z0-9.:-]{1,253}$' || err invalid_file
+	mkdir -p "$DIR"; chmod 700 "$DIR"
+	# the service's file without anything that runs programs or changes where files go: it comes
+	# from outside, and OpenVPN runs as root
+	awk '{ w = tolower($1); sub(/^--/, "", w) }
+		w ~ /^(up|down|route-up|route-pre-down|ipchange|client-connect|client-disconnect|learn-address|tls-verify|auth-user-pass-verify|script-security|plugin|iproute|dev|dev-type|dev-node|mark|log|log-append|status|daemon|cd|chroot|writepid|management|config|auth-user-pass|user|group|redirect-gateway|redirect-private|route-noexec|pull-filter)$/ { next }
+		{ print }' "$f" > "$DIR/client.ovpn"
+	chmod 600 "$DIR/client.ovpn"
+	{
+		echo "config $DIR/client.ovpn"
+		echo "dev $OVDEV"; echo "dev-type tun"
+		echo "mark $SMARK"
+		echo "route-noexec"
+		echo 'pull-filter ignore "redirect-gateway"'
+		echo 'pull-filter ignore "route-ipv6"'
+		echo 'pull-filter ignore "ifconfig-ipv6"'
+		echo "script-security 2"
+		echo "up /usr/libexec/homenet/vpn"; echo "down /usr/libexec/homenet/vpn"
+		echo "auth-nocache"
+		if [ -n "$user" ]; then echo "auth-user-pass $DIR/auth"; fi
+	} > "$DIR/virox.ovpn"
+	if [ -n "$user" ]; then printf '%s\n%s\n' "$user" "$pass" > "$DIR/auth"; chmod 600 "$DIR/auth"; else rm -f "$DIR/auth"; fi
+	uci -q delete network.vpn; uci -q delete network.vpn_peer; uci commit network
+	uci -q get openvpn >/dev/null 2>&1 || touch /etc/config/openvpn
+	uci -q delete openvpn.virox
+	uci set openvpn.virox=openvpn
+	uci set openvpn.virox.config="$DIR/virox.ovpn"
+	uci set openvpn.virox.enabled=0
+	uci commit openvpn
+	section; uci set homenet.vpn.type=openvpn; uci set homenet.vpn.server="$remote"
+}
+
+import() {
+	local f="$1"
+	[ -s "$f" ] && [ "$(wc -c < "$f")" -le 65536 ] || err invalid_file
+	teardown
+	if grep -qiE '^[ \t]*\[interface\]' "$f"; then wg_import "$f"
+	elif grep -qE '^[ \t]*remote[ \t]' "$f"; then
+		[ -x /usr/sbin/openvpn ] || err no_openvpn
+		ov_import "$f" "$2" "$3"
+	else err invalid_file; fi
+	uci -q get homenet.vpn.who >/dev/null || uci set homenet.vpn.who=chosen
+	uci -q get homenet.vpn.killswitch >/dev/null || uci set homenet.vpn.killswitch=1
+	uci commit homenet
+	apply
+	echo OK
+}
+
+# ------------------------------------------------------------------ on / off
+macs() { # the MACs of the chosen devices and people
+	local t
+	for t in $(uci -q get homenet.vpn.targets); do
+		case "$t" in
+			p*) awk -F '\t' -v p="$t" 'FILENAME == ARGV[1] { if ($3 == p) d[$1] = 1; next } ($2 in d) { print $1 }' "$HN_DEVICES" "$HN_MACS" ;;
+			d*) awk -F '\t' -v d="$t" '$2 == d { print $1 }' "$HN_MACS" ;;
+		esac
+	done 2>/dev/null | sort -u
+}
+
+nft_mark() {
+	local lan m
+	lan="$(hn_lan_dev)"
+	m="$(macs | tr '\n' ',' | sed 's/,$//')"
+	{
+		echo "add table inet hn_vpn"
+		echo "delete table inet hn_vpn"
+		echo "table inet hn_vpn {"
+		if [ -n "$m" ]; then echo "	set devs { type ether_addr; elements = { $m }; }"; else echo "	set devs { type ether_addr; }"; fi
+		# after the lines' chain (priority mangle), which sets the mark again from the connection
+		echo "	chain pre { type filter hook prerouting priority mangle + 1; policy accept;"
+		if [ "$(uci -q get homenet.vpn.who)" = all ]; then echo "		iifname \"$lan\" meta mark set meta mark | $MARK"
+		else echo "		iifname \"$lan\" ether saddr @devs meta mark set meta mark | $MARK"; fi
+		echo "	}"
+		echo "}"
+	} | nft -f -
+}
+
+kill_route() {
+	if on && [ "$(uci -q get homenet.vpn.killswitch)" != 0 ]; then
+		ip route replace unreachable default metric 4096 table $TABLE
+	else
+		# (already gone: the minute's tick may have been first)
+		ip route del unreachable default metric 4096 table $TABLE 2>/dev/null
+	fi
+	return 0
+}
+
+rules() { # $1 = 1 on, 0 off
+	uci -q delete network.vpn_rule_main; uci -q delete network.vpn_rule
+	if [ "$1" = 1 ]; then
+		# house and router addresses stay on the main table (all of it but its default route)
+		uci set network.vpn_rule_main=rule
+		uci set network.vpn_rule_main.priority=880
+		uci set network.vpn_rule_main.lookup=main
+		uci set network.vpn_rule_main.suppress_prefixlength=0
+		uci set network.vpn_rule=rule
+		uci set network.vpn_rule.priority=881
+		uci set network.vpn_rule.mark="$MARK/$MARK"
+		uci set network.vpn_rule.lookup=$TABLE
+	fi
+}
+
+zone() { # $1 = device or "" (none)
+	uci -q delete firewall.vpn; uci -q delete firewall.vpn_fwd
+	if [ -n "$1" ]; then
+		uci set firewall.vpn=zone
+		uci set firewall.vpn.name=vpn
+		uci add_list firewall.vpn.device="$1"
+		uci set firewall.vpn.input=REJECT
+		uci set firewall.vpn.output=ACCEPT
+		uci set firewall.vpn.forward=REJECT
+		uci set firewall.vpn.masq=1
+		uci set firewall.vpn.mtu_fix=1
+		uci set firewall.vpn_fwd=forwarding
+		uci set firewall.vpn_fwd.src=lan
+		uci set firewall.vpn_fwd.dest=vpn
+	fi
+	uci commit firewall
+}
+
+teardown() {
+	[ -f /etc/config/openvpn ] && uci -q get openvpn.virox >/dev/null && { uci set openvpn.virox.enabled=0; uci commit openvpn; /etc/init.d/openvpn stop virox >/dev/null 2>&1; }
+	uci -q get network.vpn >/dev/null && uci set network.vpn.disabled=1
+	rules 0; uci commit network
+	zone ""
+	nft delete table inet hn_vpn 2>/dev/null
+	ip route flush table $TABLE 2>/dev/null
+}
+
+apply() {
+	if ! on; then
+		teardown
+		/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1
+	else
+		rules 1
+		case "$(kind)" in
+			wireguard) uci set network.vpn.disabled=0 ;;
+			openvpn) uci set openvpn.virox.enabled=1; uci commit openvpn ;;
+		esac
+		uci commit network
+		zone "$(vdev)"
+		/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1
+		[ "$(kind)" = openvpn ] && /etc/init.d/openvpn restart virox >/dev/null 2>&1
+		nft_mark
+		kill_route
+	fi
+	# counting through the VPN on each device, and "ask me first" for new devices on it too
+	/usr/libexec/homenet/accounting rules >/dev/null 2>&1
+	/usr/libexec/homenet/controls apply >/dev/null 2>&1
+	return 0
+}
+
+# every minute: the chosen people's new devices, the kill switch after a network restart
+tick() {
+	on || return 0
+	nft_mark
+	kill_route
+}
+
+remove() {
+	section; uci set homenet.vpn.enabled=0; uci commit homenet
+	teardown
+	uci -q delete network.vpn; uci -q delete network.vpn_peer; uci commit network
+	[ -f /etc/config/openvpn ] && { uci -q delete openvpn.virox; uci commit openvpn; }
+	rm -rf "$DIR"
+	uci -q delete homenet.vpn.type; uci -q delete homenet.vpn.server; uci commit homenet
+	/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1
+	/usr/libexec/homenet/accounting rules >/dev/null 2>&1
+	echo OK
+}
+
+status() {
+	local d up=false hs="" rx=0 tx=0 t
+	d="$(vdev)"
+	if on && [ -n "$d" ] && [ -d "/sys/class/net/$d" ]; then
+		rx="$(cat /sys/class/net/$d/statistics/rx_bytes)"; tx="$(cat /sys/class/net/$d/statistics/tx_bytes)"
+		case "$(kind)" in
+			# WireGuard has no "connected": a handshake in the last 3 minutes
+			wireguard) hs="$(wg show "$d" latest-handshakes 2>/dev/null | awk '{ print $2; exit }')"
+			           [ -n "$hs" ] && [ "$hs" -gt 0 ] && [ $(( $(date +%s) - hs )) -lt 180 ] && up=true ;;
+			openvpn) ip route show table $TABLE | grep -q "^default dev $d" && up=true ;;
+		esac
+	fi
+	. /usr/share/libubox/jshn.sh
+	json_init
+	json_add_boolean enabled "$(on && echo 1 || echo 0)"
+	json_add_string type "$(kind)"
+	json_add_string server "$(uci -q get homenet.vpn.server)"
+	json_add_boolean connected "$([ "$up" = true ] && echo 1 || echo 0)"
+	[ -n "$hs" ] && [ "$hs" -gt 0 ] && json_add_int handshake "$hs"
+	json_add_string rx "$rx"; json_add_string tx "$tx"
+	json_add_string who "$(uci -q get homenet.vpn.who || echo chosen)"
+	json_add_array targets; for t in $(uci -q get homenet.vpn.targets); do json_add_string "" "$t"; done; json_close_array
+	json_add_boolean killswitch "$([ "$(uci -q get homenet.vpn.killswitch)" = 0 ] && echo 0 || echo 1)"
+	# an access point only bridges: the VPN is the main router's (the page hides it here)
+	json_add_boolean ap "$([ "$(uci -q get lg7200.state.mode)" = ap ] && echo 1 || echo 0)"
+	json_add_boolean openvpn_installed "$([ -x /usr/sbin/openvpn ] && echo 1 || echo 0)"
+	json_dump
+}
+
+hn_prepare >/dev/null 2>&1
+case "$1" in
+	import) import "$2" "$3" "$4" ;;
+	apply) apply; echo OK ;;
+	tick) tick ;;
+	status) status ;;
+	remove) remove ;;
+	*) echo "usage: $0 import <file> [username] [password] | apply | tick | status | remove" >&2; exit 2 ;;
+esac

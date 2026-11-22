@@ -1,0 +1,3566 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-homenet\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+msgid "Home"
+msgstr "الرئيسية"
+
+msgid "Devices"
+msgstr "الأجهزة"
+
+msgid "Usage"
+msgstr "الاستهلاك"
+
+msgid "Control"
+msgstr "التحكم"
+
+msgctxt "Virox"
+msgid "Settings"
+msgstr "الإعدادات"
+
+msgid "My devices"
+msgstr "أجهزتي"
+
+msgid "Simple menu"
+msgstr "القائمة البسيطة"
+
+msgid "Advanced settings"
+msgstr "الإعدادات المتقدمة"
+
+msgid "This device or person no longer exists."
+msgstr "هذا الجهاز أو الشخص لم يعد موجودًا."
+
+msgid "This device no longer exists (it may have been merged or removed)."
+msgstr "هذا الجهاز لم يعد موجودًا (ربما تم دمجه أو حذفه)."
+
+msgid "This person no longer exists."
+msgstr "هذا الشخص لم يعد موجودًا."
+
+msgid "Type a name."
+msgstr "اكتب اسمًا."
+
+msgid "The name is too long: at most 40 characters."
+msgstr "الاسم طويل: 40 حرفًا على الأكثر."
+
+msgid "There is already a person with this name."
+msgstr "يوجد شخص آخر بالاسم نفسه."
+
+msgid "This is the same device."
+msgstr "هذا هو الجهاز نفسه."
+
+msgid "This duration is not allowed."
+msgstr "هذه المدة غير مسموح بها."
+
+msgid "This device is not waiting for approval."
+msgstr "هذا الجهاز ليس بانتظار الموافقة."
+
+msgid "Unknown choice."
+msgstr "اختيار غير معروف."
+
+msgid "An error was stopped before it could delete data. Nothing changed."
+msgstr "تم إيقاف خطأ قبل أن يحذف بيانات. لم يتغير شيء."
+
+msgid "There is no earlier version to go back to."
+msgstr "لا توجد نسخة سابقة للرجوع إليها."
+
+msgid "Choose at least one day."
+msgstr "اختر يومًا واحدًا على الأقل."
+
+msgid "Write the time like 21:30."
+msgstr "اكتب الوقت بهذا الشكل: 21:30."
+
+msgid "Start and end cannot be the same time."
+msgstr "لا يمكن أن تكون البداية والنهاية في الوقت نفسه."
+
+msgid "The list is full."
+msgstr "القائمة ممتلئة."
+
+msgid "This schedule no longer exists."
+msgstr "هذا الجدول لم يعد موجودًا."
+
+msgid "Type the package size in GB (0 to 100000)."
+msgstr "اكتب حجم الباقة بالجيجا (من 0 إلى 100000)."
+
+msgid "The renewal day is 1 to 31."
+msgstr "يوم التجديد من 1 إلى 31."
+
+msgid "The warning is 50 % to 100 %."
+msgstr "التنبيه من 50% إلى 100%."
+
+msgid "Use 1 to 10000 KB."
+msgstr "اكتب رقمًا من 1 إلى 10000 كيلوبايت."
+
+msgid "Speed is 0.1 to 1000 Mbit/s, or 0 for no limit."
+msgstr "السرعة من 0.1 إلى 1000 ميجابت/ث، أو 0 بلا حد."
+
+msgid "Type the limit in GB."
+msgstr "اكتب الحد بالجيجا."
+
+msgid "The remaining amount is larger than the package."
+msgstr "المتبقي أكبر من حجم الباقة."
+
+msgid "Set the package size first."
+msgstr "حدد حجم الباقة أولًا."
+
+msgid "The router clock is not set yet. Try again in a few minutes."
+msgstr "ساعة الراوتر لم تُضبط بعد. حاول مرة أخرى بعد دقائق."
+
+msgid "This value is not allowed."
+msgstr "هذه القيمة غير مسموح بها."
+
+msgid "Type a site name like example.com"
+msgstr "اكتب اسم موقع مثل example.com"
+
+msgid "Unknown site."
+msgstr "موقع غير معروف."
+
+msgid "Choose a site or type one."
+msgstr "اختر موقعًا أو اكتب اسمه."
+
+msgid "This lock has already ended."
+msgstr "هذا الحظر انتهى بالفعل."
+
+msgid "Unknown list size."
+msgstr "حجم القائمة غير معروف."
+
+msgid "The start signal could not be sent."
+msgstr "تعذّر إرسال إشارة التشغيل."
+
+msgid "This device number (MAC) is not valid."
+msgstr "رقم الجهاز (MAC) غير صحيح."
+
+msgid "This device number (MAC) is not known."
+msgstr "رقم الجهاز (MAC) هذا غير معروف."
+
+msgid "Use 3 to 16 small English letters, digits or _, starting with a letter."
+msgstr "من 3 إلى 16 حرفًا: حروف إنجليزية صغيرة أو أرقام أو _، ويبدأ بحرف."
+
+msgid "Use 8 to 64 characters for the password."
+msgstr "كلمة المرور من 8 إلى 64 حرفًا."
+
+msgid "This user name is taken."
+msgstr "اسم المستخدم هذا محجوز لحساب آخر."
+
+msgid "This user no longer exists."
+msgstr "هذا الحساب لم يعد موجودًا."
+
+msgid "The password could not be saved. Try again."
+msgstr "تعذّر حفظ كلمة المرور. حاول مرة أخرى."
+
+msgid "This part is not installed on this router."
+msgstr "هذا الجزء غير مثبت على هذا الراوتر."
+
+msgid "Type a valid address."
+msgstr "اكتب عنوانًا صحيحًا."
+
+msgid "This address is not in the home network."
+msgstr "هذا العنوان ليس من شبكة المنزل."
+
+msgid "This is the address of the router itself."
+msgstr "هذا عنوان الراوتر نفسه."
+
+msgid "This address is reserved for the network."
+msgstr "هذا العنوان محجوز للشبكة."
+
+msgid "This address is reserved for another device."
+msgstr "هذا العنوان محجوز لجهاز آخر."
+
+msgid "This device already has a fixed address."
+msgstr "هذا الجهاز له عنوان ثابت بالفعل."
+
+msgid "Another device uses this address now."
+msgstr "جهاز آخر يستخدم هذا العنوان الآن."
+
+msgid "This setting stopped address handout, so the last working settings were put back."
+msgstr "هذا الإعداد أوقف توزيع العناوين، فتمت إعادة آخر إعدادات كانت تعمل."
+
+msgid "Address handout is stopped and there are no working settings to go back to."
+msgstr "توزيع العناوين متوقف ولا توجد إعدادات سابقة تعمل للرجوع إليها."
+
+msgid "Something went wrong. Try again."
+msgstr "حدثت مشكلة. حاول مرة أخرى."
+
+msgid "Loading…"
+msgstr "جارٍ التحميل…"
+
+msgid "The router did not answer. Check that you are still connected to it, then reload the page."
+msgstr "لم يرد الراوتر. تأكد أنك ما زلت متصلًا به، ثم أعد تحميل الصفحة."
+
+msgid "Reload"
+msgstr "إعادة التحميل"
+
+msgid "The router did not answer."
+msgstr "لم يرد الراوتر."
+
+msgid "Cancel"
+msgstr "إلغاء"
+
+msgid "Yes"
+msgstr "نعم"
+
+msgid "%s (all devices)"
+msgstr "%s (كل أجهزته)"
+
+msgid "Unnamed device"
+msgstr "جهاز بدون اسم"
+
+msgid "Choose…"
+msgstr "اختر…"
+
+msgid "Sun"
+msgstr "الأحد"
+
+msgid "Mon"
+msgstr "الاثنين"
+
+msgid "Tue"
+msgstr "الثلاثاء"
+
+msgid "Wed"
+msgstr "الأربعاء"
+
+msgid "Thu"
+msgstr "الخميس"
+
+msgid "Fri"
+msgstr "الجمعة"
+
+msgid "Sat"
+msgstr "السبت"
+
+msgid "For example: bedtime"
+msgstr "مثلًا: وقت النوم"
+
+msgid "In force now"
+msgstr "الإيقاف سارٍ الآن"
+
+msgid "Switch off"
+msgstr "إيقاف الجدول"
+
+msgid "Switch on"
+msgstr "تشغيل الجدول"
+
+msgid "Removed."
+msgstr "تم الحذف."
+
+msgctxt "Virox"
+msgid "Remove"
+msgstr "حذف"
+
+msgid "No internet on the chosen days between the two times. An end before the start runs past midnight."
+msgstr "ينقطع الإنترنت في الأيام المختارة بين الوقتين. إذا كانت النهاية قبل البداية فالإيقاف يستمر بعد منتصف الليل."
+
+msgid "No schedule yet."
+msgstr "لا توجد جداول بعد."
+
+msgid "New schedule"
+msgstr "جدول إيقاف جديد"
+
+msgid "For"
+msgstr "يُطبق على"
+
+msgid "Days"
+msgstr "الأيام"
+
+msgid "From"
+msgstr "من"
+
+msgid "To"
+msgstr "إلى"
+
+msgid "Name (optional)"
+msgstr "الاسم (اختياري)"
+
+msgid "Added."
+msgstr "تمت الإضافة."
+
+msgctxt "Virox"
+msgid "Add"
+msgstr "إضافة"
+
+msgid "%s a day"
+msgstr "%s في اليوم"
+
+msgid "used today:"
+msgstr "المستخدم اليوم:"
+
+msgid "Used up"
+msgstr "انتهى الوقت"
+
+msgid "No daily time limit yet."
+msgstr "لا يوجد وقت يومي محدد بعد."
+
+msgid "New daily time"
+msgstr "وقت يومي جديد"
+
+msgid "Minutes per day"
+msgstr "الدقائق في اليوم"
+
+msgid "Saved."
+msgstr "تم الحفظ."
+
+msgid "Save"
+msgstr "حفظ"
+
+msgid "What counts as a minute of use"
+msgstr "متى تُحسب دقيقة الاستخدام"
+
+msgid "A minute counts only when the device moved more than this much data in it. Phones send small amounts in the background all the time; those minutes do not count."
+msgstr "تُحسب الدقيقة فقط إذا نقل الجهاز فيها بيانات أكثر من هذه الكمية. الهواتف ترسل كميات صغيرة في الخلفية طوال الوقت، وهذه الدقائق لا تُحسب."
+
+msgid "KB in a minute (normally 40)"
+msgstr "كيلوبايت في الدقيقة (القيمة المعتادة 40)"
+
+msgid "Set these per device or person on the Devices page, under More."
+msgstr "تُضبط لكل جهاز أو شخص من صفحة «الأجهزة»، ثم «المزيد»."
+
+msgid "Speed limits"
+msgstr "حدود السرعة"
+
+msgid "No speed limit."
+msgstr "لا يوجد حد للسرعة."
+
+msgid "Usage limits per cycle"
+msgstr "حدود الاستهلاك لكل دورة"
+
+msgid "Reached"
+msgstr "وصل إلى الحد"
+
+msgid "No usage limit."
+msgstr "لا يوجد حد للاستهلاك."
+
+msgid "Safe search, YouTube in restricted mode, the kids list below closed, and the usual ways around the filter closed (other DNS servers, encrypted DNS)."
+msgstr "البحث الآمن، ويوتيوب في الوضع المقيّد، وحظر مواقع قائمة الأطفال أدناه، وسد الطرق المعروفة لتجاوز الفلتر (خوادم DNS أخرى وDNS المشفر)."
+
+msgid "Kids mode is off."
+msgstr "تم إيقاف وضع الأطفال."
+
+msgid "Turn off"
+msgstr "إيقاف"
+
+msgid "No device in kids mode."
+msgstr "لا يوجد جهاز في وضع الأطفال."
+
+msgid "Kids mode is on."
+msgstr "تم تشغيل وضع الأطفال."
+
+msgid "Tip: choose \"Ask me first\" for new devices, so a new device number does not get around the rules."
+msgstr "نصيحة: اختر «اسألني أولًا» للأجهزة الجديدة، حتى لا يتجاوز الطفل القواعد برقم جهاز جديد."
+
+msgid "Turn on"
+msgstr "تشغيل"
+
+msgid "Sites closed for kids only"
+msgstr "مواقع محظورة على الأطفال فقط"
+
+msgid "None."
+msgstr "لا شيء."
+
+msgid "Close this site"
+msgstr "حظر هذا الموقع"
+
+msgid "Start a temporary block on the Devices page, under More. It ends by itself."
+msgstr "ابدأ الحظر المؤقت من صفحة «الأجهزة»، ثم «المزيد». ينتهي الحظر المؤقت تلقائيًا في موعده."
+
+msgid "%s left"
+msgstr "المتبقي %s"
+
+msgid "Unlocked."
+msgstr "تم إنهاء الحظر."
+
+msgid "Unlock"
+msgstr "إنهاء الحظر"
+
+msgid "No site is locked now."
+msgstr "لا توجد مواقع محظورة مؤقتًا الآن."
+
+msgid "Small (fewest names, least memory)"
+msgstr "صغيرة (أقل عدد من المواقع وأقل ذاكرة)"
+
+msgid "Normal (recommended)"
+msgstr "عادية (موصى بها)"
+
+msgid "Large"
+msgstr "كبيرة"
+
+msgid "Very large (needs the most memory)"
+msgstr "كبيرة جدًا (تحتاج أكبر قدر من الذاكرة)"
+
+msgid "download failed, will retry"
+msgstr "فشل التحميل، وستتم إعادة المحاولة"
+
+msgid "downloading…"
+msgstr "جارٍ التحميل…"
+
+msgid "Applies to every device in the house. The lists are downloaded by the router and refreshed every night."
+msgstr "يُطبق على كل أجهزة المنزل. يحمّل الراوتر القوائم ويحدّثها كل ليلة."
+
+msgid "Ads, trackers and harmful sites"
+msgstr "الإعلانات والتتبع والمواقع الضارة"
+
+msgid "List size"
+msgstr "حجم القائمة"
+
+msgid "The router memory is low, so a smaller list is in use for now."
+msgstr "ذاكرة الراوتر منخفضة، لذلك تُستخدم قائمة أصغر حاليًا."
+
+msgid "Adult sites"
+msgstr "مواقع البالغين"
+
+msgid "Gambling sites"
+msgstr "مواقع القمار"
+
+msgid "Ways around the filter (VPN, proxy, encrypted DNS services)"
+msgstr "طرق تجاوز الفلتر (VPN والبروكسي وخدمات DNS المشفر)"
+
+msgid "Safe search for everyone"
+msgstr "البحث الآمن للجميع"
+
+msgid "YouTube restricted mode for everyone"
+msgstr "يوتيوب في الوضع المقيّد للجميع"
+
+msgid "Saved. The lists are being prepared; this takes a minute or two."
+msgstr "تم الحفظ. يتم تجهيز القوائم، وقد يستغرق ذلك دقيقة أو دقيقتين."
+
+msgid "The last list could not be loaded; the filter kept its previous state."
+msgstr "تعذّر تحميل آخر قائمة، وبقي الفلتر على حالته السابقة."
+
+msgid "My own list"
+msgstr "قائمتي"
+
+msgid "Closed."
+msgstr "تم الحظر."
+
+msgid "Always open."
+msgstr "سيبقى مسموحًا دائمًا."
+
+msgid "Never close this site"
+msgstr "السماح دائمًا"
+
+msgid "Closed"
+msgstr "محظور"
+
+msgid "Always open"
+msgstr "مسموح دائمًا"
+
+msgid "Now: a new device gets no internet until you allow it."
+msgstr "الإعداد الحالي: الجهاز الجديد لا يحصل على إنترنت حتى توافق عليه."
+
+msgid "Now: every new device gets internet at once."
+msgstr "الإعداد الحالي: أي جهاز جديد يحصل على الإنترنت فورًا."
+
+msgid "\"Ask me first\" stops a child from getting around the rules with a new device number. Every device connected now stays allowed."
+msgstr "«اسألني أولًا» يمنع الطفل من تجاوز القواعد برقم جهاز جديد. كل الأجهزة المتصلة الآن تبقى مسموحًا لها."
+
+msgid "Let new devices in at once"
+msgstr "السماح للأجهزة الجديدة فورًا"
+
+msgid "Ask me first"
+msgstr "اسألني أولًا"
+
+msgid "Schedules"
+msgstr "جداول الإيقاف"
+
+msgid "Daily time"
+msgstr "الوقت اليومي"
+
+msgid "Limits"
+msgstr "الحدود"
+
+msgid "Kids mode"
+msgstr "وضع الأطفال"
+
+msgid "Site locks"
+msgstr "الحظر المؤقت للمواقع"
+
+msgid "House filter"
+msgstr "فلتر المنزل"
+
+msgid "New devices"
+msgstr "الأجهزة الجديدة"
+
+msgid "Waiting for approval"
+msgstr "بانتظار الموافقة"
+
+msgid "Blocked"
+msgstr "محظور"
+
+msgid "Paused until"
+msgstr "متوقف مؤقتًا حتى"
+
+msgid "Off by schedule"
+msgstr "متوقف حسب الجدول"
+
+msgid "Daily time used up"
+msgstr "انتهى الوقت اليومي"
+
+msgid "Time left today:"
+msgstr "الوقت المتبقي اليوم:"
+
+msgid "Usage limit reached"
+msgstr "وصل إلى حد الاستهلاك"
+
+msgid "Sites locked"
+msgstr "مواقع محظورة مؤقتًا"
+
+msgid "Speed limited"
+msgstr "السرعة محددة"
+
+msgid "Online (Wi-Fi)"
+msgstr "متصل (واي فاي)"
+
+msgid "Online (cable)"
+msgstr "متصل (كابل)"
+
+msgid "Offline"
+msgstr "غير متصل"
+
+msgid "Belongs to"
+msgstr "يخص"
+
+msgid "Today"
+msgstr "اليوم"
+
+msgid "This cycle"
+msgstr "منذ آخر تجديد"
+
+msgid "Allowed."
+msgstr "تم السماح."
+
+msgid "Allow"
+msgstr "السماح"
+
+msgid "Internet is back."
+msgstr "عاد الإنترنت."
+
+msgid "Resume"
+msgstr "استئناف"
+
+msgid "Pause"
+msgstr "إيقاف مؤقت"
+
+msgid "Unblocked."
+msgstr "تم إلغاء الحظر."
+
+msgid "Unblock"
+msgstr "إلغاء الحظر"
+
+msgid "Block %s?"
+msgstr "حظر %s؟"
+
+msgid "This device will have no internet until you unblock it."
+msgstr "لن يحصل هذا الجهاز على إنترنت حتى تلغي الحظر."
+
+msgid "Block"
+msgstr "حظر"
+
+msgid "Blocked."
+msgstr "تم الحظر."
+
+msgid "More"
+msgstr "المزيد"
+
+msgid "Pause %s"
+msgstr "إيقاف %s مؤقتًا"
+
+msgid "No internet for:"
+msgstr "بدون إنترنت لمدة:"
+
+msgid "Paused."
+msgstr "تم الإيقاف المؤقت."
+
+msgid "Until midnight"
+msgstr "حتى منتصف الليل"
+
+msgid "Nobody"
+msgstr "لا أحد"
+
+msgctxt "Virox"
+msgid "Name"
+msgstr "الاسم"
+
+msgid "Remove %s?"
+msgstr "حذف %s؟"
+
+msgid "The devices stay; only the person and the settings made for the person are removed."
+msgstr "تبقى الأجهزة، ويُحذف الشخص فقط مع الإعدادات الخاصة به."
+
+msgid "Remove person"
+msgstr "حذف الشخص"
+
+msgid "Speed limit"
+msgstr "حد السرعة"
+
+msgid "One limit shared by all devices of this person. Empty or 0 = no limit."
+msgstr "حد واحد مشترك لكل أجهزة هذا الشخص. اتركه فارغًا ليكون بلا حد."
+
+msgid "Empty or 0 = no limit."
+msgstr "اتركه فارغًا ليكون بلا حد."
+
+msgid "Download (Mbit/s)"
+msgstr "التحميل (ميجابت في الثانية)"
+
+msgid "Upload (Mbit/s)"
+msgstr "الرفع (ميجابت في الثانية)"
+
+msgid "Usage limit per cycle"
+msgstr "حد الاستهلاك لكل دورة"
+
+msgid "Used:"
+msgstr "المستخدم:"
+
+msgid "Limit (GB), empty or 0 = no limit"
+msgstr "الحد بالجيجا، اتركه فارغًا ليكون بلا حد"
+
+msgid "Warn me at"
+msgstr "نبّهني عند"
+
+msgid "Daily internet time"
+msgstr "وقت الإنترنت اليومي"
+
+msgid "Only minutes with real use count; a phone lying idle does not use the time."
+msgstr "تُحسب فقط الدقائق التي فيها استخدام فعلي، والهاتف المتروك دون استخدام لا يستهلك من الوقت."
+
+msgid "Minutes per day, empty or 0 = no limit"
+msgstr "الدقائق في اليوم، اتركه فارغًا ليكون بلا حد"
+
+msgid "Safe search on Google, Bing and DuckDuckGo, YouTube in restricted mode, adult and kids-blocked sites closed, and the usual ways around the filter closed."
+msgstr "البحث الآمن في جوجل وبينج وداك داك جو، ويوتيوب في الوضع المقيّد، وحظر مواقع البالغين ومواقع قائمة الأطفال، وسد الطرق المعروفة لتجاوز الفلتر."
+
+msgid "On through the person."
+msgstr "مفعّل عن طريق الشخص."
+
+msgid "Tip: a child can get around the rules by letting the phone show a new device number. On the Control page, under New devices, choose \"Ask me first\"."
+msgstr "نصيحة: قد يتجاوز الطفل القواعد إذا ظهر هاتفه برقم جهاز جديد. من صفحة «التحكم»، قسم «الأجهزة الجديدة»، اختر «اسألني أولًا»."
+
+msgid "Lock sites for a while"
+msgstr "حظر مواقع لفترة"
+
+msgid "Choose sites"
+msgstr "اختر المواقع"
+
+msgid "Or type a site"
+msgstr "أو اكتب اسم موقع"
+
+msgid "Locked."
+msgstr "تم الحظر."
+
+msgid "Lock"
+msgstr "حظر"
+
+msgid "Device details"
+msgstr "تفاصيل الجهاز"
+
+msgid "Start signal sent."
+msgstr "تم إرسال إشارة التشغيل."
+
+msgid "Switch on (Wake-on-LAN)"
+msgstr "تشغيل الجهاز عن بُعد"
+
+msgid "Fixed address (empty = automatic)"
+msgstr "عنوان ثابت (اتركه فارغًا ليكون تلقائيًا)"
+
+msgid "Save address"
+msgstr "حفظ العنوان"
+
+msgid "This is the same device as"
+msgstr "هذا الجهاز هو نفسه:"
+
+msgid "For a phone that came back with a new device number: its usage and settings move to the chosen device."
+msgstr "لهاتف عاد برقم جهاز جديد: ينتقل استهلاكه وإعداداته إلى الجهاز الذي تختاره."
+
+msgid "Join the two devices?"
+msgstr "دمج الجهازين؟"
+
+msgid "This cannot be undone."
+msgstr "لا يمكن التراجع عن ذلك."
+
+msgid "Join"
+msgstr "دمج"
+
+msgid "Joined."
+msgstr "تم الدمج."
+
+msgctxt "Virox"
+msgid "Close"
+msgstr "إغلاق"
+
+msgid "For example: Ahmed"
+msgstr "مثلًا: أحمد"
+
+msgid "People"
+msgstr "الأشخاص"
+
+msgid "Put the devices of one person together, then pause, limit or protect all of them at once."
+msgstr "اجمع أجهزة كل شخص معًا، ثم أوقفها مؤقتًا أو ضع لها حدودًا أو احمِها كلها مرة واحدة."
+
+msgid "No people yet."
+msgstr "لا يوجد أشخاص بعد."
+
+msgid "Add person"
+msgstr "إضافة شخص"
+
+msgid "All"
+msgstr "الكل"
+
+msgid "Online now"
+msgstr "المتصلة الآن"
+
+msgid "No device is connected right now."
+msgstr "لا يوجد جهاز متصل الآن."
+
+msgid "No device has been seen yet."
+msgstr "لم يظهر أي جهاز بعد."
+
+msgid "The internet is working"
+msgstr "الإنترنت يعمل"
+
+msgid "The modem answers, but the internet does not get through. The problem is at the provider or the line."
+msgstr "المودم يرد، لكن الإنترنت لا يصل. المشكلة عند شركة الإنترنت أو في الخط."
+
+msgid "The modem does not answer. Check that it is switched on and its cable is plugged in."
+msgstr "المودم لا يرد. تأكد أنه يعمل وأن الكابل موصول."
+
+msgid "No internet line: the cable to the modem is out or the line is down."
+msgstr "لا يوجد خط إنترنت: كابل المودم مفصول أو الخط متوقف."
+
+msgid "A new device joined: %s"
+msgstr "انضم جهاز جديد: %s"
+
+msgid "A new device is waiting for your approval: %s"
+msgstr "جهاز جديد بانتظار موافقتك: %s"
+
+msgid "A daily internet time is used up."
+msgstr "انتهى الوقت اليومي لأحد الأجهزة."
+
+msgid "A device is close to its usage limit."
+msgstr "اقترب جهاز من حد الاستهلاك."
+
+msgid "A device used up its usage limit and is cut until the next cycle."
+msgstr "وصل جهاز إلى حد الاستهلاك، وانقطع عنه الإنترنت حتى الدورة التالية."
+
+msgid "Most of the internet package is used."
+msgstr "تم استخدام معظم باقة الإنترنت."
+
+msgid "The internet package is used up. The provider may slow down or stop the line."
+msgstr "انتهت باقة الإنترنت. قد تبطئ شركة الإنترنت الخط أو توقفه."
+
+msgid "The internet stopped."
+msgstr "انقطع الإنترنت."
+
+msgid "The internet is back after %s."
+msgstr "عاد الإنترنت بعد %s."
+
+msgid "A filter list could not be loaded; the previous state was kept."
+msgstr "تعذّر تحميل إحدى قوائم الفلتر، وبقي الوضع السابق."
+
+msgid "The router memory is low, so a smaller filter list is used."
+msgstr "ذاكرة الراوتر منخفضة، لذلك تُستخدم قائمة فلتر أصغر."
+
+msgid "The usage count of one day does not add up; please send a help report."
+msgstr "حساب الاستهلاك ليوم واحد غير متطابق. أرسل تقرير المساعدة من فضلك."
+
+msgid "An error was stopped before it could delete data."
+msgstr "تم إيقاف خطأ قبل أن يحذف بيانات."
+
+msgid "A network setting stopped address handout; the last working settings were put back."
+msgstr "أوقف أحد إعدادات الشبكة توزيع العناوين، فتمت إعادة آخر إعدادات كانت تعمل."
+
+msgid "The package now continues from the figure of the provider."
+msgstr "تكمل الباقة الآن من الرقم الذي تعرضه شركة الإنترنت."
+
+msgid "Internet"
+msgstr "الإنترنت"
+
+msgid "Checking the line… the result appears within two minutes."
+msgstr "جارٍ فحص الخط… تظهر النتيجة خلال دقيقتين."
+
+msgid "Working"
+msgstr "يعمل"
+
+msgid "Not working"
+msgstr "لا يعمل"
+
+msgid "Line"
+msgstr "الخط"
+
+msgid "Since"
+msgstr "منذ"
+
+msgid "Connected now"
+msgstr "المتصلة الآن"
+
+msgid "1 device"
+msgstr "جهاز واحد"
+
+msgid "All devices"
+msgstr "كل الأجهزة"
+
+msgid "Package"
+msgstr "الباقة"
+
+msgid "The package size is not set, so the router cannot tell what is left."
+msgstr "حجم الباقة غير محدد، لذلك لا يعرف الراوتر المتبقي منها."
+
+msgid "Used this cycle:"
+msgstr "المستخدم منذ آخر تجديد:"
+
+msgid "Set the package"
+msgstr "تحديد الباقة"
+
+msgid "Left:"
+msgstr "المتبقي:"
+
+msgid "Renews on"
+msgstr "تتجدد يوم"
+
+msgid "Usage details"
+msgstr "تفاصيل الاستهلاك"
+
+msgid "Waiting for your approval"
+msgstr "بانتظار موافقتك"
+
+msgid "These new devices have no internet until you allow them. If one is a known phone that changed its number, open Devices and choose \"This is the same device\"."
+msgstr "هذه الأجهزة الجديدة بدون إنترنت حتى تسمح لها. إذا كان أحدها هاتفًا معروفًا تغيّر رقمه، فافتح «الأجهزة» واختر «هذا هو الجهاز نفسه»."
+
+msgid "New alerts"
+msgstr "تنبيهات جديدة"
+
+msgctxt "Virox"
+msgid "Info"
+msgstr "معلومة"
+
+msgid "Note"
+msgstr "ملاحظة"
+
+msgid "Important"
+msgstr "مهم"
+
+msgid "Mark as read"
+msgstr "تمييز كمقروء"
+
+msgid "This page is for family logins."
+msgstr "هذه الصفحة لحسابات أفراد العائلة."
+
+msgid "Limit:"
+msgstr "الحد:"
+
+msgid "Online"
+msgstr "متصل"
+
+msgid "No device belongs to you yet. Ask the person who manages the router."
+msgstr "لا توجد أجهزة مسجلة باسمك بعد. اسأل مَن يدير الراوتر."
+
+msgid "Excellent"
+msgstr "ممتازة"
+
+msgid "Good"
+msgstr "جيدة"
+
+msgctxt "Virox"
+msgid "Weak"
+msgstr "ضعيفة"
+
+msgid "Internet package"
+msgstr "باقة الإنترنت"
+
+msgid "Package size (GB), empty = I do not know"
+msgstr "حجم الباقة (جيجا)، اتركه فارغًا إذا كنت لا تعرفه"
+
+msgid "Renews on day"
+msgstr "يوم التجديد"
+
+msgid "The day of the month the provider renews the package."
+msgstr "اليوم من الشهر الذي تجدد فيه شركة الإنترنت الباقة."
+
+msgid "Warn me when used"
+msgstr "نبّهني عند استخدام"
+
+msgid "Change the Wi-Fi name or password"
+msgstr "تغيير اسم الواي فاي أو كلمة المرور"
+
+msgid "Wi-Fi"
+msgstr "الواي فاي"
+
+msgid "No Wi-Fi radio found."
+msgstr "لم يتم العثور على واي فاي في هذا الراوتر."
+
+msgid "5 GHz (fast, shorter reach)"
+msgstr "5 جيجاهرتز (أسرع، ومداه أقصر)"
+
+msgid "2.4 GHz (reaches further, slower)"
+msgstr "2.4 جيجاهرتز (مداه أبعد، وأبطأ)"
+
+msgid "Network name:"
+msgstr "اسم الشبكة:"
+
+msgid "Channel"
+msgstr "القناة"
+
+msgid "busy"
+msgstr "مزدحمة"
+
+msgid "Choose the best channel now?"
+msgstr "اختيار أفضل قناة الآن؟"
+
+msgid "Wi-Fi stops for about a minute while the router listens to the neighbours; devices reconnect by themselves."
+msgstr "يتوقف الواي فاي نحو دقيقة بينما يفحص الراوتر شبكات الجيران، ثم تتصل الأجهزة من جديد تلقائيًا."
+
+msgid "Choose now"
+msgstr "اختيار الآن"
+
+msgid "Choosing… Wi-Fi is back in about a minute."
+msgstr "جارٍ الاختيار… يعود الواي فاي خلال دقيقة تقريبًا."
+
+msgid "Choose the best channel now"
+msgstr "اختيار أفضل قناة الآن"
+
+msgid "Games mode"
+msgstr "وضع الألعاب"
+
+msgid "Lets game consoles and some calls open the ports they need by themselves. Leave it off unless a game asks for an \"open NAT\"."
+msgstr "يسمح لأجهزة الألعاب وبعض تطبيقات المكالمات بفتح المنافذ التي تحتاجها تلقائيًا. اتركه متوقفًا إلا إذا طلبت لعبة «Open NAT»."
+
+msgctxt "Virox"
+msgid "On"
+msgstr "مفعّل"
+
+msgctxt "Virox"
+msgid "Off"
+msgstr "متوقف"
+
+msgid "Games mode is off."
+msgstr "تم إيقاف وضع الألعاب."
+
+msgid "Games mode is on."
+msgstr "تم تشغيل وضع الألعاب."
+
+msgid "Family logins"
+msgstr "حسابات أفراد العائلة"
+
+msgid "A family login sees only the devices and usage of its own person, and cannot change anything. The router password is never shared."
+msgstr "يرى حساب فرد من العائلة أجهزة صاحبه واستهلاكها فقط، ولا يستطيع تغيير أي شيء. ولا تُعطى كلمة مرور الراوتر لأحد."
+
+msgid "New password"
+msgstr "كلمة مرور جديدة"
+
+msgid "Remove the login %s?"
+msgstr "حذف الحساب %s؟"
+
+msgid "It stops working at once."
+msgstr "سيتوقف عن العمل فورًا."
+
+msgid "No family login yet."
+msgstr "لا توجد حسابات لأفراد العائلة بعد."
+
+msgid "New family login"
+msgstr "حساب جديد لفرد من العائلة"
+
+msgid "Login name (small English letters and digits)"
+msgstr "اسم المستخدم (حروف إنجليزية صغيرة وأرقام)"
+
+msgid "Password (at least 8 characters)"
+msgstr "كلمة المرور (8 أحرف على الأقل)"
+
+msgid "Sees the devices of"
+msgstr "يرى أجهزة"
+
+msgid "Add a person under Devices first."
+msgstr "أضف الشخص أولًا من صفحة الأجهزة (تبويب الأشخاص)."
+
+msgid "New password for %s"
+msgstr "كلمة مرور جديدة للحساب %s"
+
+msgid "Quick setup (internet type, Wi-Fi, router password)"
+msgstr "الإعداد السريع (نوع الإنترنت، الواي فاي، كلمة مرور الراوتر)"
+
+msgid "Advanced settings (the complete menu)"
+msgstr "الإعدادات المتقدمة (القائمة الكاملة)"
+
+msgid "Cycle"
+msgstr "الدورة"
+
+msgid "Counted by the router itself:"
+msgstr "حسب عدّاد الراوتر نفسه:"
+
+msgid "corrected with the provider figure"
+msgstr "مصحّح بحسب رقم شركة الإنترنت"
+
+msgid "The provider shows a different amount left?"
+msgstr "هل تعرض شركة الإنترنت رقمًا مختلفًا للمتبقي؟"
+
+msgid "Type what the provider (its app, website or SMS) shows as remaining now. The package then continues from that figure until the next renewal."
+msgstr "اكتب المتبقي الذي تعرضه شركة الإنترنت الآن (في تطبيقها أو موقعها أو رسالة SMS). تكمل الباقة بعدها من هذا الرقم حتى التجديد التالي."
+
+msgid "Remaining at the provider (GB)"
+msgstr "المتبقي لدى شركة الإنترنت (جيجا)"
+
+msgid "Day by day"
+msgstr "يومًا بيوم"
+
+msgid "No usage in this cycle yet."
+msgstr "لا يوجد استهلاك في هذه الدورة بعد."
+
+msgid "The router itself"
+msgstr "الراوتر نفسه"
+
+msgctxt "Virox"
+msgid "Unknown"
+msgstr "غير معروف"
+
+msgid "Who used what"
+msgstr "استهلاك كل جهاز"
+
+msgctxt "Virox"
+msgid "Device"
+msgstr "الجهاز"
+
+msgid "\"The router itself\" is its own traffic (clock, name lookups, updates). \"Unknown\" is traffic that could not be given to a device."
+msgstr "«الراوتر نفسه» هو استهلاك الراوتر الخاص (ضبط الساعة، البحث عن أسماء المواقع، التحديثات). «غير معروف» هو استهلاك لم يمكن نسبته إلى جهاز."
+
+msgid "The router is already busy with this. Wait a moment."
+msgstr "الراوتر مشغول بهذه العملية الآن. انتظر قليلًا."
+
+msgid "The router clock is not set yet; updates can be checked once it is."
+msgstr "ساعة الراوتر لم تُضبط بعد، وسيتم فحص التحديثات بعد ضبطها."
+
+msgid "A new version is available"
+msgstr "يتوفر إصدار جديد"
+
+msgid "Version"
+msgstr "الإصدار"
+
+msgid "See and install"
+msgstr "عرض وتثبيت"
+
+msgid "The update server could not be reached. Try again later."
+msgstr "تعذّر الوصول إلى خادم التحديثات. حاول لاحقًا."
+
+msgid "The update information is not signed by Virox, so it was ignored."
+msgstr "معلومات التحديث غير موقّعة من Virox، لذلك تم تجاهلها."
+
+msgid "The downloaded update was damaged and was deleted. Try again."
+msgstr "كان ملف التحديث الذي تم تحميله تالفًا وتم حذفه. حاول مرة أخرى."
+
+msgid "The router refused this update file. Nothing was changed."
+msgstr "رفض الراوتر ملف التحديث هذا. لم يتغير شيء."
+
+msgid "The newest version is not for this router model."
+msgstr "أحدث إصدار ليس لهذا الطراز من الراوتر."
+
+msgid "Not enough free memory for the update. Restart the router and try again."
+msgstr "لا توجد ذاكرة كافية للتحديث. أعد تشغيل الراوتر ثم حاول مرة أخرى."
+
+msgid "No update server is set."
+msgstr "لم يتم تحديد خادم للتحديثات."
+
+msgid "Installed version:"
+msgstr "الإصدار المثبت:"
+
+msgid "Downloading the update…"
+msgstr "جارٍ تحميل التحديث…"
+
+msgid "Checking…"
+msgstr "جارٍ الفحص…"
+
+msgid "Installing. Do not switch the router off; it restarts by itself in a few minutes."
+msgstr "جارٍ التثبيت. لا تطفئ الراوتر؛ سيُعاد تشغيله تلقائيًا خلال دقائق."
+
+msgid "New version:"
+msgstr "الإصدار الجديد:"
+
+msgid "Install version %s?"
+msgstr "تثبيت الإصدار %s؟"
+
+msgid "Your settings are kept. The router restarts by itself and the internet stops for about five minutes. Do not switch it off meanwhile."
+msgstr "تبقى إعداداتك كما هي. يُعاد تشغيل الراوتر تلقائيًا وينقطع الإنترنت نحو خمس دقائق. لا تطفئ الراوتر خلال ذلك."
+
+msgid "Install"
+msgstr "تثبيت"
+
+msgid "Installing…"
+msgstr "جارٍ التثبيت…"
+
+msgid "Install now"
+msgstr "التثبيت الآن"
+
+msgid "This is the newest version."
+msgstr "هذا أحدث إصدار."
+
+msgid "Not checked yet."
+msgstr "لم يتم الفحص بعد."
+
+msgid "Check now"
+msgstr "الفحص الآن"
+
+msgid "Update"
+msgstr "التحديث"
+
+msgid "This file is not a Virox settings file."
+msgstr "هذا الملف ليس ملف إعدادات Virox."
+
+msgid "This file is damaged or not safe to use."
+msgstr "هذا الملف تالف أو غير آمن للاستخدام."
+
+msgid "Choose a file first."
+msgstr "اختر ملفًا أولًا."
+
+msgid "This file cannot be used."
+msgstr "لا يمكن استخدام هذا الملف."
+
+msgid "Choose 1 to 24 hours."
+msgstr "اختر من 1 إلى 24 ساعة."
+
+msgid "Restore the settings of %s?"
+msgstr "استعادة إعدادات يوم %s؟"
+
+msgid "All settings and the usage history are replaced by the ones in the file, then the router restarts (about two minutes). This router keeps its own device numbers."
+msgstr "تُستبدل كل الإعدادات وسجل الاستهلاك بما في الملف، ثم يُعاد تشغيل الراوتر (نحو دقيقتين). يحتفظ الراوتر برقمه (MAC) الخاص."
+
+msgctxt "Virox"
+msgid "Restore"
+msgstr "استعادة"
+
+msgid "Restoring. The router restarts now."
+msgstr "جارٍ الاستعادة. سيُعاد تشغيل الراوتر الآن."
+
+msgid "Help report"
+msgstr "تقرير المساعدة"
+
+msgid "A file for whoever helps you: versions, line and Wi-Fi state, recent errors. Passwords, device numbers, addresses and names are removed."
+msgstr "ملف لمن يساعدك: الإصدارات، وحالة الخط والواي فاي، وآخر الأخطاء. تُحذف منه كلمات المرور وأرقام الأجهزة والعناوين والأسماء."
+
+msgid "Download the help report"
+msgstr "تحميل تقرير المساعدة"
+
+msgid "Save and restore settings"
+msgstr "حفظ الإعدادات واستعادتها"
+
+msgid "One file with all settings, devices and usage history. It contains the Wi-Fi password: keep it safe."
+msgstr "ملف واحد فيه كل الإعدادات والأجهزة وسجل الاستهلاك. يحتوي على كلمة مرور الواي فاي، فاحتفظ به في مكان آمن."
+
+msgid "Save my settings"
+msgstr "حفظ إعداداتي"
+
+msgid "Restore from a file"
+msgstr "استعادة من ملف"
+
+msgid "Nightly copies on the USB stick:"
+msgstr "النسخ الليلية على ذاكرة USB:"
+
+msgid "Plug a USB stick into the router and it keeps a copy every night (the last 14)."
+msgstr "صِل ذاكرة USB بالراوتر ليحفظ نسخة كل ليلة (آخر 14 نسخة)."
+
+msgid "Help and backup"
+msgstr "المساعدة والنسخ الاحتياطي"
+
+msgid "The internet has been down for %s"
+msgstr "الإنترنت متوقف منذ %s"
+
+msgid "The internet is down"
+msgstr "الإنترنت متوقف"
+
+msgid "Used since the last renewal: %s"
+msgstr "المستخدم منذ آخر تجديد: %s"
+
+msgid "Package used"
+msgstr "المستخدم من الباقة"
+
+msgid "Renews on %s"
+msgstr "تتجدد الباقة في %s"
+
+msgid "New devices waiting for your approval: %s"
+msgstr "أجهزة جديدة بانتظار موافقتك: %s"
+
+msgid "A new version is available: %s"
+msgstr "يتوفر إصدار جديد: %s"
+
+msgid "Devices: %s"
+msgstr "الأجهزة: %s"
+
+msgid "Sign out"
+msgstr "تسجيل الخروج"
+
+msgctxt "Virox menu"
+msgid "Home"
+msgstr "الرئيسية"
+
+msgctxt "Virox menu"
+msgid "Devices"
+msgstr "الأجهزة"
+
+msgctxt "Virox menu"
+msgid "Usage"
+msgstr "الاستهلاك"
+
+msgctxt "Virox menu"
+msgid "Control"
+msgstr "التحكم"
+
+msgctxt "Virox menu"
+msgid "Settings"
+msgstr "الإعدادات"
+
+msgctxt "Virox menu"
+msgid "My devices"
+msgstr "أجهزتي"
+
+msgid "Package cycle from %s to %s"
+msgstr "دورة الباقة من %s إلى %s"
+
+msgid "Counted by the router itself: %s"
+msgstr "حسب عداد الراوتر نفسه: %s"
+
+msgid "From %s to %s"
+msgstr "من %s إلى %s"
+
+msgid "Used today: %s"
+msgstr "المستخدم اليوم: %s"
+
+msgid "Download: %s"
+msgstr "التحميل: %s"
+
+msgid "Upload: %s"
+msgstr "الرفع: %s"
+
+msgid "no limit"
+msgstr "بلا حد"
+
+msgid "Look"
+msgstr "المظهر العام"
+
+msgid "Accent colour"
+msgstr "اللون الأساسي"
+
+msgid "Default colour"
+msgstr "اللون الافتراضي"
+
+msgid "Network names"
+msgstr "أسماء الشبكة"
+
+msgid "One name for both bands"
+msgstr "اسم واحد للنطاقين"
+
+msgid "Separate names"
+msgstr "اسمان منفصلان"
+
+msgid "Saved. Wi-Fi restarts for a few seconds."
+msgstr "تم الحفظ. يتوقف الواي فاي بضع ثوانٍ."
+
+msgid "With one name, phones that can use 5 GHz are moved to it by themselves. Separate names add \"-5G\" to the name of the 5 GHz network."
+msgstr "مع الاسم الواحد تنتقل الهواتف القادرة على 5 جيجاهرتز إليه تلقائيًا. مع الاسمين المنفصلين يُضاف «-5G» إلى اسم شبكة 5 جيجاهرتز."
+
+msgid "Display and language"
+msgstr "العرض واللغة"
+
+msgid "Router and sign-out"
+msgstr "الراوتر وتسجيل الخروج"
+
+msgid "Package size, renewal day, warning"
+msgstr "حجم الباقة، يوم التجديد، التنبيه"
+
+msgid "Name and password, channels, network names"
+msgstr "الاسم وكلمة المرور، القنوات، أسماء الشبكة"
+
+msgid "Logins that see only their own devices"
+msgstr "حسابات ترى أجهزتها فقط"
+
+msgid "Open ports for game consoles"
+msgstr "فتح المنافذ لأجهزة الألعاب"
+
+msgid "Router version and updates"
+msgstr "إصدار الراوتر والتحديثات"
+
+msgid "Help report, save and restore settings"
+msgstr "تقرير المساعدة، حفظ الإعدادات واستعادتها"
+
+msgid "Language, look, light or dark, colour"
+msgstr "اللغة، المظهر، فاتح أو داكن، اللون"
+
+msgid "Quick setup, complete menu, sign out"
+msgstr "الإعداد السريع، القائمة الكاملة، تسجيل الخروج"
+
+msgctxt "Virox menu"
+msgid "Status"
+msgstr "الحالة"
+
+msgctxt "Virox menu"
+msgid "System"
+msgstr "النظام"
+
+msgctxt "Virox menu"
+msgid "Services"
+msgstr "الخدمات"
+
+msgctxt "Virox menu"
+msgid "Network"
+msgstr "الشبكة"
+
+msgid "Times"
+msgstr "الأوقات"
+
+msgid "Sites and kids"
+msgstr "المواقع والأطفال"
+
+msgid "Line %d"
+msgstr "خط %d"
+
+msgid "Internet lines"
+msgstr "خطوط الإنترنت"
+
+msgid "Line down"
+msgstr "الخط مقطوع"
+
+msgid "Package used up"
+msgstr "الباقة انتهت"
+
+msgid "Everyone"
+msgstr "الجميع"
+
+msgid "Both lines"
+msgstr "الخطين"
+
+msgid "Borrowing the other line"
+msgstr "استلاف من الخط الآخر"
+
+msgid "Ended."
+msgstr "تم الإنهاء."
+
+msgid "End"
+msgstr "إنهاء"
+
+msgid "Line settings"
+msgstr "إعدادات الخطوط"
+
+msgid "As the default (%s)"
+msgstr "حسب الافتراضي (%s)"
+
+msgid "1 hour"
+msgstr "ساعة"
+
+msgid "2 hours"
+msgstr "ساعتان"
+
+msgid "Until I end it"
+msgstr "حتى أنهيه"
+
+msgid "No time limit"
+msgstr "بدون حد للوقت"
+
+msgid "Internet line"
+msgstr "خط الإنترنت"
+
+msgid "Uses"
+msgstr "يستخدم"
+
+msgid "Many downloads together use both lines. One single download stays at the speed of one line."
+msgstr "عمليات التحميل الكثيرة معًا تستخدم الخطين. التحميل الواحد يبقى بسرعة خط واحد."
+
+msgid "Using both lines now"
+msgstr "يستخدم الخطين الآن"
+
+msgid "Started."
+msgstr "تم البدء."
+
+msgid "Start"
+msgstr "بدء"
+
+msgid "Borrow the other line"
+msgstr "استلاف الخط الآخر"
+
+msgid "For a package that is used up, or when more speed is needed. It ends by itself at the time or amount you set."
+msgstr "لباقة انتهت، أو عند الحاجة إلى سرعة أكبر. ينتهي تلقائيًا عند الوقت أو الكمية التي تحددها."
+
+msgid "Borrowing now"
+msgstr "يستلف الآن"
+
+msgid "Up to (GB), empty = no amount limit"
+msgstr "الحد الأقصى (جيجا)، اتركه فارغًا ليكون بلا حد للكمية"
+
+msgid "A second internet line: connect the second modem to port LAN 4, then turn it on here. Port LAN 4 then no longer serves home devices."
+msgstr "خط إنترنت ثانٍ: وصّل المودم الثاني بمنفذ LAN 4 ثم شغّله من هنا. بعدها لا يخدم منفذ LAN 4 أجهزة المنزل."
+
+msgid "Turn on the second line"
+msgstr "تشغيل الخط الثاني"
+
+msgid "The second line is on."
+msgstr "الخط الثاني يعمل."
+
+msgid "Name of the line"
+msgstr "اسم الخط"
+
+msgid "Upload speed of the line (Mbit/s)"
+msgstr "سرعة الرفع للخط (ميجابت/ث)"
+
+msgid "Games and calls get priority within this speed."
+msgstr "الألعاب والمكالمات لها الأولوية ضمن هذه السرعة."
+
+msgid "Package renewed early"
+msgstr "تجديد الباقة مبكرًا"
+
+msgid "Start a new package cycle from today?"
+msgstr "بدء دورة باقة جديدة من اليوم؟"
+
+msgid "The usage of this line starts again from zero."
+msgstr "يبدأ استهلاك هذا الخط من الصفر."
+
+msgid "Renewed"
+msgstr "تجديد"
+
+msgid "Renewed today"
+msgstr "تجددت الباقة اليوم"
+
+msgid "Remaining at the company (GB)"
+msgstr "المتبقي لدى شركة الإنترنت (جيجا)"
+
+msgid "Copy the figure the company shows; the router continues from it."
+msgstr "اكتب الرقم الذي تعرضه شركة الإنترنت، ويكمل الراوتر منه."
+
+msgid "Everyone on both lines"
+msgstr "الجميع على الخطين"
+
+msgid "For 2 hours"
+msgstr "لمدة ساعتين"
+
+msgid "Turn off the second line"
+msgstr "إيقاف الخط الثاني"
+
+msgid "Everyone uses the first line again, and port LAN 4 serves home devices."
+msgstr "يعود الجميع إلى الخط الأول، ويخدم منفذ LAN 4 أجهزة المنزل."
+
+msgid "Turn off the second line?"
+msgstr "إيقاف الخط الثاني؟"
+
+msgid "The second line is off."
+msgstr "الخط الثاني متوقف."
+
+msgid "Names, packages, both lines"
+msgstr "الأسماء، الباقات، الخطين"
+
+msgid "Add a second internet line"
+msgstr "إضافة خط إنترنت ثانٍ"
+
+msgid "Set a time or an amount."
+msgstr "حدد وقتًا أو كمية."
+
+msgid "This time or amount is not allowed."
+msgstr "هذا الوقت أو هذه الكمية غير مسموح بها."
+
+msgid "Unknown line."
+msgstr "خط غير معروف."
+
+msgid "Set the package size of this line first."
+msgstr "حدد حجم باقة هذا الخط أولًا."
+
+msgid "Type the remaining amount as a number."
+msgstr "اكتب الكمية المتبقية رقمًا."
+
+msgid "Unknown colour."
+msgstr "لون غير معروف."
+
+msgid "This package size is not allowed."
+msgstr "حجم الباقة هذا غير مسموح به."
+
+msgid "The renewal day is a day of the month, 1 to 31."
+msgstr "يوم التجديد يوم من الشهر، من 1 إلى 31."
+
+msgid "This speed is not allowed."
+msgstr "هذه السرعة غير مسموح بها."
+
+msgid "Download speed of the line (Mbit/s)"
+msgstr "سرعة التحميل للخط (ميجابت/ث)"
+
+msgid "Speed test"
+msgstr "اختبار السرعة"
+
+msgid "Measuring… about 15 seconds."
+msgstr "جارٍ القياس… حوالي 15 ثانية."
+
+msgid "Download speed now: %s"
+msgstr "سرعة التحميل الآن: %s"
+
+msgid "Measure the speed of this line"
+msgstr "قياس سرعة هذا الخط"
+
+msgid "This line is down now."
+msgstr "هذا الخط مقطوع الآن."
+
+msgid "The test address could not be found. Check the internet."
+msgstr "تعذّر الوصول إلى عنوان الاختبار. تحقق من الإنترنت."
+
+msgid "A Wi-Fi password has 8 to 63 letters, digits or signs (no Arabic letters)."
+msgstr "كلمة مرور الواي فاي من 8 إلى 63 حرفًا أو رقمًا أو رمزًا (بدون حروف عربية)."
+
+msgid "Another person already has this password."
+msgstr "كلمة المرور هذه لشخص آخر بالفعل."
+
+msgid "A device came back with a new address and was recognised: %s"
+msgstr "جهاز عاد برقم جهاز جديد وتم التعرف عليه: %s"
+
+msgid "A new device may be one you know: %s"
+msgstr "جهاز جديد قد يكون جهازًا تعرفه: %s"
+
+msgid "A device was given to its person by the Wi-Fi password it used."
+msgstr "نُسب جهاز إلى صاحبه حسب كلمة مرور الواي فاي التي استخدمها."
+
+msgid "Line %s stopped; its devices use the other line."
+msgstr "توقف الخط %s، وأجهزته تستخدم الخط الآخر."
+
+msgid "Line %s is back."
+msgstr "عاد الخط %s."
+
+msgid "Line %s: most of the package is used."
+msgstr "الخط %s: استُهلك معظم الباقة."
+
+msgid "Line %s: the package is used up; its devices stopped. You can let them borrow the other line."
+msgstr "الخط %s: انتهت الباقة وتوقفت أجهزته. يمكنك السماح لها بالاستلاف من الخط الآخر."
+
+msgid "Line %s: a new package cycle started."
+msgstr "الخط %s: بدأت دورة باقة جديدة."
+
+msgid "Both lines are in use."
+msgstr "الخطان قيد الاستخدام."
+
+msgid "Both lines: the time is over."
+msgstr "الخطان: انتهى الوقت."
+
+msgid "Borrowing the other line started."
+msgstr "بدأ الاستلاف من الخط الآخر."
+
+msgid "Borrowing the other line ended."
+msgstr "انتهى الاستلاف من الخط الآخر."
+
+msgid "Is the new device %s the same as %s?"
+msgstr "هل الجهاز الجديد %s هو نفسه %s؟"
+
+msgid "Same device"
+msgstr "نفس الجهاز"
+
+msgid "Not the same"
+msgstr "ليس نفسه"
+
+msgid "Telling devices apart"
+msgstr "التعرف على الأجهزة"
+
+msgid "Personal Wi-Fi passwords, automatic recognition"
+msgstr "كلمات مرور شخصية للواي فاي، التعرف التلقائي"
+
+msgid "Phones may use a different device number for each network, so the router can mistake them for new devices. The surest way: turn off \"private address\" for this network on each phone (see the guide in the help)."
+msgstr "الهواتف الحديثة تغيّر عنوانها (MAC) تلقائيًا، فقد يظن الراوتر أن هاتفًا قديمًا جهاز جديد، فلا تُطبَّق عليه حدوده ومواعيده. الحل الأضمن: من إعدادات الواي فاي في كل هاتف، أوقف \"العنوان الخاص / Private address\" لهذه الشبكة."
+
+msgid "Personal Wi-Fi passwords"
+msgstr "كلمات مرور شخصية للواي فاي"
+
+msgid "Same network name, a different password for each person. The router knows whose phone it is from the password, even with a changing device number. The household password keeps working."
+msgstr "اسم الشبكة نفسه، وكلمة مرور مختلفة لكل شخص. يعرف الراوتر من كلمة المرور صاحب الهاتف حتى لو تغيّر رقم جهازه. وتبقى كلمة مرور المنزل العادية تعمل."
+
+msgid "While personal passwords exist, the Wi-Fi uses WPA2 security (WPA3 cannot have one password per person)."
+msgstr "ما دامت هناك كلمات مرور شخصية، يستخدم الواي فاي حماية WPA2 بدل WPA3 (لا يسمح WPA3 بكلمة مرور لكل شخص)."
+
+msgid "Wi-Fi password of %s"
+msgstr "كلمة مرور الواي فاي لـ %s"
+
+msgid "Add people first (Devices, People); then each person can get a password."
+msgstr "أضف الأشخاص أولًا (الأجهزة، تبويب الأشخاص)، ثم يمكن إعطاء كل شخص كلمة مرور."
+
+msgid "Automatic recognition"
+msgstr "التعرف التلقائي"
+
+msgid "Recognise a phone that comes back with a new device number"
+msgstr "التعرّف على الهاتف إذا عاد برقم جهاز جديد"
+
+msgid "Only when its name and its way of asking for an address match one known device exactly; a partial match is shown to you as a question."
+msgstr "فقط إذا تطابق اسمه وطريقة طلبه للعنوان مع جهاز معروف تمامًا؛ والتطابق الجزئي يُعرض عليك كسؤال."
+
+msgid "A network name has 1 to 32 characters."
+msgstr "اسم الشبكة من 1 إلى 32 حرفًا."
+
+msgid "Type a network name and a password of at least 8 characters."
+msgstr "اكتب اسم الشبكة وكلمة مرور من 8 أحرف على الأقل."
+
+msgid "Guest network"
+msgstr "شبكة الضيوف"
+
+msgid "On: internet only, with a QR code"
+msgstr "تعمل: إنترنت فقط، مع رمز QR"
+
+msgid "Internet for visitors, apart from the home"
+msgstr "إنترنت للزوار، منفصل عن المنزل"
+
+msgid "Guests"
+msgstr "الضيوف"
+
+msgid "QR code of the guest network"
+msgstr "رمز QR لشبكة الضيوف"
+
+msgid "The guest network is off."
+msgstr "شبكة الضيوف متوقفة."
+
+msgid "Visitors get internet only: they cannot open the router pages, see the home devices or each other."
+msgstr "يحصل الزوار على الإنترنت فقط: لا يمكنهم فتح صفحات الراوتر ولا رؤية أجهزة المنزل ولا بعضهم."
+
+msgid "Network name"
+msgstr "اسم الشبكة"
+
+msgid "Password"
+msgstr "كلمة المرور"
+
+msgid "Turn on the guest network"
+msgstr "تشغيل شبكة الضيوف"
+
+msgid "For visitors"
+msgstr "للزوار"
+
+msgid "The visitor points the phone camera at the code and joins without typing."
+msgstr "يوجّه الزائر كاميرا الهاتف إلى الرمز فيتصل دون كتابة."
+
+msgid "This code is wrong or expired. Get a new code on the main router."
+msgstr "هذا الرمز خطأ أو انتهت صلاحيته. احصل على رمز جديد من الراوتر الرئيسي."
+
+msgid "There is no valid code on the main router. Get a new code there."
+msgstr "لا يوجد رمز صالح على الراوتر الرئيسي. احصل على رمز جديد منه."
+
+msgid "The main router was not found. Check the cable to the main router."
+msgstr "لم يتم العثور على الراوتر الرئيسي. تحقق من الكابل الموصل به."
+
+msgid "The main router did not answer."
+msgstr "الراوتر الرئيسي لم يرد."
+
+msgid "This router is not in access point mode."
+msgstr "هذا الراوتر ليس في وضع نقطة الوصول."
+
+msgid "Only the main router can do this."
+msgstr "الراوتر الرئيسي فقط يمكنه ذلك."
+
+msgid "This access point is not paired."
+msgstr "نقطة الوصول هذه غير مرتبطة."
+
+msgid "This channel is not allowed."
+msgstr "هذه القناة غير مسموح بها."
+
+msgid "Access points"
+msgstr "نقاط الوصول"
+
+msgid "Join the main router"
+msgstr "الانضمام إلى الراوتر الرئيسي"
+
+msgid "%d access points"
+msgstr "نقاط الوصول: %d"
+
+msgid "Add Virox access points"
+msgstr "إضافة نقاط وصول Virox"
+
+msgid "This router is an access point. Join it to the main router: the main router then gives it the Wi-Fi name, the passwords and the channel, and shows its devices."
+msgstr "هذا الراوتر نقطة وصول. اربطه بالراوتر الرئيسي: عندها يعطيه الراوتر الرئيسي اسم الواي فاي وكلمات المرور والقناة، ويعرض أجهزته."
+
+msgid "Code from the main router (Settings, Access points)"
+msgstr "الرمز من الراوتر الرئيسي (الإعدادات، نقاط الوصول)"
+
+msgid "Joined. The Wi-Fi settings arrive within a minute."
+msgstr "تم الربط. تصل إعدادات الواي فاي خلال دقيقة."
+
+msgid "Name of the access point"
+msgstr "اسم نقطة الوصول"
+
+msgid "Automatic"
+msgstr "تلقائي"
+
+msgid "2.4 GHz channel"
+msgstr "قناة 2.4 جيجاهرتز"
+
+msgid "5 GHz channel"
+msgstr "قناة 5 جيجاهرتز"
+
+msgid "Updating"
+msgstr "جارٍ التحديث"
+
+msgid "Devices connected: %s"
+msgstr "الأجهزة المتصلة: %s"
+
+msgid "Version: %s"
+msgstr "الإصدار: %s"
+
+msgid "Older than the main router"
+msgstr "أقدم من الراوتر الرئيسي"
+
+msgid "Channels now: %s and %s"
+msgstr "القنوات الآن: %s و%s"
+
+msgid "Saved. The access point takes it within a minute."
+msgstr "تم الحفظ. تأخذه نقطة الوصول خلال دقيقة."
+
+msgid "Update this access point?"
+msgstr "تحديث نقطة الوصول هذه؟"
+
+msgid "It restarts once; its devices move to another access point or wait a few minutes."
+msgstr "تعيد التشغيل مرة واحدة، وتنتقل أجهزتها إلى نقطة وصول أخرى أو تنتظر بضع دقائق."
+
+msgid "The update starts at its next contact."
+msgstr "يبدأ التحديث عند اتصالها التالي."
+
+msgid "Forget this access point?"
+msgstr "إلغاء ربط نقطة الوصول هذه؟"
+
+msgid "It keeps working with its last settings, but the main router no longer manages it."
+msgstr "تستمر في العمل بآخر إعداداتها، لكن الراوتر الرئيسي لا يديرها بعد ذلك."
+
+msgid "Forget"
+msgstr "إلغاء الربط"
+
+msgid "Forgotten."
+msgstr "تم إلغاء الربط."
+
+msgid "Every Virox access point joined here gets the Wi-Fi name, the passwords and its channel from this router. Any number can be added."
+msgstr "كل نقطة وصول Virox مرتبطة هنا تأخذ اسم الواي فاي وكلمات المرور وقناتها من هذا الراوتر. يمكن إضافة أي عدد."
+
+msgid "Add an access point"
+msgstr "إضافة نقطة وصول"
+
+msgid "Set the new router to access point mode in its setup and connect it by cable. Then get a code here and type it on the new router (Settings, Access points). The code works for 10 minutes."
+msgstr "اضبط الراوتر الجديد على وضع نقطة الوصول في الإعداد ووصّله بكابل. ثم احصل على رمز من هنا واكتبه في الراوتر الجديد (الإعدادات، نقاط الوصول). يعمل الرمز 10 دقائق."
+
+msgid "Get a code"
+msgstr "الحصول على رمز"
+
+msgid "Joined access points"
+msgstr "نقاط الوصول المرتبطة"
+
+msgid "No access point joined yet."
+msgstr "لا توجد نقطة وصول مرتبطة بعد."
+
+msgid "Update all, one after the other"
+msgstr "تحديث الكل، واحدة بعد الأخرى"
+
+msgid "The access points update one after the other."
+msgstr "تتحدث نقاط الوصول واحدة بعد الأخرى."
+
+msgid "Fast roaming"
+msgstr "التنقل السريع"
+
+msgid "Phones move between access points without dropping calls (802.11r)"
+msgstr "تنتقل الهواتف بين نقاط الوصول دون قطع المكالمات (802.11r)"
+
+msgid "Some old devices cannot join a network with fast roaming. Turn it off if a device stops connecting."
+msgstr "بعض الأجهزة القديمة لا تتصل بشبكة فيها التنقل السريع. أوقفه إذا توقف جهاز عن الاتصال."
+
+msgid "On the main router"
+msgstr "على الراوتر الرئيسي"
+
+msgid "On %s"
+msgstr "على %s"
+
+msgid "Strong signal"
+msgstr "إشارة قوية"
+
+msgid "Fair signal"
+msgstr "إشارة متوسطة"
+
+msgid "Weak signal"
+msgstr "إشارة ضعيفة"
+
+msgid "The measured speed is too low to adjust. Try again later."
+msgstr "السرعة المقاسة منخفضة جدًا للضبط. حاول لاحقًا."
+
+msgid "Done: the line is kept at %s, so games and calls keep a low ping."
+msgstr "تم: الخط مضبوط على %s، فتبقى الألعاب والمكالمات بزمن استجابة منخفض."
+
+msgid "Adjust ping automatically"
+msgstr "ضبط البنج تلقائيًا"
+
+msgid "Low ping for games and calls"
+msgstr "بنج منخفض للألعاب والمكالمات"
+
+msgid "The router measures the line and keeps it slightly below its speed, so a download does not slow games and calls."
+msgstr "يقيس الراوتر الخط ويبقيه أقل قليلًا من سرعته، حتى لا يبطئ التنزيل الألعاب والمكالمات."
+
+msgid "A second internet line"
+msgstr "خط إنترنت ثانٍ"
+
+msgid "Transmit power"
+msgstr "قوة الإرسال"
+
+msgid "Power: automatic"
+msgstr "القوة: تلقائية"
+
+msgid "Power: high"
+msgstr "القوة: عالية"
+
+msgid "Power: medium"
+msgstr "القوة: متوسطة"
+
+msgid "Power: low"
+msgstr "القوة: منخفضة"
+
+msgid "Saved. Channel and power change at night; the name at once."
+msgstr "تم الحفظ. تتغير القناة والقوة ليلًا، والاسم فورًا."
+
+msgctxt "Virox"
+msgid "Download"
+msgstr "تحميل"
+
+msgctxt "Virox"
+msgid "Upload"
+msgstr "رفع"
+
+msgctxt "Virox"
+msgid "Show"
+msgstr "عرض"
+
+msgctxt "Virox"
+msgid "Back"
+msgstr "عاد"
+
+msgctxt "Virox"
+msgid "Stopped"
+msgstr "انقطع"
+
+msgctxt "Virox"
+msgid "Left"
+msgstr "المتبقي"
+
+msgctxt "Virox"
+msgid "working"
+msgstr "يعمل"
+
+msgctxt "Virox"
+msgid "down"
+msgstr "مقطوع"
+
+msgid "Checking the internet…"
+msgstr "جارٍ فحص الإنترنت…"
+
+msgid "The result appears within two minutes."
+msgstr "تظهر النتيجة خلال دقيقتين."
+
+msgid "Without a break for %s, %s devices connected"
+msgstr "يعمل دون انقطاع منذ %s، والأجهزة المتصلة: %s"
+
+msgid "%s devices connected"
+msgstr "الأجهزة المتصلة: %s"
+
+msgid "Used today"
+msgstr "استهلاك اليوم"
+
+msgid "Blocked or paused"
+msgstr "محظور أو متوقف"
+
+msgid "Router running for"
+msgstr "الراوتر يعمل منذ"
+
+msgid "of %s"
+msgstr "من %s"
+
+msgid "Renews in"
+msgstr "يتجدد بعد"
+
+msgid "Expected at the end of the cycle"
+msgstr "المتوقع آخر الدورة"
+
+msgid "Set the package size"
+msgstr "حدد حجم الباقة"
+
+msgid "Used since the last renewal; renews in %s"
+msgstr "مستهلك من آخر تجديد، ويتجدد بعد %s"
+
+msgid "Most used today"
+msgstr "الأعلى استهلاكًا اليوم"
+
+msgid "No usage yet today."
+msgstr "لا يوجد استهلاك اليوم حتى الآن."
+
+msgid "Internet connection"
+msgstr "الاتصال بالإنترنت"
+
+msgid "%s outages in the last 7 days, %s in total"
+msgstr "عدد الانقطاعات في آخر 7 أيام: %s، والإجمالي: %s"
+
+msgid "No outages in the last 7 days."
+msgstr "لا انقطاعات في آخر 7 أيام."
+
+msgid "after %s"
+msgstr "بعد %s"
+
+msgid "Internet for %s"
+msgstr "الإنترنت لـ %s"
+
+msgid "Internet on or off"
+msgstr "الإنترنت يعمل أو متوقف"
+
+msgid "%s device numbers"
+msgstr "عدد عناوين MAC: %s"
+
+msgid "The internet is off for this device"
+msgstr "الإنترنت متوقف عن هذا الجهاز"
+
+msgid "The internet is on"
+msgstr "الإنترنت يعمل"
+
+msgid "Pause for:"
+msgstr "إيقاف مؤقت:"
+
+msgid "Search by device name, IP or MAC"
+msgstr "ابحث باسم الجهاز أو IP أو MAC"
+
+msgid "Search"
+msgstr "بحث"
+
+msgid "Restricted"
+msgstr "عليه قيود"
+
+msgid "No device matches."
+msgstr "لا توجد أجهزة مطابقة."
+
+msgid "No device has a restriction."
+msgstr "لا توجد أجهزة عليها قيود."
+
+msgid "Every device in the house. Tap a card to control it: turn its internet off or pause it, limit its speed or usage, and more. The switch on a card turns its internet on or off."
+msgstr "كل أجهزة البيت. اضغط على أي جهاز للتحكم فيه: إيقاف الإنترنت أو إيقافه مؤقتًا، تحديد السرعة أو الاستهلاك، والمزيد. المفتاح على البطاقة يوقف الإنترنت ويشغّله فورًا."
+
+msgid "Internet time and sites: off schedules, daily time, limits, sites and kids mode, and what happens to new devices."
+msgstr "إدارة وقت الإنترنت والمواقع: مواعيد الإيقاف، الوقت اليومي، الحدود، المواقع ووضع الأطفال، والأجهزة الجديدة."
+
+msgid "How much the house used, day by day and device by device, against the package."
+msgstr "استهلاك البيت يوم بيوم وجهاز بجهاز، مقارنة بالباقة."
+
+msgid "The package, Wi-Fi, logins, updates and backups of the router."
+msgstr "الباقة، الواي فاي، الحسابات، التحديثات والنسخ الاحتياطية للراوتر."
+
+msgid "Total this cycle"
+msgstr "الإجمالي في هذه الدورة"
+
+msgid "Daily average"
+msgstr "متوسط اليوم"
+
+msgid "Usage per day"
+msgstr "الاستهلاك كل يوم"
+
+msgid "By device"
+msgstr "حسب الجهاز"
+
+msgid "The router counts the usage against it and warns you before it runs out."
+msgstr "يحسب الراوتر الاستهلاك منها وينبّهك قبل أن تنتهي."
+
+msgid "Package size (GB)"
+msgstr "حجم الباقة (جيجا)"
+
+msgid "Empty if you do not know it."
+msgstr "اتركه فارغًا إذا كنت لا تعرفه."
+
+msgid "Name, package and speed of this line."
+msgstr "اسم الخط وباقته وسرعته."
+
+msgid "Measure and correct"
+msgstr "قياس وتصحيح"
+
+msgid "Tools for %s."
+msgstr "أدوات %s."
+
+msgid "Measures the download speed of this line now."
+msgstr "يقيس سرعة التحميل على هذا الخط الآن."
+
+msgid "Measure"
+msgstr "قياس"
+
+msgid "Keeps the line slightly below its speed, so a download does not slow games and calls."
+msgstr "يُبقي الخط أقل قليلًا من سرعته، حتى لا يبطئ التحميل الألعاب والمكالمات."
+
+msgid "The two lines: names, packages, speed, both lines"
+msgstr "الخطين: الأسماء، الباقات، السرعة، والخطين مع بعض"
+
+msgid "Package, low ping, a second line"
+msgstr "الباقة، البنج المنخفض، وخط تاني"
+
+msgid "Family"
+msgstr "العائلة"
+
+msgid "The router"
+msgstr "الراوتر"
+
+msgid "Protection"
+msgstr "الحماية"
+
+msgid "Person"
+msgstr "الشخص"
+
+msgid "Always on."
+msgstr "مُفعّل دائمًا."
+
+msgid "At this rate it ends on %s"
+msgstr "بهذا المعدل تنتهي يوم %s"
+
+msgid "Back to one line"
+msgstr "الرجوع لخط واحد"
+
+msgid "Both lines together"
+msgstr "الخطين مع بعض"
+
+msgid "Choose a person or a device first."
+msgstr "اختر شخصًا أو جهازًا أولًا."
+
+msgid "Chosen people or devices"
+msgstr "أشخاص أو أجهزة أختارهم"
+
+msgid "Colour"
+msgstr "اللون"
+
+msgid "Default line"
+msgstr "الخط الافتراضي"
+
+msgid "Empty = no amount limit."
+msgstr "فارغ = بلا حد للكمية."
+
+msgid "Empty if you do not know it. You are warned at 80 %, 95 % and 100 %."
+msgstr "اتركه فارغًا إذا كنت لا تعرفه. يصلك تنبيه عند 80% و95% و100%."
+
+msgid "Every device uses only its own line and counts on its package. Change the line of a device or a person from its page (Devices, Internet tab)."
+msgstr "يستخدم كل جهاز خطه فقط ويُحسب على باقته. يمكنك تغيير خط جهاز أو شخص من صفحته (الأجهزة، تبويب الإنترنت)."
+
+msgid "Everyone uses the first line again, and port LAN 4 serves home devices again. The settings of both lines are kept."
+msgstr "يعود الجميع إلى الخط الأول، ويعود المنفذ LAN 4 لأجهزة المنزل. وتبقى إعدادات الخطين محفوظة."
+
+msgid "Family logins, updates, backups, language and the router itself."
+msgstr "حسابات العائلة، التحديثات، النسخ الاحتياطي، اللغة، والراوتر نفسه."
+
+msgid "For how long"
+msgstr "لأي مدة"
+
+msgid "For new devices and every device not placed on a line."
+msgstr "للأجهزة الجديدة وكل جهاز لم يُحدَّد له خط."
+
+msgid "For whom"
+msgstr "لمن"
+
+msgid "Games, voice and video calls always go before downloads, on every line. There is nothing to turn on."
+msgstr "الألعاب ومكالمات الصوت والفيديو لها الأولوية دائمًا على التحميل، على كل الخطوط. لا حاجة لتشغيل أي شيء."
+
+msgid "Lines and packages"
+msgstr "الخطوط والباقات"
+
+msgid "Measure and adjust"
+msgstr "قياس وضبط"
+
+msgid "Measures the download speed of this line now. Uses about 50 MB."
+msgstr "يقيس سرعة التحميل على هذا الخط الآن. يستهلك نحو 50 ميجابايت."
+
+msgid "One line"
+msgstr "خط واحد"
+
+msgid "Only when \"Chosen people or devices\" is selected."
+msgstr "فقط عند اختيار «أشخاص أو أجهزة أختارهم»."
+
+msgid "Personal passwords"
+msgstr "كلمات مرور شخصية"
+
+msgid "Ping and games"
+msgstr "البنج والألعاب"
+
+msgid "Priority for games and calls"
+msgstr "أولوية الألعاب والمكالمات"
+
+msgid "Shown next to the name everywhere."
+msgstr "يظهر بجانب الاسم في كل مكان."
+
+msgid "Speed of %s"
+msgstr "سرعة %s"
+
+msgid "State"
+msgstr "الحالة"
+
+msgid "The Wi-Fi of the house, the network for visitors, the access points and a password for each person."
+msgstr "واي فاي المنزل، وشبكة الضيوف، ونقاط الوصول، وكلمة مرور لكل شخص."
+
+msgid "The package size is not set."
+msgstr "حجم الباقة غير محدد."
+
+msgid "The router keeps the line a little below its speed, so a download cannot fill it. Measuring uses about 50 MB of the package."
+msgstr "يُبقي الراوتر الخط أقل قليلًا من سرعته، حتى لا يملأه التحميل. ويستهلك القياس نحو 50 ميجا من الباقة."
+
+msgid "Up to (GB)"
+msgstr "لحد (جيجا)"
+
+msgid "Use one line only"
+msgstr "استخدام خط واحد فقط"
+
+msgid "Use one line only?"
+msgstr "استخدام خط واحد فقط؟"
+
+msgid "Used since the last renewal"
+msgstr "المستهلك من آخر تجديد"
+
+msgid "Who uses which line"
+msgstr "من يستخدم أي خط"
+
+msgid "Who"
+msgstr "من"
+
+msgid "Your internet lines and packages, who uses which line, and low ping for games and calls."
+msgstr "خطوط الإنترنت وباقاتها، ومن يستخدم أي خط، وسرعة الاستجابة للألعاب والمكالمات."
+
+msgid "up to %s"
+msgstr "لحد %s"
+
+msgctxt "Virox menu"
+msgid "Internet"
+msgstr "الإنترنت"
+
+msgctxt "Virox menu"
+msgid "Wi-Fi"
+msgstr "الواي فاي"
+
+msgid "Settings of this line"
+msgstr "إعدادات هذا الخط"
+
+msgid "Many downloads at once use both lines and get faster. One single download stays at the speed of one line."
+msgstr "التحميلات الكثيرة معًا تستخدم الخطين وتصبح أسرع. والتحميل الواحد يبقى بسرعة خط واحد."
+
+msgid "This router is an access point"
+msgstr "هذا الراوتر نقطة وصول"
+
+msgid "It finds the main router by itself over the cable. On the main router open Wi-Fi, Access points, and press Add next to this router. It then gets the Wi-Fi name, the passwords and its channel."
+msgstr "يجد الراوتر الرئيسي وحده عبر الكابل. على الراوتر الرئيسي افتح الواي فاي، نقاط الوصول، واضغط «إضافة» بجانب هذا الراوتر. بعدها يأخذ اسم الواي فاي وكلمات المرور وقناته."
+
+msgid "Join with a code instead"
+msgstr "الربط برمز بدلًا من ذلك"
+
+msgid "Code from the main router"
+msgstr "الكود من الراوتر الرئيسي"
+
+msgid "Set the new router to access point mode in its setup and connect it to this router by cable. It shows here by itself within a minute; press Add. Any number can be added."
+msgstr "اضبط الراوتر الجديد على وضع نقطة وصول من إعداده، ووصّله بهذا الراوتر بكابل. سيظهر هنا وحده خلال دقيقة، فاضغط «إضافة». يمكن إضافة أي عدد."
+
+msgid "Access point"
+msgstr "نقطة وصول"
+
+msgid "Added. It gets the Wi-Fi settings within a minute."
+msgstr "تمت الإضافة. يأخذ إعدادات الواي فاي خلال دقيقة."
+
+msgid "Waiting for a new access point… none found on the cable yet."
+msgstr "بانتظار نقطة وصول جديدة… لم تظهر أي نقطة على الكابل بعد."
+
+msgid "Only if the new router does not show here: get a code and type it on the new router (Wi-Fi, Access points). The code works for 10 minutes."
+msgstr "فقط إذا لم يظهر الراوتر الجديد هنا: خذ رمزًا واكتبه على الراوتر الجديد (الواي فاي، نقاط الوصول). الرمز صالح 10 دقائق."
+
+msgid "Wake computers"
+msgstr "تشغيل الأجهزة"
+
+msgid "Switch on a computer that is off from here, now or at a time you choose. The computer must be on cable and have Wake-on-LAN turned on in its settings."
+msgstr "تشغيل كمبيوتر مطفأ من هنا، الآن أو في موعد تختاره. يجب أن يكون الكمبيوتر موصولًا بكابل، وخاصية Wake-on-LAN مفعّلة في إعداداته."
+
+msgid "Wake now"
+msgstr "تشغيل الآن"
+
+msgid "The computer starts within a few seconds."
+msgstr "يعمل الكمبيوتر خلال ثوانٍ."
+
+msgid "On now"
+msgstr "يعمل الآن"
+
+msgid "Off or asleep"
+msgstr "مطفأ أو في وضع السكون"
+
+msgid "Wake"
+msgstr "تشغيل"
+
+msgid "Wake at a time"
+msgstr "تشغيل في معاد"
+
+msgid "For example: switch the office computer on every working day at 7:00."
+msgstr "مثال: تشغيل كمبيوتر المكتب كل يوم عمل الساعة 7:00."
+
+msgid "Time"
+msgstr "الساعة"
+
+msgid "Shut down, restart, sleep, lock"
+msgstr "إيقاف التشغيل، إعادة التشغيل، السكون، القفل"
+
+msgid "Turning a computer off, restarting it, sleep, hibernate, locking it, signing out or cancelling a shutdown need a small Virox program on the computer itself. It comes in a later version."
+msgstr "إطفاء الكمبيوتر وإعادة تشغيله والسكون والإسبات والقفل وتسجيل الخروج وإلغاء الإطفاء تحتاج إلى برنامج Virox صغير على الكمبيوتر نفسه. أضِفه من «إضافة هذا الكمبيوتر»."
+
+msgctxt "Virox menu"
+msgid "Wake computers"
+msgstr "أجهزة الكمبيوتر"
+
+msgid "Hide the network"
+msgstr "إخفاء الشبكة"
+
+msgid "Hide the network name from the list of networks"
+msgstr "إخفاء اسم الشبكة من قائمة الشبكات"
+
+msgid "Devices that are already connected stay connected. A new device has to type the network name by hand. The guest network stays visible."
+msgstr "الأجهزة المتصلة الآن تبقى متصلة. الجهاز الجديد يكتب اسم الشبكة يدويًا. شبكة الضيوف تبقى ظاهرة."
+
+msgid "Hide the 2.4 GHz network"
+msgstr "إخفاء شبكة 2.4 جيجاهرتز"
+
+msgid "Hide the 5 GHz network"
+msgstr "إخفاء شبكة 5 جيجاهرتز"
+
+msgid "Usage of a device or a period"
+msgstr "استهلاك جهاز أو فترة"
+
+msgid "Device or person"
+msgstr "الجهاز أو الشخص"
+
+msgid "The whole house"
+msgstr "البيت كله"
+
+msgid "Other"
+msgstr "أخرى"
+
+msgid "Quick choice"
+msgstr "اختيار سريع"
+
+msgid "Yesterday"
+msgstr "أمس"
+
+msgid "Last 7 days"
+msgstr "آخر 7 أيام"
+
+msgid "Last 30 days"
+msgstr "آخر 30 يومًا"
+
+msgid "This package cycle"
+msgstr "دورة الباقة الحالية"
+
+msgid "Total"
+msgstr "الإجمالي"
+
+msgid "Choose a start day before the end day."
+msgstr "اختر يوم بداية قبل يوم النهاية."
+
+msgid "This range cannot be shown (at most one year)."
+msgstr "لا يمكن عرض هذه الفترة (سنة واحدة على الأكثر)."
+
+msgid "No usage in these days."
+msgstr "لا يوجد استهلاك في هذه الأيام."
+
+msgid "Log out and log in again to see this (the router was updated)."
+msgstr "سجّل الخروج ثم الدخول مرة أخرى لعرض هذا (تم تحديث الراوتر)."
+
+msgid "This could not be loaded. Try again."
+msgstr "تعذّر التحميل. حاول مرة أخرى."
+
+msgid "Remove from the list"
+msgstr "إزالة من القائمة"
+
+msgid "For a device that is gone. Its settings end with it; its usage stays in the totals as \"Removed devices\". If it connects again it comes back as a new device."
+msgstr "لجهاز لم يعد موجودًا. تنتهي إعداداته معه، ويبقى استهلاكه في الإجمالي باسم «أجهزة محذوفة». إذا اتصل مرة أخرى يظهر كجهاز جديد."
+
+msgid "Remove this device from the list?"
+msgstr "إزالة هذا الجهاز من القائمة؟"
+
+msgid "Its block, limits and schedules end. Its usage stays in the totals."
+msgstr "ينتهي حظره وحدوده ومواعيده. ويبقى استهلاكه في الإجمالي."
+
+msgid "Removed devices"
+msgstr "أجهزة محذوفة"
+
+msgid "The main router manages it: the Wi-Fi name, the passwords and the channel come from there. Change them on the main router."
+msgstr "يديرها الراوتر الرئيسي: اسم الواي فاي وكلمات المرور والقناة تأتي منه. غيّرها من الراوتر الرئيسي."
+
+msgid "This access point works on its own"
+msgstr "نقطة الوصول هذه تعمل وحدها"
+
+msgid "Per line"
+msgstr "لكل خط"
+
+msgid "Nothing counted per line in these days yet."
+msgstr "لا يوجد استهلاك محسوب لكل خط في هذه الأيام بعد."
+
+msgid "The router's own traffic and the first minutes of a new device are in the total only."
+msgstr "استهلاك الراوتر نفسه وأول دقائق الجهاز الجديد محسوبة في الإجمالي فقط."
+
+msgid "Open its pages"
+msgstr "افتح صفحاتها"
+
+msgid "Another access point collects this one"
+msgstr "نقطة وصول أخرى تجمع هذه"
+
+msgid "The main router is not a Virox router, so another Virox access point manages this one: the Wi-Fi name, the passwords and the channel come from it, and it shows the devices and usage of every access point. Change them there."
+msgstr "الراوتر الرئيسي ليس من Virox، لذلك تدير نقطة وصول Virox أخرى هذه النقطة: اسم الواي فاي وكلمات المرور والقناة تأتي منها، وهي تعرض أجهزة كل نقاط الوصول واستهلاكها. غيّرها من هناك."
+
+msgid "Waiting to be added"
+msgstr "في انتظار الإضافة"
+
+msgid "Another Virox access point collects the access points of this house. Open its pages, then Wi-Fi, Access points, and press Add next to this one."
+msgstr "نقطة وصول Virox أخرى تجمع نقاط الوصول في هذا البيت. افتح صفحاتها ثم الواي فاي ثم نقاط الوصول، واضغط إضافة بجانب هذه النقطة."
+
+msgid "The main router is not a Virox router, so there is nothing to join. Set the Wi-Fi name and password here, in Wi-Fi. The devices on this access point and their usage show on these pages. If you add more Virox access points, this one collects their devices and usage."
+msgstr "الراوتر الرئيسي ليس من Virox، فلا يوجد ما تنضم إليه. اضبط اسم الواي فاي وكلمة المرور من هنا، من صفحة الواي فاي. والأجهزة المتصلة بنقطة الوصول هذه واستهلاكها تظهر في هذه الصفحات. وإذا أضفت نقاط وصول Virox أخرى فستجمع هذه النقطة أجهزتها واستهلاكها."
+
+msgid "The main router is not a Virox router, so this access point collects the other Virox access points of the house: add each one below. Their devices and usage then show on these pages, and they take the Wi-Fi name and password from here."
+msgstr "الراوتر الرئيسي ليس من Virox، لذلك تجمع نقطة الوصول هذه نقاط وصول Virox الأخرى في البيت: أضف كل واحدة منها بالأسفل. بعدها تظهر أجهزتها واستهلاكها في هذه الصفحات، وتأخذ اسم الواي فاي وكلمة المرور من هنا."
+
+msgid "Set the new router to access point mode in its setup and connect it to the same network (the main router or its switch). It shows here by itself within a few minutes; press Add."
+msgstr "اضبط الراوتر الجديد على وضع نقطة الوصول أثناء إعداده ووصّله بنفس الشبكة (الراوتر الرئيسي أو السويتش الخاص به). سيظهر هنا وحده خلال دقائق؛ اضغط إضافة."
+
+msgid "2.4 GHz (reaches further)"
+msgstr "2.4 جيجاهرتز (يصل لمسافة أبعد)"
+
+msgid "5 GHz (faster, nearer)"
+msgstr "5 جيجاهرتز (أسرع، لمسافة أقرب)"
+
+msgid "Both"
+msgstr "الاثنان"
+
+msgid "Band"
+msgstr "التردد"
+
+msgid "Signal strength"
+msgstr "قوة الإشارة"
+
+msgid "Stronger 2.4 GHz signal (25 dBm, as the old system)"
+msgstr "إشارة 2.4 جيجاهرتز أقوى (25 dBm)"
+
+msgid "The 2.4 GHz network reaches further. This is above the legal limit in Egypt (20 dBm). The 5 GHz network stays the same. Access points follow by themselves."
+msgstr "تصل شبكة 2.4 جيجاهرتز لمسافة أبعد. هذا أعلى من الحد القانوني في مصر (20 dBm). شبكة 5 جيجاهرتز تبقى كما هي. ونقاط الوصول تتبع هذا الإعداد وحدها."
+
+msgid "No device connected now"
+msgstr "لا يوجد جهاز متصل الآن"
+
+msgid "Cable"
+msgstr "كابل"
+
+msgid "%s more"
+msgstr "%s أخرى"
+
+msgid "The internet"
+msgstr "الإنترنت"
+
+msgid "Down"
+msgstr "منقطع"
+
+msgid "The main router"
+msgstr "الراوتر الرئيسي"
+
+msgid "A Virox router"
+msgstr "راوتر Virox"
+
+msgid "Not a Virox router (the provider's or another router)"
+msgstr "ليس راوتر Virox (راوتر شركة الإنترنت أو راوتر آخر)"
+
+msgid "The router this access point is plugged into"
+msgstr "الراوتر الموصّلة به نقطة الوصول هذه"
+
+msgid "This router"
+msgstr "هذا الراوتر"
+
+msgid "This access point (collects the others)"
+msgstr "نقطة الوصول هذه (تجمع الباقي)"
+
+msgid "This access point"
+msgstr "نقطة الوصول هذه"
+
+msgid "On this router"
+msgstr "على هذا الراوتر"
+
+msgid "Channels %s and %s"
+msgstr "القناتان %s و%s"
+
+msgid "Not answering"
+msgstr "لا تستجيب"
+
+msgid "Network map"
+msgstr "خريطة الشبكة"
+
+msgctxt "Virox menu"
+msgid "Network map"
+msgstr "خريطة الشبكة"
+
+msgid "Who is connected to what, right now. Tap a device to control it."
+msgstr "من المتصل بماذا الآن. اضغط على جهاز للتحكم فيه."
+
+msgid "Mobile"
+msgstr "هاتف"
+
+msgid "Tablet"
+msgstr "تابلت"
+
+msgid "Laptop"
+msgstr "لابتوب"
+
+msgid "Computer"
+msgstr "كمبيوتر"
+
+msgid "TV"
+msgstr "تلفزيون"
+
+msgid "Game console"
+msgstr "جهاز ألعاب"
+
+msgid "Printer"
+msgstr "طابعة"
+
+msgid "Camera"
+msgstr "كاميرا"
+
+msgid "Wi-Fi 5 GHz"
+msgstr "واي فاي 5 جيجاهرتز"
+
+msgid "Wi-Fi 2.4 GHz"
+msgstr "واي فاي 2.4 جيجاهرتز"
+
+msgid "The provider's or another router"
+msgstr "راوتر شركة الإنترنت أو راوتر آخر"
+
+msgid "Router"
+msgstr "راوتر"
+
+msgid "The devices behind it are counted together under this name. To see each one, set it to access point mode."
+msgstr "الأجهزة المتصلة خلفه تُحسب معًا تحت هذا الاسم. لرؤية كل جهاز وحده، اضبطه على وضع نقطة وصول."
+
+msgid "This computer is no longer linked."
+msgstr "هذا الكمبيوتر لم يعد مرتبطًا."
+
+msgid "The computer is off, asleep or not connected now."
+msgstr "الكمبيوتر مطفأ أو في وضع السكون أو غير متصل الآن."
+
+msgid "Unknown command."
+msgstr "أمر غير معروف."
+
+msgid "Shut down"
+msgstr "إطفاء"
+
+msgid "Restart"
+msgstr "إعادة التشغيل"
+
+msgid "Sleep"
+msgstr "السكون"
+
+msgid "Hibernate"
+msgstr "الإسبات"
+
+msgid "Cancel shutdown"
+msgstr "إلغاء الإطفاء"
+
+msgid "Waiting for the computer"
+msgstr "بانتظار الكمبيوتر"
+
+msgid "%s: done"
+msgstr "%s: تم"
+
+msgid "%s: failed"
+msgstr "%s: فشل"
+
+msgid "Sent. The computer does it within a few seconds."
+msgstr "تم الإرسال. ينفّذه الكمبيوتر خلال ثوانٍ."
+
+msgid "%s: %s?"
+msgstr "%s: %s؟"
+
+msgid "Downloaded. Open the file on this computer within 10 minutes."
+msgstr "تم التحميل. افتح الملف على هذا الكمبيوتر خلال 10 دقائق."
+
+msgid "Remove %s? The program on it removes itself."
+msgstr "حذف %s؟ يحذف البرنامج نفسه من الكمبيوتر."
+
+msgid "Add a Windows computer from the computer itself: a small file downloads; open it once. The computer then shows here, and it can be shut down, restarted, put to sleep or locked from here."
+msgstr "أضف كمبيوتر ويندوز من الكمبيوتر نفسه: يُحمَّل ملف صغير، افتحه مرة واحدة. بعدها يظهر الكمبيوتر هنا، ويمكن إطفاؤه أو إعادة تشغيله أو وضعه في السكون أو قفل الشاشة من هنا."
+
+msgid "No computer is linked yet."
+msgstr "لا يوجد كمبيوتر مرتبط بعد."
+
+msgid "Add this computer"
+msgstr "إضافة هذا الكمبيوتر"
+
+msgid "Lock the screen"
+msgstr "قفل الشاشة"
+
+msgid "This is not a VPN file for routers (WireGuard .conf or OpenVPN .ovpn)."
+msgstr "هذا ليس ملف VPN للراوترات (WireGuard ‏.conf أو OpenVPN ‏.ovpn)."
+
+msgid "The server address in this file is not valid."
+msgstr "عنوان الخادم في هذا الملف غير صالح."
+
+msgid "This file has no IPv4 address for the router."
+msgstr "لا يحتوي هذا الملف على عنوان IPv4 للراوتر."
+
+msgid "The keys in this file are not valid."
+msgstr "المفاتيح في هذا الملف غير صالحة."
+
+msgid "The user name or password is too long or has a line break."
+msgstr "اسم المستخدم أو كلمة المرور طويل جدًا أو فيه سطر جديد."
+
+msgid "Add the VPN file first."
+msgstr "أضف ملف VPN أولًا."
+
+msgid "Choose at least one person or device."
+msgstr "اختر شخصًا أو جهازًا واحدًا على الأقل."
+
+msgid "VPN"
+msgstr "VPN"
+
+msgid "Connected"
+msgstr "متصل"
+
+msgid "Not connected"
+msgstr "غير متصل"
+
+msgid "Choose the file first."
+msgstr "اختر الملف أولًا."
+
+msgid "VPN file"
+msgstr "ملف VPN"
+
+msgid "From your VPN service, the file for routers: WireGuard (.conf) or OpenVPN (.ovpn)."
+msgstr "من خدمة VPN الخاصة بك، الملف المخصص للراوترات: WireGuard ‏(.conf) أو OpenVPN ‏(.ovpn)."
+
+msgid "User name (OpenVPN only)"
+msgstr "اسم المستخدم (OpenVPN فقط)"
+
+msgid "Password (OpenVPN only)"
+msgstr "كلمة المرور (OpenVPN فقط)"
+
+msgid "The service gives them with the OpenVPN file. Empty for WireGuard."
+msgstr "تعطيك الخدمة إياهما مع ملف OpenVPN. اتركهما فارغين مع WireGuard."
+
+msgid "Send the internet of chosen devices, or of the whole house, through your VPN service. The router itself and everyone else keep the normal line."
+msgstr "مرّر إنترنت أجهزة تختارها، أو المنزل كله، عبر خدمة VPN الخاصة بك. ويبقى الراوتر نفسه وباقي الأجهزة على الخط العادي."
+
+msgid "Chosen people and devices"
+msgstr "أشخاص وأجهزة أختارها"
+
+msgid "Server: %s"
+msgstr "الخادم: %s"
+
+msgid "VPN on"
+msgstr "تشغيل VPN"
+
+msgid "Who uses it"
+msgstr "من يستخدمه"
+
+msgid "No internet while the VPN is down"
+msgstr "لا إنترنت أثناء انقطاع VPN"
+
+msgid "Recommended: chosen devices never go out without the VPN."
+msgstr "يُنصح به: لا تخرج الأجهزة المختارة إلى الإنترنت دون VPN أبدًا."
+
+msgid "Another VPN file"
+msgstr "ملف VPN آخر"
+
+msgid "Replace"
+msgstr "استبدال"
+
+msgid "Remove the VPN"
+msgstr "حذف VPN"
+
+msgid "Remove the VPN and its file?"
+msgstr "حذف VPN وملفه؟"
+
+msgid "Your internet lines and packages, who uses which line, low ping for games and calls, and the VPN."
+msgstr "خطوط الإنترنت وباقاتها، ومن يستخدم أي خط، وسرعة الاستجابة للألعاب والمكالمات، وVPN."
+
+msgid "This router is an access point: the VPN belongs on the main router."
+msgstr "هذا الراوتر نقطة وصول: يُضبط VPN على الراوتر الرئيسي."
+
+msgid "Unknown power level."
+msgstr "مستوى قوة غير معروف."
+
+msgid "The newest version has no update file for the system on this router. Nothing was changed."
+msgstr "أحدث إصدار ليس فيه ملف تحديث للنظام الموجود على هذا الراوتر. لم يتغير شيء."
+
+msgid "The update could not be offered to the access points. Try again."
+msgstr "تعذّر تقديم التحديث لنقاط الوصول. حاول مرة أخرى."
+
+msgid "Downloading the update took too long. Try again later."
+msgstr "استغرق تحميل التحديث وقتًا طويلًا. حاول لاحقًا."
+
+msgid "An update is already running."
+msgstr "يوجد تحديث قيد التنفيذ الآن."
+
+msgid "The OpenVPN program is missing on this router; use the WireGuard file of the service."
+msgstr "برنامج OpenVPN غير موجود على هذا الراوتر؛ استخدم ملف WireGuard من الخدمة."
+
+msgid "This router is an access point: this belongs on the main router."
+msgstr "هذا الراوتر نقطة وصول: هذا الإعداد مكانه الراوتر الرئيسي."
+
+msgid "Choose TCP, UDP or both."
+msgstr "اختر TCP أو UDP أو كليهما."
+
+msgid "A time needs at least one day, an off-time and a different on-time."
+msgstr "كل موعد يحتاج إلى يوم واحد على الأقل، ووقت إيقاف، ووقت تشغيل مختلف عنه."
+
+msgid "The share name has 1 to 15 English letters, digits, - or _."
+msgstr "اسم المشاركة من 1 إلى 15 حرفًا إنجليزيًا أو رقمًا أو - أو _."
+
+msgid "This disk is not plugged in any more."
+msgstr "هذا القرص لم يعد موصولًا."
+
+msgid "A port is a number from 1 to 65535, or a range such as 8000-8010 (at most 1000 ports). An inside port goes with one outside port only."
+msgstr "المنفذ رقم من 1 إلى 65535، أو نطاق مثل 8000-8010 (1000 منفذ على الأكثر). المنفذ الداخلي يكون مع منفذ خارجي واحد فقط."
+
+msgid "This outside port is already open for another device."
+msgstr "هذا المنفذ الخارجي مفتوح بالفعل لجهاز آخر."
+
+msgid "The router itself uses this port."
+msgstr "الراوتر نفسه يستخدم هذا المنفذ."
+
+msgid "There are too many rules. Remove one first."
+msgstr "عدد القواعد كبير. احذف واحدة أولًا."
+
+msgid "The device must be connected now, so the router can keep its address."
+msgstr "يجب أن يكون الجهاز متصلًا الآن حتى يثبّت الراوتر عنوانه."
+
+msgid "This rule no longer exists."
+msgstr "هذه القاعدة لم تعد موجودة."
+
+msgid "The name is too long or has a sign that is not allowed."
+msgstr "الاسم طويل جدًا أو فيه رمز غير مسموح."
+
+msgid "Choose 2.4 GHz or 5 GHz."
+msgstr "اختر 2.4 جيجاهرتز أو 5 جيجاهرتز."
+
+msgid "Wireless link"
+msgstr "الربط اللاسلكي"
+
+msgid "Without a cable"
+msgstr "بدون كابل"
+
+msgid "Place this router where the main router reaches it, then on the main router open Wi-Fi, Access points, and press \"Add without a cable\". This router finds it within a few minutes and shows there; press Add."
+msgstr "ضع هذا الراوتر في مكان تصله فيه إشارة الراوتر الرئيسي، ثم افتح في الراوتر الرئيسي: الواي فاي، نقاط الوصول، واضغط «إضافة بدون كابل». يجده هذا الراوتر خلال دقائق ويظهر هناك؛ اضغط «إضافة»."
+
+msgid "Adding without a cable is open until %s."
+msgstr "الإضافة بدون كابل مفتوحة حتى %s."
+
+msgid "Close now"
+msgstr "إغلاق الآن"
+
+msgid "Add an access point without a cable?"
+msgstr "إضافة نقطة وصول بدون كابل؟"
+
+msgid "For 10 minutes this router opens a joining network. Set the new router to access point mode, place it where this router (or another access point) reaches it, and switch it on. It shows here within a few minutes; press Add. It then uses the wireless link between Virox routers."
+msgstr "يفتح هذا الراوتر شبكة انضمام لمدة 10 دقائق. اجعل الراوتر الجديد في وضع نقطة وصول، وضعه في مكان تصله إشارة هذا الراوتر (أو نقطة وصول أخرى)، ثم شغّله. يظهر هنا خلال دقائق؛ اضغط «إضافة». بعدها يستخدم الربط اللاسلكي بين أجهزة Virox."
+
+msgid "Open for 10 minutes"
+msgstr "فتح لمدة 10 دقائق"
+
+msgid "Open for 10 minutes."
+msgstr "مفتوحة لمدة 10 دقائق."
+
+msgid "Add without a cable"
+msgstr "إضافة بدون كابل"
+
+msgid "Wireless link between Virox routers"
+msgstr "الربط اللاسلكي بين أجهزة Virox"
+
+msgid "Access points without a cable, and a backup link when a cable is pulled"
+msgstr "نقاط وصول بدون كابل، واتصال احتياطي عند فصل الكابل"
+
+msgid "A cable is always used first. All Virox routers then use the 5 GHz channel of this router. Turn it off only if every access point has a cable and you want them on different channels."
+msgstr "الكابل يُستخدم أولًا دائمًا. وتستخدم كل أجهزة Virox قناة 5 جيجاهرتز الخاصة بهذا الراوتر. أوقفه فقط إذا كانت كل نقاط الوصول موصولة بكابل وتريدها على قنوات مختلفة."
+
+msgid "Link: cable"
+msgstr "الاتصال: كابل"
+
+msgid "Link: repeating another router, signal %s"
+msgstr "الاتصال: تكرار شبكة راوتر آخر، الإشارة %s"
+
+msgid "Link: wireless, signal %s"
+msgstr "الاتصال: لاسلكي، الإشارة %s"
+
+msgid "Move it closer to the main router or to another access point."
+msgstr "قرّبها من الراوتر الرئيسي أو من نقطة وصول أخرى."
+
+msgid "Repeating another router"
+msgstr "تكرار شبكة راوتر آخر"
+
+msgid "This access point is connected by Wi-Fi to another router and repeats its internet. Devices behind it may be counted together, as one device, on the other router."
+msgstr "نقطة الوصول هذه متصلة بالواي فاي براوتر آخر وتكرر الإنترنت منه. قد يحسب الراوتر الآخر الأجهزة التي خلفها معًا كجهاز واحد."
+
+msgid "Network"
+msgstr "الشبكة"
+
+msgid "Stopped."
+msgstr "تم الإيقاف."
+
+msgid "Stop repeating"
+msgstr "إيقاف التكرار"
+
+msgid "Press \"Find networks\"."
+msgstr "اضغط «البحث عن الشبكات»."
+
+msgid "Looking for networks…"
+msgstr "جارٍ البحث عن الشبكات…"
+
+msgid "No network found."
+msgstr "لم يتم العثور على أي شبكة."
+
+msgid "No cable to a Virox router?"
+msgstr "لا يوجد كابل إلى راوتر Virox؟"
+
+msgid "This access point can repeat the Wi-Fi of another router (a router that is not a Virox): choose its network and type its password. Devices behind it may be counted together on the other router."
+msgstr "تستطيع نقطة الوصول هذه تكرار الواي فاي لراوتر آخر (ليس Virox): اختر شبكته واكتب كلمة المرور الخاصة بها. قد يحسب الراوتر الآخر الأجهزة التي خلفها معًا."
+
+msgid "Find networks"
+msgstr "البحث عن الشبكات"
+
+msgid "Password of that network"
+msgstr "كلمة مرور تلك الشبكة"
+
+msgid "Choose a network first."
+msgstr "اختر شبكة أولًا."
+
+msgid "Repeat this network?"
+msgstr "تكرار هذه الشبكة؟"
+
+msgid "Wi-Fi restarts; if the other router does not accept it, this access point tries another way by itself within two minutes."
+msgstr "سيُعاد تشغيل الواي فاي؛ وإذا لم يقبلها الراوتر الآخر تجرّب نقطة الوصول طريقة أخرى بنفسها خلال دقيقتين."
+
+msgid "Repeat"
+msgstr "تكرار"
+
+msgid "Connecting… this takes up to two minutes."
+msgstr "جارٍ الاتصال… قد يستغرق ذلك حتى دقيقتين."
+
+msgid "Updated"
+msgstr "تم التحديث"
+
+msgid "Updating now"
+msgstr "جارٍ التحديث الآن"
+
+msgid "Waiting"
+msgstr "بالانتظار"
+
+msgid "Was off, not updated"
+msgstr "كان مطفأ، لم يُحدَّث"
+
+msgid "Did not come back"
+msgstr "لم يرجع"
+
+msgid "Downloading the update once for the whole house…"
+msgstr "جارٍ تحميل التحديث مرة واحدة للمنزل كله…"
+
+msgid "Updating the access points one at a time…"
+msgstr "جارٍ تحديث نقاط الوصول واحدة تلو الأخرى…"
+
+msgid "The access points are done. This router installs the update now and restarts by itself."
+msgstr "انتهت نقاط الوصول. يثبّت هذا الراوتر التحديث الآن ويعيد التشغيل بنفسه."
+
+msgid "Every unit has the newest version."
+msgstr "كل الأجهزة عليها أحدث إصدار."
+
+msgid "Stopped: %s did not come back within %s minutes. The other units were not touched. Check its power and cable, then press Update all again."
+msgstr "توقف التحديث: %s لم يرجع خلال %s دقائق. لم يتغير شيء في باقي الأجهزة. تأكد من الكهرباء والكابل، ثم اضغط «تحديث الكل» مرة أخرى."
+
+msgid "Update the whole house"
+msgstr "تحديث المنزل كله"
+
+msgid "This router downloads the update once. The access points then update one at a time, each restarts once; this router updates last. If one does not come back, the rest stop."
+msgstr "يحمّل هذا الراوتر التحديث مرة واحدة. ثم تُحدَّث نقاط الوصول واحدة تلو الأخرى، وتعيد كل منها التشغيل مرة؛ ويُحدَّث هذا الراوتر في النهاية. إذا لم ترجع إحداها يتوقف الباقي."
+
+msgid "Last"
+msgstr "في النهاية"
+
+msgid "Update every unit of the house?"
+msgstr "تحديث كل أجهزة المنزل؟"
+
+msgid "The access points update one at a time, then this router. Each one restarts once: a few minutes without Wi-Fi near it. Settings are kept."
+msgstr "تُحدَّث نقاط الوصول واحدة تلو الأخرى، ثم هذا الراوتر. يعيد كل جهاز التشغيل مرة: دقائق قليلة بدون واي فاي بجواره. تبقى الإعدادات كما هي."
+
+msgid "Update all"
+msgstr "تحديث الكل"
+
+msgid "The internet line"
+msgstr "خط الإنترنت"
+
+msgid "%s: this router gets a private address (%s) from the ISP router in front of it. An open port works only after you set this router as the DMZ host of the ISP router, or put the ISP router in bridge mode (see the install guide)."
+msgstr "%s: يحصل هذا الراوتر على عنوان خاص (%s) من راوتر شركة الإنترنت الذي أمامه. لن يعمل المنفذ المفتوح إلا بعد جعل هذا الراوتر «DMZ host» في راوتر الشركة، أو تحويل راوتر الشركة إلى وضع «bridge» (راجع دليل التركيب)."
+
+msgid "%s is down now."
+msgstr "%s متوقف الآن."
+
+msgid "Open"
+msgstr "مفتوح"
+
+msgid "Waiting for the device address"
+msgstr "بانتظار عنوان الجهاز"
+
+msgid "Rule on"
+msgstr "القاعدة مُفعّلة"
+
+msgid "Device: %s"
+msgstr "الجهاز: %s"
+
+msgid "Outside port: %s"
+msgstr "المنفذ الخارجي: %s"
+
+msgid "Inside port: %s"
+msgstr "المنفذ الداخلي: %s"
+
+msgid "Line: %s"
+msgstr "الخط: %s"
+
+msgid "Close this port?"
+msgstr "إغلاق هذا المنفذ؟"
+
+msgid "Nobody outside can reach the device on it any more."
+msgstr "لن يستطيع أحد من الخارج الوصول إلى الجهاز عن طريقه بعد الآن."
+
+msgid "Same"
+msgstr "نفسه"
+
+msgid "For example: camera"
+msgstr "مثلًا: كاميرا"
+
+msgid "Open ports"
+msgstr "المنافذ المفتوحة"
+
+msgid "For cameras, recorders, game consoles and servers that must be reached from the internet. A rule follows the device: it keeps its address."
+msgstr "للكاميرات وأجهزة التسجيل وأجهزة الألعاب والخوادم التي يجب الوصول إليها من الإنترنت. القاعدة تتبع الجهاز: يحتفظ بعنوانه."
+
+msgid "No open port."
+msgstr "لا يوجد منفذ مفتوح."
+
+msgid "Open a port"
+msgstr "فتح منفذ"
+
+msgid "Device"
+msgstr "الجهاز"
+
+msgid "Type"
+msgstr "النوع"
+
+msgid "Outside port"
+msgstr "المنفذ الخارجي"
+
+msgid "One port, or a range such as 8000-8010."
+msgstr "منفذ واحد، أو نطاق مثل 8000-8010."
+
+msgid "Inside port"
+msgstr "المنفذ الداخلي"
+
+msgid "Only if the device uses another port; empty = the same."
+msgstr "فقط إذا كان الجهاز يستخدم منفذًا آخر؛ اتركه فارغًا ليكون نفسه."
+
+msgid "Name"
+msgstr "الاسم"
+
+msgid "The port is open."
+msgstr "تم فتح المنفذ."
+
+msgid "Open the port"
+msgstr "فتح المنفذ"
+
+msgid "Games mode (in Ping and games) lets consoles open their own ports; use a rule here only for a device that needs a fixed one."
+msgstr "وضع الألعاب (في «البنج والألعاب») يسمح لأجهزة الألعاب بفتح منافذها بنفسها؛ استخدم قاعدة هنا فقط لجهاز يحتاج منفذًا ثابتًا."
+
+msgid "The main router manages this access point: set the schedules there; this one follows them."
+msgstr "الراوتر الرئيسي يدير نقطة الوصول هذه: اضبط المواعيد هناك، وهي تتبعها."
+
+msgctxt "Virox day"
+msgid "Sat"
+msgstr "سبت"
+
+msgctxt "Virox day"
+msgid "Sun"
+msgstr "أحد"
+
+msgctxt "Virox day"
+msgid "Mon"
+msgstr "اثنين"
+
+msgctxt "Virox day"
+msgid "Tue"
+msgstr "ثلاثاء"
+
+msgctxt "Virox day"
+msgid "Wed"
+msgstr "أربعاء"
+
+msgctxt "Virox day"
+msgid "Thu"
+msgstr "خميس"
+
+msgctxt "Virox day"
+msgid "Fri"
+msgstr "جمعة"
+
+msgid "The whole Wi-Fi"
+msgstr "الواي فاي كله"
+
+msgid "2.4 GHz only"
+msgstr "2.4 جيجاهرتز فقط"
+
+msgid "5 GHz only"
+msgstr "5 جيجاهرتز فقط"
+
+msgid "The guest network"
+msgstr "شبكة الضيوف"
+
+msgid "What turns off"
+msgstr "ما يتوقف"
+
+msgid "Off at"
+msgstr "الإيقاف الساعة"
+
+msgid "On again at"
+msgstr "التشغيل الساعة"
+
+msgid "The days are the days of the off-time; an on-time earlier than the off-time is the next morning."
+msgstr "الأيام هي أيام وقت الإيقاف؛ ووقت التشغيل الأبكر من وقت الإيقاف يعني صباح اليوم التالي."
+
+msgid "Each time needs at least one day, an off-time and a different on-time."
+msgstr "كل موعد يحتاج إلى يوم واحد على الأقل، ووقت إيقاف، ووقت تشغيل مختلف عنه."
+
+msgid "Your own device is on this Wi-Fi"
+msgstr "جهازك متصل بهذا الواي فاي"
+
+msgid "%s is connected to a Wi-Fi that these times switch off. It will lose the connection at the off-time (use a cable or the other band to change the times then). Save anyway?"
+msgstr "%s متصل بواي فاي ستوقفه هذه المواعيد. سينقطع اتصاله عند وقت الإيقاف (استخدم كابلًا أو النطاق الآخر لتغيير المواعيد وقتها). هل تريد الحفظ رغم ذلك؟"
+
+msgid "Always on"
+msgstr "مُفعّلة دائمًا"
+
+msgid "Off at night"
+msgstr "مطفأة ليلًا"
+
+msgid "Always off"
+msgstr "مطفأة دائمًا"
+
+msgid "Off now by the schedule: %s"
+msgstr "متوقف الآن حسب المواعيد: %s"
+
+msgid "Wi-Fi off at set times"
+msgstr "إيقاف الواي فاي في مواعيد محددة"
+
+msgid "For example at night or during study time. Access points follow by themselves. Devices on a cable are not affected."
+msgstr "مثلًا ليلًا أو وقت المذاكرة. تتبعها نقاط الوصول بنفسها. الأجهزة الموصولة بكابل لا تتأثر."
+
+msgid "Add a time"
+msgstr "إضافة موعد"
+
+msgid "Lights of the router"
+msgstr "أضواء الراوتر"
+
+msgid "The lights of this router and of the access points."
+msgstr "أضواء هذا الراوتر ونقاط الوصول."
+
+msgid "Free: %s of %s"
+msgstr "المساحة الفارغة: %s من %s"
+
+msgid "Type: %s"
+msgstr "النوع: %s"
+
+msgid "Shared"
+msgstr "مُشارَك"
+
+msgid "Not shared"
+msgstr "غير مُشارَك"
+
+msgid "You can unplug the disk now."
+msgstr "يمكنك فصل القرص الآن."
+
+msgid "Safe remove"
+msgstr "الإزالة الآمنة"
+
+msgid "Unchanged"
+msgstr "بدون تغيير"
+
+msgid "No password"
+msgstr "بدون كلمة مرور"
+
+msgid "USB disk"
+msgstr "قرص USB"
+
+msgid "No USB disk is plugged in. FAT, exFAT, NTFS and ext4 disks work."
+msgstr "لا يوجد قرص USB موصول. تعمل أقراص FAT وexFAT وNTFS وext4."
+
+msgid "Disk sharing is not installed on this router."
+msgstr "مشاركة الأقراص غير مثبتة على هذا الراوتر."
+
+msgid "Share on the home network"
+msgstr "المشاركة على شبكة المنزل"
+
+msgid "Home devices can open, add and delete files. Visitors on the guest network and the internet cannot."
+msgstr "تستطيع أجهزة المنزل فتح الملفات وإضافتها وحذفها. لا يستطيع ذلك زوار شبكة الضيوف ولا أحد من الإنترنت."
+
+msgid "Share name (English letters and digits)"
+msgstr "اسم المشاركة (حروف إنجليزية وأرقام)"
+
+msgid "Password (user name: virox)"
+msgstr "كلمة المرور (اسم المستخدم: virox)"
+
+msgid "A password is set. Type a new one to change it."
+msgstr "توجد كلمة مرور. اكتب كلمة جديدة لتغييرها."
+
+msgid "Without a password every home device can open it. At least 8 characters."
+msgstr "بدون كلمة مرور يستطيع كل جهاز في المنزل فتحه. 8 حروف على الأقل."
+
+msgid "The password is removed."
+msgstr "تم حذف كلمة المرور."
+
+msgid "Remove the password"
+msgstr "حذف كلمة المرور"
+
+msgid "How to open it"
+msgstr "طريقة الفتح"
+
+msgid "Windows: open File Explorer and type %s in the address bar."
+msgstr "ويندوز: افتح «مستكشف الملفات» واكتب %s في شريط العنوان."
+
+msgid "Android: in a file manager that supports SMB (network) shares, add the server %s."
+msgstr "أندرويد: في تطبيق ملفات يدعم مشاركات SMB (الشبكة)، أضف الخادم %s."
+
+msgid "iPhone: Files, Connect to Server, then %s."
+msgstr "آيفون: تطبيق «الملفات»، ثم «الاتصال بالخادم»، ثم %s."
+
+msgid "USB printer"
+msgstr "طابعة USB"
+
+msgid "Printer plugged in: %s"
+msgstr "الطابعة الموصولة: %s"
+
+msgid "No USB printer is plugged in."
+msgstr "لا توجد طابعة USB موصولة."
+
+msgid "Share the printer"
+msgstr "مشاركة الطابعة"
+
+msgid "Computers and phones at home can print to it."
+msgstr "تستطيع الكمبيوترات والهواتف في المنزل الطباعة عليها."
+
+msgid "How to add it on a computer"
+msgstr "طريقة إضافتها على الكمبيوتر"
+
+msgid "Windows: Settings, Printers, Add a printer, \"The printer that I want is not listed\", add by TCP/IP address: %s, port 9100 (Raw), then choose the printer driver."
+msgstr "ويندوز: الإعدادات، الطابعات، إضافة طابعة، «الطابعة التي أريدها غير موجودة في القائمة»، إضافة بعنوان TCP/IP: %s، المنفذ 9100 (Raw)، ثم اختر برنامج تشغيل الطابعة."
+
+msgid "Android: an app of the printer maker or a printing service that supports \"raw\" port 9100, with the address %s."
+msgstr "أندرويد: تطبيق الشركة المصنعة للطابعة أو خدمة طباعة تدعم المنفذ 9100 «raw»، بالعنوان %s."
+
+msgid "Every day"
+msgstr "كل يوم"
+
+msgid "Once a week"
+msgstr "مرة في الأسبوع"
+
+msgid "Saturday"
+msgstr "السبت"
+
+msgid "Sunday"
+msgstr "الأحد"
+
+msgid "Monday"
+msgstr "الاثنين"
+
+msgid "Tuesday"
+msgstr "الثلاثاء"
+
+msgid "Wednesday"
+msgstr "الأربعاء"
+
+msgid "Thursday"
+msgstr "الخميس"
+
+msgid "Friday"
+msgstr "الجمعة"
+
+msgid "Day"
+msgstr "اليوم"
+
+msgid "Scheduled restart"
+msgstr "إعادة التشغيل المجدولة"
+
+msgid "Off unless you need it. The usage is saved first; it never happens during an update. With access points, they restart one at a time after this router is back."
+msgstr "متوقفة إلا إذا احتجتها. يُحفظ الاستهلاك أولًا، ولا تحدث أبدًا أثناء تحديث. ومع نقاط الوصول، تعيد التشغيل واحدة تلو الأخرى بعد أن يعود هذا الراوتر للعمل."
+
+msgid "Restart on a schedule"
+msgstr "إعادة التشغيل في موعد"
+
+msgid "How often"
+msgstr "كم مرة"
+
+msgid "At"
+msgstr "الساعة"
+
+msgid "With access points: update the whole house at once from Wi-Fi, Access points."
+msgstr "مع نقاط الوصول: حدّث المنزل كله مرة واحدة من الواي فاي، نقاط الوصول."
+
+msgid "USB disk and printer"
+msgstr "قرص USB والطابعة"
+
+msgid "A disk is plugged in"
+msgstr "يوجد قرص موصول"
+
+msgid "Share a flash disk or a printer"
+msgstr "مشاركة قرص USB أو طابعة"
+
+msgid "At this rate the package lasts about %s"
+msgstr "بهذا المعدل تكفي الباقة %s تقريبًا"
+
+msgid "%s: the ISP gives a shared address (%s, CGNAT), so nobody on the internet can reach this line. Open ports cannot work on it. Ask the ISP for a public address."
+msgstr "%s: تعطي شركة الإنترنت عنوانًا مشتركًا (%s، CGNAT)، فلا يستطيع أحد على الإنترنت الوصول إلى هذا الخط. لن تعمل المنافذ المفتوحة عليه. اطلب من الشركة عنوانًا عامًا."
+
+msgid "QR code of the Wi-Fi network"
+msgstr "رمز QR لشبكة الواي فاي"
+
+msgid "New Wi-Fi password of %s"
+msgstr "كلمة مرور جديدة للواي فاي لـ %s"
+
+msgid "Password: %s"
+msgstr "كلمة المرور: %s"
+
+msgid "No device has joined with this password yet."
+msgstr "لم يتصل أي جهاز بكلمة المرور هذه بعد."
+
+msgid "QR code of the password of %s"
+msgstr "رمز QR لكلمة مرور %s"
+
+msgid "Print"
+msgstr "طباعة"
+
+msgid "Print a small card"
+msgstr "طباعة بطاقة صغيرة"
+
+msgid "Change the password"
+msgstr "تغيير كلمة المرور"
+
+msgid "Change the password of %s?"
+msgstr "تغيير كلمة مرور %s؟"
+
+msgid "Every device of this person must join the Wi-Fi again with the new password."
+msgstr "يجب أن يتصل كل جهاز لهذا الشخص بالواي فاي من جديد بكلمة المرور الجديدة."
+
+msgid "Change"
+msgstr "تغيير"
+
+msgid "Remove the password of %s?"
+msgstr "حذف كلمة مرور %s؟"
+
+msgid "Every device of this person must join the Wi-Fi again, with the household password. The person and their devices stay."
+msgstr "يجب أن يتصل كل جهاز لهذا الشخص بالواي فاي من جديد بكلمة مرور المنزل. يبقى الشخص وأجهزته كما هم."
+
+msgid "Same network name, one password for each person, for all their devices. A device that joins with a person's password is added to that person by itself, here and on every access point. The household password keeps working for guests and other devices."
+msgstr "نفس اسم الشبكة، وكلمة مرور واحدة لكل شخص لكل أجهزته. الجهاز الذي يتصل بكلمة مرور شخص يُضاف إليه تلقائيًا، هنا وعلى كل نقطة وصول. وتظل كلمة مرور المنزل تعمل للضيوف وباقي الأجهزة."
+
+msgid "Add a person"
+msgstr "إضافة شخص"
+
+msgid "Made for you; you may type another one (8 to 63 characters)."
+msgstr "تم إنشاؤها لك، ويمكنك كتابة غيرها (من 8 إلى 63 حرفًا)."
+
+msgid "Added. Wi-Fi restarts for a few seconds."
+msgstr "تمت الإضافة. يُعاد تشغيل الواي فاي لثوانٍ."
+
+msgid "No person has a password yet."
+msgstr "لا يوجد شخص له كلمة مرور بعد."
+
+msgid "People without a password"
+msgstr "أشخاص بدون كلمة مرور"
+
+msgid "Give a password"
+msgstr "إعطاء كلمة مرور"
+
+msgid "Home Wi-Fi"
+msgstr "واي فاي المنزل"
+
+msgid "QR codes and printing"
+msgstr "رموز QR والطباعة"
+
+msgid "Point a phone camera at a code to join without typing. Print puts only the card on the paper: the name, the password and the code."
+msgstr "وجّه كاميرا الهاتف إلى الرمز للاتصال بدون كتابة. الطباعة تضع البطاقة فقط على الورق: الاسم وكلمة المرور والرمز."
+
+msgid "Network name: %s"
+msgstr "اسم الشبكة: %s"
+
+msgid "Hidden network: the code still works."
+msgstr "شبكة مخفية: الرمز يعمل رغم ذلك."
+
+msgid "QR code of %s"
+msgstr "رمز QR لـ %s"
+
+msgid "No Wi-Fi network is on."
+msgstr "لا توجد شبكة واي فاي مُفعّلة."
+
+msgid "The range of the Virox units is full. Make it larger in Settings, Addresses, then add the access point again."
+msgstr "نطاق أجهزة Virox ممتلئ. وسّعه من الإعدادات، العناوين، ثم أضف نقطة الوصول من جديد."
+
+msgid "Each range is from 2 to 254, and its start is not after its end."
+msgstr "كل نطاق من 2 إلى 254، وبدايته لا تأتي بعد نهايته."
+
+msgid "The two ranges must not overlap."
+msgstr "يجب ألا يتداخل النطاقان."
+
+msgid "The address of this router cannot be inside a range."
+msgstr "لا يمكن أن يكون عنوان هذا الراوتر داخل نطاق."
+
+msgid "The devices range needs at least 10 addresses."
+msgstr "نطاق الأجهزة يحتاج إلى 10 عناوين على الأقل."
+
+msgid "An access point has a fixed address outside the new units range. Keep it inside, or forget that access point first."
+msgstr "توجد نقطة وصول لها عنوان ثابت خارج نطاق أجهزة Virox الجديد. اجعله داخله، أو انسَ نقطة الوصول هذه أولًا."
+
+msgid "A device has a fixed address inside the new units range. Change that device first (Devices)."
+msgstr "يوجد جهاز له عنوان ثابت داخل نطاق أجهزة Virox الجديد. غيّر عنوان هذا الجهاز أولًا (الأجهزة)."
+
+msgid "The address of this router could not be read."
+msgstr "تعذّرت قراءة عنوان هذا الراوتر."
+
+msgid "Addresses"
+msgstr "العناوين"
+
+msgid "This router is an access point: the main router gives the addresses. Under a router that is not a Virox, the access points take what that router gives."
+msgstr "هذا الراوتر نقطة وصول: الراوتر الرئيسي هو الذي يعطي العناوين. وتحت راوتر ليس Virox تأخذ نقاط الوصول ما يعطيه ذلك الراوتر."
+
+msgid "The router gives every device an address by itself. Virox access points get a fixed address from their own range, by themselves; the other devices get one from the devices range."
+msgstr "يعطي الراوتر كل جهاز عنوانًا تلقائيًا. تحصل نقاط وصول Virox على عنوان ثابت من نطاقها الخاص تلقائيًا، وتحصل باقي الأجهزة على عنوان من نطاق الأجهزة."
+
+msgid "Virox units (access points)"
+msgstr "أجهزة Virox (نقاط الوصول)"
+
+msgid "Now: units %s to %s, devices %s to %s."
+msgstr "الآن: أجهزة Virox من %s إلى %s، والأجهزة من %s إلى %s."
+
+msgid "Fixed addresses of the access points"
+msgstr "العناوين الثابتة لنقاط الوصول"
+
+msgid "No access point yet."
+msgstr "لا توجد نقطة وصول بعد."
+
+msgid "The addresses of the Virox units and of the devices"
+msgstr "عناوين أجهزة Virox والأجهزة"
+
+msgid "A hidden network does not show in the list of networks on phones. Devices that are already connected stay connected; a new device types the name by hand or uses the QR code."
+msgstr "الشبكة المخفية لا تظهر في قائمة الشبكات على الهواتف. الأجهزة المتصلة تبقى متصلة، والجهاز الجديد يكتب الاسم بنفسه أو يستخدم رمز QR."
+
+msgid "Home Wi-Fi, 5 GHz"
+msgstr "واي فاي المنزل، 5 جيجاهرتز"
+
+msgid "Home Wi-Fi, 2.4 GHz"
+msgstr "واي فاي المنزل، 2.4 جيجاهرتز"
+
+msgid "Hide %s"
+msgstr "إخفاء %s"
+
+msgid "Hide"
+msgstr "إخفاء"
+
+msgid "Choose switch on, shut down or sleep."
+msgstr "اختر التشغيل أو إيقاف التشغيل أو السكون."
+
+msgid "Shut down and sleep need the Virox program on that computer: add it from the computer itself first."
+msgstr "إيقاف التشغيل والسكون يحتاجان إلى برنامج Virox على هذا الكمبيوتر: أضِفه من الكمبيوتر نفسه أولًا."
+
+msgid "Computers"
+msgstr "أجهزة الكمبيوتر"
+
+msgid "Switch the computers of the house on, off or to sleep from here, now or at a time you choose."
+msgstr "تشغيل أجهزة الكمبيوتر في البيت أو إطفاؤها أو وضعها في السكون من هنا، الآن أو في موعد تختاره."
+
+msgid "Removed from the list."
+msgstr "أُزيل من القائمة."
+
+msgid "Switch on only: for shut down and sleep, add the Virox program on it (below)."
+msgstr "التشغيل فقط: لإيقاف التشغيل والسكون أضِف برنامج Virox عليه (بالأسفل)."
+
+msgid "Not a computer"
+msgstr "ليس كمبيوتر"
+
+msgid "Your computers"
+msgstr "أجهزة الكمبيوتر عندك"
+
+msgid "Switching on needs the computer on a cable with Wake-on-LAN turned on in its settings. Shut down and sleep need the small Virox program on the computer."
+msgstr "التشغيل يحتاج أن يكون الكمبيوتر موصولًا بكابل وخاصية Wake-on-LAN مفعّلة في إعداداته. إيقاف التشغيل والسكون يحتاجان إلى برنامج Virox الصغير على الكمبيوتر."
+
+msgid "No computer found yet. Add one below."
+msgstr "لم يُعثر على كمبيوتر بعد. أضِف واحدًا بالأسفل."
+
+msgid "At a time"
+msgstr "في موعد"
+
+msgid "For example: switch the office computer on every working day at 7:00 and put it to sleep at 23:00."
+msgstr "مثال: تشغيل كمبيوتر المكتب كل يوم عمل الساعة 7:00 ووضعه في السكون الساعة 23:00."
+
+msgid "Add a computer first."
+msgstr "أضِف كمبيوتر أولًا."
+
+msgid "What"
+msgstr "الإجراء"
+
+msgid "Add a computer"
+msgstr "إضافة كمبيوتر"
+
+msgid "The Virox program (Windows)"
+msgstr "برنامج Virox (ويندوز)"
+
+msgid "Open these pages on the computer itself and press the button: a small file downloads; open it once. The computer can then be shut down, put to sleep or locked from here."
+msgstr "افتح هذه الصفحات على الكمبيوتر نفسه واضغط الزر: يُنزَّل ملف صغير، افتحه مرة واحدة. بعدها يمكن إيقاف تشغيل الكمبيوتر أو وضعه في السكون أو قفله من هنا."
+
+msgid "A computer that is not in the list"
+msgstr "كمبيوتر غير موجود في القائمة"
+
+msgid "It is a computer"
+msgstr "هذا كمبيوتر"
+
+msgid "Measuring the download and the upload… about 20 seconds."
+msgstr "جارٍ قياس التحميل والرفع… حوالي 20 ثانية."
+
+msgid "Done: download kept at %s and upload at %s, so games and calls keep a low ping."
+msgstr "تم: التحميل مضبوط على %s والرفع على %s، فيبقى البنج منخفضًا للألعاب والمكالمات."
+
+msgid "Games, voice and video calls go before downloads and uploads. For that the router has to know the speed of the line: measure it once."
+msgstr "الألعاب والمكالمات الصوتية والمرئية تمر قبل التحميل والرفع. ولذلك يحتاج الراوتر إلى معرفة سرعة الخط: قِسها مرة واحدة."
+
+msgid "On: games and calls go first."
+msgstr "مفعّل: الألعاب والمكالمات أولًا."
+
+msgid "Not on yet: press \"Measure and adjust\" below."
+msgstr "غير مفعّل بعد: اضغط «قياس وضبط» بالأسفل."
+
+msgid "Not on yet"
+msgstr "غير مفعّل بعد"
+
+msgid "The router keeps the line a little below its speed, so a download or an upload cannot fill it. Measuring uses about 60 MB of the package."
+msgstr "يُبقي الراوتر الخط أقل قليلًا من سرعته، فلا يملؤه تحميل أو رفع. القياس يستهلك حوالي 60 ميجابايت من الباقة."
+
+msgid "Download %s, upload %s"
+msgstr "التحميل %s، الرفع %s"
+
+msgid "Not measured"
+msgstr "لم يُقَس بعد"
+
+msgid "A new access point joined the home network."
+msgstr "انضمت نقطة وصول جديدة إلى شبكة المنزل."
+
+msgid "An access point has a new address; the router found it again."
+msgstr "حصلت نقطة وصول على عنوان جديد، ووجدها الراوتر مرة أخرى."
+
+msgid "An access point did not come back after its restart; the others were not restarted."
+msgstr "لم تعد نقطة وصول بعد إعادة تشغيلها، ولم تتم إعادة تشغيل النقاط الأخرى."
+
+msgid "All access points are updated."
+msgstr "تم تحديث كل نقاط الوصول."
+
+msgid "The access points are updated, except those that were not reachable."
+msgstr "تم تحديث نقاط الوصول، ما عدا التي لم يمكن الوصول إليها."
+
+msgid "An access point did not come back after its update; the update of the others was stopped."
+msgstr "لم تعد نقطة وصول بعد تحديثها، وتوقف تحديث النقاط الأخرى."
+
+msgid "Two devices were joined into one."
+msgstr "تم دمج جهازين في جهاز واحد."
+
+msgid "A device with a new address was joined to a device you know."
+msgstr "تم ربط جهاز بعنوان جديد بجهاز معروف لديك."
+
+msgid "A device was removed from the list."
+msgstr "تم حذف جهاز من القائمة."
+
+msgid "The usage records were restored from the last copy."
+msgstr "تمت استعادة سجلات الاستهلاك من آخر نسخة."
+
+msgid "The devices and people of the old router were brought in."
+msgstr "تم نقل الأجهزة والأشخاص من الراوتر القديم."
+
+msgid "Devices cannot get an address from the router; please send a help report."
+msgstr "لا تستطيع الأجهزة الحصول على عنوان من الراوتر، يُرجى إرسال تقرير مساعدة."
+
+msgid "The backup to the USB disk did not work."
+msgstr "لم ينجح حفظ النسخة الاحتياطية على قرص USB."
+
+msgid "The router restarted at its scheduled time."
+msgstr "أُعيد تشغيل الراوتر في موعده المحدد."
+
+msgid "The settings were restored from a backup."
+msgstr "تمت استعادة الإعدادات من نسخة احتياطية."
+
+msgid "The router clock could not be checked on the internet; the time may be a little off."
+msgstr "تعذّر ضبط ساعة الراوتر من الإنترنت، وقد يكون الوقت غير دقيق قليلًا."
+
+msgid "The router is installing a new version and will restart."
+msgstr "يثبّت الراوتر إصدارًا جديدًا وسيُعاد تشغيله."
+
+msgid "The router has a new notice."
+msgstr "لدى الراوتر تنبيه جديد."
+
+msgid "You asked a moment ago. Wait a few minutes before asking again."
+msgstr "طلبت منذ لحظات. انتظر بضع دقائق قبل أن تطلب مرة أخرى."
+
+msgid "Choose 1 to 24 hours, or never."
+msgstr "اختر من ساعة إلى يوم كامل، أو أبدًا."
+
+msgid "Confirm first."
+msgstr "أكّد أولًا."
+
+msgid "An update is being installed now. Try again after it."
+msgstr "يجري تثبيت تحديث الآن. حاول مرة أخرى بعد انتهائه."
+
+msgid "Extra today: %s"
+msgstr "وقت إضافي اليوم: %s"
+
+msgid "30 more minutes for today."
+msgstr "تمت إضافة نصف ساعة لليوم."
+
+msgid "+30 minutes today"
+msgstr "+نصف ساعة اليوم"
+
+msgid "One more hour for today."
+msgstr "تمت إضافة ساعة لليوم."
+
+msgid "+1 hour today"
+msgstr "+ساعة اليوم"
+
+msgid "Lock sites and apps on the Devices page, under More: for a while, or until you remove the lock."
+msgstr "احظر المواقع والتطبيقات من صفحة الأجهزة، تحت «المزيد»: لفترة، أو إلى أن تنهي الحظر."
+
+msgid "Until you remove it"
+msgstr "إلى أن تنهي الحظر"
+
+msgid "The time of today is used up."
+msgstr "انتهى وقت اليوم."
+
+msgid "Time left today: %s"
+msgstr "المتبقي من وقت اليوم: %s"
+
+msgid "Until I remove it"
+msgstr "بلا موعد انتهاء"
+
+msgid "Lock sites and apps"
+msgstr "حظر المواقع والتطبيقات"
+
+msgid "A family member asked for more time today."
+msgstr "طلب أحد أفراد العائلة وقتًا إضافيًا اليوم."
+
+msgid "Extra internet time was given for today."
+msgstr "تمت إضافة وقت إنترنت لليوم."
+
+msgid "The guest network switched off by itself at the time you chose."
+msgstr "توقفت شبكة الضيوف وحدها في الموعد الذي اخترته."
+
+msgid "A new device"
+msgstr "جهاز جديد"
+
+msgid "Using the internet now"
+msgstr "يستخدمون الإنترنت الآن"
+
+msgid "Download %s"
+msgstr "تحميل %s"
+
+msgid "Upload %s"
+msgstr "رفع %s"
+
+msgid "Nobody is using the internet right now."
+msgstr "لا أحد يستخدم الإنترنت الآن."
+
+msgid "%s asks for one more hour today."
+msgstr "%s يطلب ساعة إضافية اليوم."
+
+msgid "%s asks for 30 more minutes today."
+msgstr "%s يطلب نصف ساعة إضافية اليوم."
+
+msgid "Not now"
+msgstr "ليس الآن"
+
+msgid "More time today"
+msgstr "وقت إضافي اليوم"
+
+msgid "Ask the person who manages the router. They see your request on their page and decide."
+msgstr "اطلب من مسؤول الراوتر. سيرى طلبك في صفحته ويقرر."
+
+msgid "Sent. You will have the time as soon as it is allowed."
+msgstr "تم الإرسال. ستحصل على الوقت فور السماح به."
+
+msgid "Ask for 30 minutes"
+msgstr "اطلب نصف ساعة"
+
+msgid "Ask for 1 hour"
+msgstr "اطلب ساعة"
+
+msgid "Ping on %s"
+msgstr "البنج على %s"
+
+msgid "Ping of the internet line"
+msgstr "بنج خط الإنترنت"
+
+msgid "Measuring; the first figures come within a few minutes."
+msgstr "جارٍ القياس، وتظهر أول الأرقام خلال دقائق."
+
+msgid "The ping was good all the time."
+msgstr "كان البنج جيدًا طوال الوقت."
+
+msgid "The ping was high at: %s"
+msgstr "كان البنج مرتفعًا في: %s"
+
+msgid "At those times the house was using most of the line; games and calls still went first."
+msgstr "في هذه الأوقات كان البيت يستخدم معظم الخط، ومع ذلك مرّت الألعاب والمكالمات أولًا."
+
+msgid "At those times the house was using most of the line. Turn on priority for games and calls below, then games and calls go first."
+msgstr "في هذه الأوقات كان البيت يستخدم معظم الخط. فعّل أولوية الألعاب والمكالمات بالأسفل، فتمرّ الألعاب والمكالمات أولًا."
+
+msgid "At those times the house was not filling the line, so the line itself was weak. If this happens often, tell the internet company."
+msgstr "في هذه الأوقات لم يكن البيت يستخدم الخط بالكامل، فالضعف كان من الخط نفسه. إذا تكرر ذلك كثيرًا فأبلغ شركة الإنترنت."
+
+msgid "Now"
+msgstr "الآن"
+
+msgid "No answer from the internet"
+msgstr "لا يوجد رد من الإنترنت"
+
+msgid "Jitter %s ms, loss %s %%"
+msgstr "التذبذب %s مللي ثانية، والفقد %s %%"
+
+msgctxt "Virox"
+msgid "Down"
+msgstr "متوقف"
+
+msgid "%s ms"
+msgstr "%s مللي ثانية"
+
+msgid "Ping during the last 24 hours"
+msgstr "البنج خلال اليوم الأخير"
+
+msgid "Never"
+msgstr "أبدًا"
+
+msgid "Limits for guests"
+msgstr "حدود الضيوف"
+
+msgid "One speed shared by all guests together, so visitors never slow the house down. Empty or 0 = no limit."
+msgstr "سرعة واحدة يتقاسمها كل الضيوف معًا، فلا يبطئ الزوار إنترنت البيت. اتركه فارغًا ليكون بلا حد."
+
+msgid "Switch the guest network off by itself after"
+msgstr "إيقاف شبكة الضيوف وحدها بعد"
+
+msgid "It switches off at %s."
+msgstr "تتوقف في الساعة %s."
+
+msgid "Back to a new router"
+msgstr "إعادة الراوتر كجديد"
+
+msgid "Everything you set up is erased: settings, people, usage history and passwords. Save a backup first (Settings, Help and backup). The router keeps the Wi-Fi name and password on its label and opens the %s network for 60 minutes, as on the first day."
+msgstr "يُمسح كل ما أعددته: الإعدادات والأشخاص وسجل الاستهلاك وكلمات المرور. احفظ نسخة احتياطية أولًا (الإعدادات، المساعدة والنسخ الاحتياطي). يحتفظ الراوتر باسم الواي فاي وكلمة المرور المكتوبين على ملصقه، ويفتح شبكة %s لمدة ساعة كما في أول يوم."
+
+msgid "Everything you set up is erased and the router restarts. This cannot be undone."
+msgstr "سيُمسح كل ما أعددته وسيعاد تشغيل الراوتر. لا يمكن التراجع عن ذلك."
+
+msgid "Erase and restart"
+msgstr "امسح وأعد التشغيل"
+
+msgid "The router is erasing everything and restarting. In about 3 minutes, join the %s network to set it up again."
+msgstr "يمسح الراوتر كل شيء ويعيد التشغيل. بعد نحو ثلاث دقائق اتصل بشبكة %s لإعداده من جديد."
+
+msgid "Unknown day."
+msgstr "يوم غير معروف."
+
+msgid "Keep the list of sites the kids devices open (7 days; see it on the Devices page, under More)"
+msgstr "الاحتفاظ بقائمة المواقع التي تفتحها أجهزة الأطفال (لمدة أسبوع، وتظهر في صفحة الأجهزة تحت «المزيد»)"
+
+msgid "The list could not be read."
+msgstr "تعذّرت قراءة القائمة."
+
+msgid "Keeping the list is switched off (Control, Kids mode)."
+msgstr "الاحتفاظ بالقائمة متوقف (التحكم، وضع الأطفال)."
+
+msgid "No site opened on this day."
+msgstr "لم يُفتح أي موقع في هذا اليوم."
+
+msgid "Sites opened"
+msgstr "المواقع التي فُتحت"
+
+msgid "Names of the sites and apps this kids device opened, kept for 7 days. Only names, never what was seen."
+msgstr "أسماء المواقع والتطبيقات التي فتحها جهاز الطفل هذا، تُحفظ لمدة أسبوع. الأسماء فقط، وليس ما شوهد فيها."

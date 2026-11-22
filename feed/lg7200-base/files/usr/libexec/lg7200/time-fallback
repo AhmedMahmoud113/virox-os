@@ -1,0 +1,79 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Time without NTP (BUILD-PLAN B7.5b). Called by the lg7200-watch loop.
+#
+#   time-fallback check    if the WAN has had a default route for 10 minutes (lg7200.time.after,
+#                          seconds) and NTP never answered, set the clock from the Date header
+#                          of an HTTPS request and mark it "approximate"; sysntpd keeps trying and
+#                          an NTP sync replaces it (hotplug ntp 20-lg7200-timesync)
+#   time-fallback status   ntp | approximate | none
+#
+# Only a certificate-checked answer sets the clock. A router without a battery clock may be so
+# far off that no certificate looks valid yet; then an unchecked answer is used as a hint, the
+# clock is moved to it, and the request is repeated WITH the check. If that fails the clock is
+# put back. So a forged Date header alone can never set the clock.
+# Durations use the uptime, never the wall clock (which is the thing being fixed).
+. /lib/functions/lg7200.sh
+
+ST=/var/run/lg7200-timefb
+CHECK_EVERY=60
+
+uptime_s() { cut -d. -f1 /proc/uptime; }
+
+urls() {
+	local u
+	u="$(uci -q get lg7200.time.date_url)"
+	if [ -n "$u" ]; then echo "$u"; return; fi
+	u="$(uci -q get lg7200.update.url)"
+	case "$u" in https://*) echo "${u%/}/" ;; esac
+	echo "https://downloads.openwrt.org/"
+}
+
+set_clock() { # <seconds> <url>
+	local host="${2#https://}"
+	host="${host%%/*}"
+	date -s "@$1" >/dev/null 2>&1 || return 1
+	touch "$LG7200_TIMEAPPROX_MARK"
+	logger -t lg7200 "no NTP answer: clock set from the HTTPS Date of $host (approximate)"
+	lg7200_event_add system time_approximate warn source="$host"
+	# time-based users (homenet booking) react at once, like on an NTP sync
+	ACTION=approximate /sbin/hotplug-call ntp >/dev/null 2>&1 &
+	return 0
+}
+
+try_url() { # <url>: 0 when the clock was set from a checked answer
+	local t hint old start
+	t="$(/usr/libexec/lg7200/http-date --verify "$1")" && { set_clock "$t" "$1"; return; }
+	hint="$(/usr/libexec/lg7200/http-date "$1")" || return 1
+	old="$(date +%s)"; start="$(uptime_s)"
+	date -s "@$hint" >/dev/null 2>&1 || return 1
+	t="$(/usr/libexec/lg7200/http-date --verify "$1")" && { set_clock "$t" "$1"; return; }
+	# the hint did not lead to a valid certificate: put the clock back
+	date -s "@$((old + $(uptime_s) - start))" >/dev/null 2>&1
+	logger -t lg7200 "time fallback: no certificate-checked answer from $1"
+	return 1
+}
+
+check() {
+	local up since last after u
+	if [ "$(lg7200_time_state)" != none ]; then rm -f "$ST".*; return 0; fi
+	if ! ip -4 route show default 2>/dev/null | grep -q .; then rm -f "$ST.wanup"; return 0; fi
+	up="$(uptime_s)"
+	[ -f "$ST.wanup" ] || echo "$up" > "$ST.wanup"
+	since="$(cat "$ST.wanup")"
+	after="$(uci -q get lg7200.time.after)"; after="${after:-600}"
+	[ $((up - since)) -ge "$after" ] || return 0
+	last="$(cat "$ST.try" 2>/dev/null)"
+	[ -n "$last" ] && [ $((up - last)) -lt $CHECK_EVERY ] && return 0
+	echo "$up" > "$ST.try"
+	for u in $(urls); do
+		try_url "$u" && return 0
+	done
+	return 1
+}
+
+case "$1" in
+	check) check ;;
+	status) lg7200_time_state ;;
+	*) echo "usage: $0 check|status" >&2; exit 1 ;;
+esac

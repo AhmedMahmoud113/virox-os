@@ -1,0 +1,33 @@
+From 8aeb6a69916d4f46f207f543b2ba101a30eca4d9 Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Tue, 17 Nov 2026 02:42:43 +0200
+Subject: [PATCH 2/6] fixup! ramips: add support for Mercury GAPM-7200
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ target/linux/ramips/image/mt7621.mk | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/target/linux/ramips/image/mt7621.mk b/target/linux/ramips/image/mt7621.mk
+index d9400c192f..4372ccc95a 100644
+--- a/target/linux/ramips/image/mt7621.mk
++++ b/target/linux/ramips/image/mt7621.mk
+@@ -2218,13 +2218,15 @@ define Device/mercury_gapm7200
+   $(Device/nand)
+   $(Device/uimage-lzma-loader)
+   IMAGE_SIZE := 125184k
++  IMAGES += factory.bin
++  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | \
++	check-size
+   DEVICE_VENDOR := Mercury
+   DEVICE_MODEL := GAPM-7200
+   DEVICE_ALT0_VENDOR := LG U+
+   DEVICE_ALT0_MODEL := LG-7200
+-  IMAGES += factory.bin
+-  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | 	check-size
+-  DEVICE_PACKAGES := kmod-mt7615-firmware kmod-gpio-pca953x kmod-usb3 	-uboot-envtools
++  DEVICE_PACKAGES := kmod-mt7615-firmware kmod-gpio-pca953x kmod-usb3 \
++	-uboot-envtools
+ endef
+ TARGET_DEVICES += mercury_gapm7200
+ 

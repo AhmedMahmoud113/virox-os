@@ -1,0 +1,106 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Network watch (B7 feature 11), ported from the old network-watch / network-watch-data.
+#
+#   watch run      check every WAN line once (cron every minute)
+#
+# Per WAN interface (network.wan, wan2, ...: B9 adds the second line without changes here):
+#   up           the gateway (the ISP modem) and the internet answer
+#   no_internet  the gateway answers, the internet does not ("the modem is on, the line is not")
+#   no_modem     the gateway does not answer (modem off, cable out)
+#   wan_down     the interface is down or has no address
+# Internet = any of homenet.watch.targets (default 1.1.1.1 8.8.8.8 9.9.9.9) answers a ping
+# sent out of that line. A change counts after 2 checks in a row with the same result (one lost
+# ping is not an outage). Changes go to the event list: internet_down (warn: line, reason) and
+# internet_up (info: line, seconds of the outage); the old router's log file is not needed.
+# State: $HN_RUN/watch.tsv  iface  state  since  reason_detail  gateway  checked  (for the API);
+#        $HN_DATA/watch.state  iface  state  since   (flash, written only when a state changes,
+#        so an outage that spans a reboot is still measured from its start)
+umask 077
+. /usr/lib/homenet/common.sh
+T="${HN_RUN:?}/watch.$$"
+trap 'rm -f "$T".*' EXIT
+RUNF="$HN_RUN/watch.tsv"
+FLASH="$HN_DATA/watch.state"
+PEND="$HN_RUN/watch.pending"       # iface  candidate_state  count
+
+hn_prepare || exit 1
+exec 6>"$HN_RUN.watch.lock"
+flock -n 6 || exit 0
+[ "$1" = run ] || { echo "usage: $0 run" >&2; exit 1; }
+
+# the WAN needs a moment after a boot: no verdict in the first 2 minutes
+[ "$(cut -d. -f1 /proc/uptime)" -ge 120 ] || exit 0
+targets="$(uci -q get homenet.watch.targets)"
+targets="${targets:-1.1.1.1 8.8.8.8 9.9.9.9}"
+now="$(date +%s)"
+for f in "$RUNF" "$FLASH" "$PEND"; do [ -f "$f" ] || : > "$f"; done
+
+check() { # iface -> "state gateway dev"
+	local i="$1" st up dev gw t
+	st="$(ubus call network.interface."$i" status 2>/dev/null)"
+	up="$(printf '%s' "$st" | jsonfilter -e '@.up' 2>/dev/null)"
+	dev="$(printf '%s' "$st" | jsonfilter -e '@.l3_device' 2>/dev/null)"
+	gw="$(printf '%s' "$st" | jsonfilter -e '@.route[@.target="0.0.0.0"].nexthop' 2>/dev/null | head -n 1)"
+	if [ "$up" != true ] || [ -z "$dev" ]; then echo "wan_down - -"; return; fi
+	# PPPoE has no gateway address to ask: the peer is the line itself
+	if [ -n "$gw" ] && [ "$gw" != 0.0.0.0 ]; then
+		ping -c 1 -W 2 -I "$dev" "$gw" >/dev/null 2>&1 || ping -c 1 -W 2 -I "$dev" "$gw" >/dev/null 2>&1 || { echo "no_modem $gw $dev"; return; }
+	fi
+	for t in $targets; do
+		ping -c 1 -W 2 -I "$dev" "$t" >/dev/null 2>&1 && { echo "up ${gw:--} $dev"; return; }
+	done
+	echo "no_internet ${gw:--} $dev"
+}
+
+: > "$T.run"; : > "$T.pend"; cp -f "$FLASH" "$T.flash"
+# an access point has no WAN line: its uplink is the LAN (address and gateway from the main
+# router). Watching the switched-off WAN showed "internet down for 33 days" (owner 2026-11-20).
+if [ "$(uci -q get lg7200.state.mode)" = ap ]; then lines=lan
+else lines="$(uci -q show network | sed -n "s/^network\.\(wan[0-9]*\)=interface$/\1/p")"; fi
+for i in $lines; do
+	# a line is an IPv4 uplink; the IPv6 side of the same line (wan6: dhcpv6, 6in4, ...) is not
+	case "$(uci -q get network."$i".proto)" in dhcpv6|6in4|6to4|6rd|dslite|map|464xlat) continue ;; esac
+	set -- $(check "$i"); res="$1"; gw="$2"
+	# current confirmed state: RAM, else flash (first run after a boot), else this result
+	set -- $(awk -F '\t' -v i="$i" '$1 == i { print $2, $3, $5; exit }' "$RUNF")
+	[ -n "$1" ] || set -- $(awk -F '\t' -v i="$i" '$1 == i { print $2, $3; exit }' "$FLASH")
+	cur="${1:-}"; since="${2:-$now}"; last="${3:-}"
+	if [ -z "$cur" ]; then cur="$res"; since="$now"; fi
+	# the clock moved: a router starts on the firmware's date and gets the real time later, so an
+	# outage seen before that looked a month old ("33 days", owner 2026-11-20). Runs are a minute
+	# apart: a step of more than 5 minutes either way is the clock, and the start moves with it.
+	case "$last" in ''|*[!0-9]*) ;; *)
+		if [ $(( now - last )) -gt 300 ] || [ $(( now - last )) -lt 0 ]; then
+			since=$(( since + now - last - 60 ))
+		fi ;;
+	esac
+	case "$since" in ''|*[!0-9]*) since="$now" ;; esac
+	[ "$since" -le "$now" ] || since="$now"
+	if [ "$res" != "$cur" ]; then
+		n="$(awk -F '\t' -v i="$i" -v r="$res" '$1 == i && $2 == r { print $3 }' "$PEND")"
+		n=$(( ${n:-0} + 1 ))
+		if [ "$n" -ge 2 ]; then
+			# (an outage that only changes its kind, e.g. no_modem -> no_internet, is reported
+			# again with the new reason)
+			if [ "$res" = up ]; then
+				hn_event internet_up info line="$i" seconds=$(( now - since )) was="$cur" >/dev/null 2>&1
+			else
+				hn_event internet_down warn line="$i" reason="$res" >/dev/null 2>&1
+			fi
+			logger -t homenet "watch: $i $cur -> $res"
+			# an outage keeps its start when only its kind changes
+			{ [ "$res" = up ] || [ "$cur" = up ]; } && since="$now"
+			cur="$res"
+		else
+			printf '%s\t%s\t%s\n' "$i" "$res" "$n" >> "$T.pend"
+		fi
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\n' "$i" "$cur" "$since" "$gw" "$now" >> "$T.run"
+	awk -F '\t' -v OFS='\t' -v i="$i" -v s="$cur" -v t="$since" '$1 != i { print } END { print i, s, t }' "$T.flash" > "$T.f2"
+	mv -f "$T.f2" "$T.flash"
+done
+mv -f "$T.run" "$RUNF"
+mv -f "$T.pend" "$PEND"
+sort "$T.flash" > "$T.f3"; sort "$FLASH" > "$T.f4"
+cmp -s "$T.f3" "$T.f4" || hn_write "$FLASH" < "$T.f3"

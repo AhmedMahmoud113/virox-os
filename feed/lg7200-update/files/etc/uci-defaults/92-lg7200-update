@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Daily update check (BUILD-PLAN section 12.5): once a day, after the clock is synced; the cron
+# line runs every hour and the script itself does nothing more than once a day. Idempotent.
+CRON=/etc/crontabs/root
+mkdir -p /etc/crontabs; touch "$CRON"
+grep -q "/usr/sbin/lg7200-update daily" "$CRON" ||
+	echo "17 * * * * /usr/sbin/lg7200-update daily >/dev/null 2>&1" >> "$CRON"
+exit 0

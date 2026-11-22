@@ -1,0 +1,39 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# LAN/WAN collision guard (BUILD-PLAN B6 item 8). Common Egyptian ISP modems use
+# 192.168.1.1; if the WAN gets an address inside our LAN subnet, move the LAN to the next
+# free candidate and leave a notice for LuCI. Only an address that lg7200-base set itself
+# is ever moved; an address the user typed is left alone.
+. /lib/functions.sh
+. /lib/functions/network.sh
+. /lib/functions/lg7200.sh
+
+network_flush_cache
+network_get_subnet wan_net wan || exit 0
+[ -n "$wan_net" ] || exit 0
+
+lan_cidr="$(uci -q get network.lan.ipaddr)"
+lan_ip="${lan_cidr%/*}"
+lan_pfx="${lan_cidr#*/}"; [ "$lan_pfx" = "$lan_cidr" ] && lan_pfx=24
+applied="$(uci -q get lg7200.lan.applied)"
+[ -n "$applied" ] && [ "$lan_ip" = "$applied" ] || exit 0
+
+lg7200_nets_overlap "$lan_ip/$lan_pfx" "$wan_net" || exit 0
+
+new=""
+for c in $(uci -q get lg7200.lan.candidates); do
+	[ "$c" = "$lan_ip" ] && continue
+	lg7200_nets_overlap "$c/24" "$wan_net" && continue
+	new="$c"; break
+done
+[ -n "$new" ] || { logger -t lg7200 "LAN $lan_ip overlaps WAN $wan_net and no free candidate"; exit 1; }
+
+logger -t lg7200 "LAN $lan_ip overlaps WAN $wan_net: moving LAN to $new"
+uci set network.lan.ipaddr="$new/24"
+uci -q delete network.lan.netmask
+uci set lg7200.lan.applied="$new"
+uci -q get lg7200.state >/dev/null || uci set lg7200.state=state
+uci set lg7200.state.lan_moved="$lan_ip $new $(date +%s)"
+uci commit network
+uci commit lg7200
+/etc/init.d/network reload

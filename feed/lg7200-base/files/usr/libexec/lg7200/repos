@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Write the apk repository lists (BUILD-PLAN B4.7 / B6 item 6). Generated at runtime, so no
+# file is owned by two packages:
+#   virox.list   our core + kmods (same build as the kernel) and our feed, from the update URL
+#   openwrt.list official 25.12 userspace feeds (official key, openwrt-keyring)
+# base-files' distfeeds.list (one URL for everything) is emptied with a pointer comment.
+. /etc/openwrt_release
+
+url="$(uci -q get lg7200.update.url)"
+feeds="$(uci -q get lg7200.update.openwrt_feeds)"
+dir=/etc/apk/repositories.d
+mkdir -p "$dir"
+
+[ -n "$url" ] && {
+	echo "# managed by lg7200-base (/usr/libexec/lg7200/repos); update URL: uci lg7200.update.url"
+	echo "$url/$DISTRIB_RELEASE/targets/$DISTRIB_TARGET/packages/packages.adb"
+	echo "$url/$DISTRIB_RELEASE/packages/$DISTRIB_ARCH/lg7200/packages.adb"
+} > "$dir/virox.list.tmp" && mv -f "$dir/virox.list.tmp" "$dir/virox.list"
+
+[ -n "$feeds" ] && {
+	echo "# managed by lg7200-base: official OpenWrt feeds of the same release"
+	for f in base packages luci routing telephony; do
+		echo "$feeds/$DISTRIB_ARCH/$f/packages.adb"
+	done
+} > "$dir/openwrt.list.tmp" && mv -f "$dir/openwrt.list.tmp" "$dir/openwrt.list"
+
+if [ -f "$dir/distfeeds.list" ] && grep -q '^[^#]' "$dir/distfeeds.list"; then
+	echo "# replaced by virox.list and openwrt.list (lg7200-base)" > "$dir/distfeeds.list"
+fi
+exit 0

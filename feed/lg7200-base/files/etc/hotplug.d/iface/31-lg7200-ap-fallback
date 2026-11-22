@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# access point: the fallback address goes away once the main router gave one (ap-fallback)
+[ "$ACTION" = ifup ] && [ "$INTERFACE" = lan ] || exit 0
+/usr/libexec/lg7200/ap-fallback lan-up

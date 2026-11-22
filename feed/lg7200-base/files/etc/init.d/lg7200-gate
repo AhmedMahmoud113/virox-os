@@ -1,0 +1,45 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# SSH gate (BUILD-PLAN B6 item 4): while root has no password and no SSH key is installed,
+# dropbear stays disabled. Runs before dropbear (19). When a password or key exists it
+# re-enables only what it disabled itself, never an SSH server the user turned off.
+
+START=18
+
+gate_ssh() {
+	local pw keys sec changed=0
+	pw="$(awk -F: '$1 == "root" { print $2 }' /etc/shadow)"
+	keys=0; [ -s /etc/dropbear/authorized_keys ] && keys=1
+
+	uci -q get lg7200.state >/dev/null || uci set lg7200.state=state
+	if [ -z "$pw" ] && [ "$keys" = 0 ]; then
+		for sec in $(uci -q show dropbear | sed -n 's/^dropbear\.\([^.=]*\)=dropbear$/\1/p'); do
+			if [ "$(uci -q get dropbear.$sec.enable)" != "0" ]; then
+				uci set dropbear.$sec.enable=0
+				uci add_list lg7200.state.ssh_gated="$sec"
+				changed=1
+			fi
+		done
+	else
+		for sec in $(uci -q get lg7200.state.ssh_gated); do
+			uci -q delete dropbear.$sec.enable
+			changed=1
+		done
+		uci -q delete lg7200.state.ssh_gated
+	fi
+	[ "$changed" = 1 ] && { uci commit dropbear; uci commit lg7200; }
+	return 0
+}
+
+start() {
+	# a setup network left open by a power cut is removed before the network starts (P6)
+	/usr/libexec/lg7200/setupnet cleanup
+	# label MAC entered through the API: apply it now, before the network starts
+	[ "$(uci -q get lg7200.state.mac_reapply)" = 1 ] && /usr/libexec/lg7200/apply-macs >/dev/null
+	gate_ssh
+}
+
+reload() {
+	gate_ssh
+	/etc/init.d/dropbear restart
+}

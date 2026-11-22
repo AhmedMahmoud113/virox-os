@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Power cuts are normal (BUILD-PLAN P2): the router has no battery clock, so nothing time-based
+# (billing cycle, schedules, daily totals) may run before the clock is synced. sysntpd reports
+# "stratum" once ntpd is synchronised; lg7200_time_synced() checks this marker. An NTP sync
+# also replaces an "approximate" clock set by time-fallback (B7.5b).
+[ "$ACTION" = stratum ] || exit 0
+rm -f /var/run/lg7200-time-approx
+[ -e /var/run/lg7200-time-synced ] && exit 0
+touch /var/run/lg7200-time-synced
+logger -t lg7200 "clock synced (stratum $stratum)"

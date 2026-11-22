@@ -1,0 +1,94 @@
+{
+	"luci-app-lg7200-setup": {
+		"description": "Virox API, admin role (setup wizard, notices, provisioning, events, games mode, Wi-Fi)",
+		"read": {
+			"ubus": {
+				"virox.info": [
+					"info"
+				],
+				"virox.setup": [
+					"status",
+					"validate",
+					"plan",
+					"notices",
+					"theme"
+				],
+				"virox.provision": [
+					"info"
+				],
+				"virox.gaming": [
+					"get"
+				],
+				"virox.wifi": [
+					"status"
+				],
+				"virox.schedule": [
+					"get",
+					"preview_wifi"
+				],
+				"virox.usb": [
+					"status"
+				],
+				"virox.events": [
+					"list"
+				]
+			},
+			"uci": [
+				"network",
+				"wireless",
+				"dhcp",
+				"firewall",
+				"lg7200",
+				"luci",
+				"system",
+				"upnpd"
+			]
+		},
+		"write": {
+			"ubus": {
+				"virox.setup": [
+					"set_password",
+					"factory_reset",
+					"set_language",
+					"set_theme",
+					"dismiss_notice"
+				],
+				"virox.provision": [
+					"set_label_mac",
+					"self_upgrade"
+				],
+				"virox.gaming": [
+					"set"
+				],
+				"virox.wifi": [
+					"rescan",
+					"split",
+					"power",
+					"hidden"
+				],
+				"virox.schedule": [
+					"set_wifi",
+					"set_leds",
+					"set_restart"
+				],
+				"virox.usb": [
+					"set_share",
+					"set_printer",
+					"eject"
+				],
+				"virox.events": [
+					"mark_read"
+				]
+			},
+			"uci": [
+				"network",
+				"wireless",
+				"dhcp",
+				"firewall",
+				"lg7200",
+				"luci",
+				"upnpd"
+			]
+		}
+	}
+}

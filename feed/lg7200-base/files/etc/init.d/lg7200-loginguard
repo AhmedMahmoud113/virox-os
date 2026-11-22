@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Login protection follower (BUILD-PLAN 12.3), see /usr/libexec/lg7200/loginguard.
+
+START=95
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/libexec/lg7200/loginguard
+	procd_set_param respawn 3600 5 0
+	procd_close_instance
+}

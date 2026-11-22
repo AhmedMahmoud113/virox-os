@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# P6: hold the WPS or mode button for 3 seconds (or more) -> open the setup network.
+# A short press is left to the stock handler: WPS only acts if it was switched on (default off,
+# BUILD-PLAN 12.4). The reset button is not used here.
+[ "$ACTION" = released ] || exit 0
+case "$BUTTON" in
+	wps|BTN_0) ;;
+	*) exit 0 ;;
+esac
+[ "${SEEN:-0}" -ge 3 ] || exit 0
+/usr/libexec/lg7200/setupnet start

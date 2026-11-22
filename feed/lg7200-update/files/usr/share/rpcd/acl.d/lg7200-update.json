@@ -1,0 +1,20 @@
+{
+	"lg7200-update": {
+		"description": "Virox API, updater, admin role",
+		"read": {
+			"ubus": {
+				"virox.update": [
+					"status"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.update": [
+					"check",
+					"install"
+				]
+			}
+		}
+	}
+}

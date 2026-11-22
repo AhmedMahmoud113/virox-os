@@ -1,0 +1,27 @@
+From 7115b87a844130082f67cd4baebeb6bafd83e13e Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Tue, 17 Nov 2026 02:42:59 +0200
+Subject: [PATCH 4/6] ramips: mt7621: mercury,gapm7200: set up MACs
+
+Temporary: LAN = Factory MAC, WAN = +1. Replaced by the per-unit MAC helper later. Interfaces use the default lan1-4 + wan case.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ target/linux/ramips/mt7621/base-files/etc/board.d/02_network | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/target/linux/ramips/mt7621/base-files/etc/board.d/02_network b/target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+index dc5ddadcb5..01cfbebe3f 100644
+--- a/target/linux/ramips/mt7621/base-files/etc/board.d/02_network
++++ b/target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+@@ -298,6 +298,10 @@ ramips_setup_macs()
+ 		wan_mac=$(mtd_get_mac_ascii Config wan_hwaddr)
+ 		label_mac=$lan_mac
+ 		;;
++	mercury,gapm7200)
++		lan_mac=$(mtd_get_mac_binary Factory 0x4)
++		wan_mac=$(macaddr_add "$lan_mac" 1)
++		;;
+ 	tplink,er605-v1)
+ 		label_mac=$(mtd_get_mac_uci_config "tddp")
+ 		lan_mac=$label_mac

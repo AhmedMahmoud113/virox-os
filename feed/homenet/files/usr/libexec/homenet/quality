@@ -1,0 +1,81 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Line quality over the day (owner 2026-11-22: "pay great attention to game and call ping"): once a
+# minute each internet line is pinged 5 times; the average and worst time, the jitter (the mean
+# change between two answers, what makes a call stutter) and the loss are kept with how busy the
+# line was in that minute (its download and upload rate), so the page can say when the ping was
+# high and whether the house was filling the line then.
+#
+#   quality run      cron, every minute: one row per line
+#   quality show     the rows (for the API): "line epoch avg_ms max_ms jitter_ms loss_pct rx_kbit tx_kbit"
+#
+# Lines: with two lines on (homenet-dualwan, lines.main.enabled) line 1 and 2 by their interfaces
+# (lines.lineN.iface, default wan / wan2), each pinged through its own device; otherwise line 1 =
+# wan. On an access point (no WAN of its own) line 1 is the internet as the unit reaches it.
+# Target: the first of lines.main.probe_hosts, else 1.1.1.1. avg/max/jitter are empty when no
+# answer came (loss 100). Kept in RAM for 24 hours ($HN_RUN/quality/lineN.tsv, 1440 rows).
+. /usr/lib/homenet/common.sh
+hn_prepare || exit 1
+Q="$HN_RUN/quality"
+mkdir -p "$Q"
+
+q_dev() { # <line>: its device, "-" on an access point, nothing when the line is not up
+	local ifc
+	[ "$(uci -q get lg7200.state.mode)" = ap ] && { [ "$1" = 1 ] && echo -; return 0; }
+	ifc="$(uci -q get "lines.line$1.iface")"; [ -n "$ifc" ] || { [ "$1" = 1 ] && ifc=wan || ifc=wan2; }
+	ubus call "network.interface.$ifc" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null
+}
+
+q_line() { # <line> <dev>
+	local n="$1" dev="$2" host now last rx tx out
+	host="$(uci -q get lines.main.probe_hosts | awk '{ print $1 }')"; host="${host:-1.1.1.1}"
+	now="$(date +%s)"
+	# the line's own byte counters: the rate since the last row (a WAN device only)
+	rx=""; tx=""
+	if [ "$dev" != - ] && [ -r "/sys/class/net/$dev/statistics/rx_bytes" ]; then
+		rx="$(cat "/sys/class/net/$dev/statistics/rx_bytes")"; tx="$(cat "/sys/class/net/$dev/statistics/tx_bytes")"
+	fi
+	last="$(cat "$Q/line$n.last" 2>/dev/null)"
+	[ -n "$rx" ] && echo "$now $rx $tx" > "$Q/line$n.last"
+	if [ "$dev" = - ]; then out="$(ping -c 5 -W 2 "$host" 2>/dev/null)"
+	else out="$(ping -I "$dev" -c 5 -W 2 "$host" 2>/dev/null)"; fi
+	echo "$out" | awk -v now="$now" -v last="$last" -v rx="$rx" -v tx="$tx" '
+		/time=/ { for (i = 1; i <= NF; i++) if ($i ~ /^time=/) { t = substr($i, 6) + 0; n++; s += t; if (t > mx) mx = t; if (n > 1) { d = t - p; j += (d < 0 ? -d : d) } p = t } }
+		/packets transmitted/ { sent = $1 + 0 }
+		END {
+			if (sent == 0) sent = 5
+			loss = int((sent - n) * 100 / sent + 0.5)
+			avg = n ? sprintf("%.1f", s / n) : ""; mxs = n ? sprintf("%.1f", mx) : ""; jit = (n > 1) ? sprintf("%.1f", j / (n - 1)) : (n ? "0.0" : "")
+			rk = ""; tk = ""
+			if (rx != "" && last != "") {
+				split(last, l, " "); dt = now - l[1]
+				if (dt > 0 && dt <= 300 && rx + 0 >= l[2] + 0 && tx + 0 >= l[3] + 0) { rk = int((rx - l[2]) * 8 / 1000 / dt); tk = int((tx - l[3]) * 8 / 1000 / dt) }
+			}
+			printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", now, avg, mxs, jit, loss, rk, tk
+		}' >> "$Q/line$n.tsv"
+	# 24 hours
+	if [ "$(wc -l < "$Q/line$n.tsv")" -gt 1440 ]; then
+		tail -n 1440 "$Q/line$n.tsv" > "$Q/line$n.tsv.new" && mv -f "$Q/line$n.tsv.new" "$Q/line$n.tsv"
+	fi
+}
+
+case "$1" in
+	run)
+		# one run at a time (a ping round takes about 5 s, cron starts one every minute)
+		exec 5>"$Q/.lock"; flock -n 5 || exit 0
+		lines=1; [ "$(uci -q get lines.main.enabled)" = 1 ] && lines="1 2"
+		for n in $lines; do
+			dev="$(q_dev "$n")"
+			[ -n "$dev" ] || continue
+			q_line "$n" "$dev" &
+		done
+		wait ;;
+	show)
+		for f in "$Q"/line*.tsv; do
+			[ -f "$f" ] || continue
+			n="${f##*/line}"; n="${n%.tsv}"
+			# "-" for a value that is not there
+			awk -F '\t' -v n="$n" '{ for (i = 2; i <= 7; i++) if ($i == "") $i = "-"; print n, $1, $2, $3, $4, $5, $6, $7 }' "$f"
+		done ;;
+	*) echo "usage: $0 run|show" >&2; exit 1 ;;
+esac

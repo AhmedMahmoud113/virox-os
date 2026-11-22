@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A WAN came up (or its device changed): rebuild the counting rules; counters are kept.
+# On an access point the LAN is what changes (its address from the main router gives the subnet
+# the bridge counting compares with).
+[ "$ACTION" = ifup ] || exit 0
+case "$INTERFACE" in
+	wan|wan[0-9]*) ;;
+	lan) [ "$(uci -q get lg7200.state.mode)" = ap ] || exit 0 ;;
+	*) exit 0 ;;
+esac
+[ "$(uci -q get homenet.main.enabled)" = 0 ] && exit 0
+# open ports on a chosen line use the address of that line (15.4 item 2)
+case "$INTERFACE" in wan|wan[0-9]*) /usr/libexec/homenet/ports apply >/dev/null 2>&1 ;; esac
+nft list table inet homenet >/dev/null 2>&1 && /usr/libexec/homenet/accounting rules

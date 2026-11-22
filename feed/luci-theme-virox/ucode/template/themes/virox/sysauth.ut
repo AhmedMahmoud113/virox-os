@@ -1,0 +1,11 @@
+{#
+ The login page: the Vantage layout when luci-theme-virox-vantage's files are on the unit (the
+ image always has them), the Argon layout otherwise.
+-#}
+{%
+	import { access } from 'fs';
+	if (access('/www/luci-static/virox-vantage/vantage.css'))
+		include('themes/virox/sysauth-vantage');
+	else
+		include('themes/virox/sysauth-argon');
+-%}

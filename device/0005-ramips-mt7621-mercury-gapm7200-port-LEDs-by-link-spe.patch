@@ -1,0 +1,27 @@
+From bfc3b59c078bdce4a582979dfb1a21e2bf37ac8d Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Tue, 17 Nov 2026 02:42:59 +0200
+Subject: [PATCH 5/6] ramips: mt7621: mercury,gapm7200: port LEDs by link speed
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ target/linux/ramips/mt7621/base-files/etc/board.d/01_leds | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/target/linux/ramips/mt7621/base-files/etc/board.d/01_leds b/target/linux/ramips/mt7621/base-files/etc/board.d/01_leds
+index ee89f1a5cd..a6d848b746 100644
+--- a/target/linux/ramips/mt7621/base-files/etc/board.d/01_leds
++++ b/target/linux/ramips/mt7621/base-files/etc/board.d/01_leds
+@@ -161,6 +161,12 @@ meig,slt866)
+ 	ucidef_set_led_netdev "lan" "eth" "blue:lanwan" "lan" "link tx rx"
+ 	ucidef_set_led_netdev "wwan0" "net" "blue:internet" "wwan0" "link tx rx"
+ 	;;
++mercury,gapm7200)
++	for port in wan lan1 lan2 lan3 lan4; do
++		ucidef_set_led_netdev "${port}_1000" "$port 1000" "green:$port" "$port" "link_1000"
++		ucidef_set_led_netdev "${port}_100" "$port 10/100" "blue:$port" "$port" "link_10 link_100"
++	done
++	;;
+ mikrotik,routerboard-760igs)
+ 	ucidef_set_led_netdev "sfp" "SFP" "blue:sfp" "sfp"
+ 	;;

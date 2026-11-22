@@ -1,0 +1,9 @@
+#!/bin/sh
+# Register the Vantage look with LuCI as a choice only. The router's look is the Virox theme (the
+# البيت design on Argon, owner 2026-11-19, after the earlier "stay with Vantage"); this package
+# stays for its login layout (sysauth-vantage) and as a look one can pick.
+uci -q set luci.themes.VantageVirox=/luci-static/virox-vantage
+# a unit set to Vantage by an older image goes back to Virox
+[ "$(uci -q get luci.main.mediaurlbase)" = /luci-static/virox-vantage ] && uci -q set luci.main.mediaurlbase=/luci-static/virox
+uci -q commit luci
+exit 0

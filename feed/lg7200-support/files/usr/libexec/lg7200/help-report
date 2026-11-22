@@ -1,0 +1,99 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# "Help report" (BUILD-PLAN section 12.7): one text file the user can send to whoever helps them.
+# Contents: versions, uptime, memory and storage, line and Wi-Fi state, the state of the home
+# network features, recent alerts, and recent errors from the system and kernel logs.
+# Removed before anything is written: passwords, keys, MAC addresses, IP addresses, client and
+# device names, people's names, network names (SSIDs), PPPoE user names, fixed-address (IP
+# reservation) entries. The removal list is built from the router's own settings, and MAC / IP
+# patterns are replaced everywhere; tests check that none of the known secrets survive.
+# It reads files and system tools only, never a virox.* ubus object: it is started from rpcd,
+# and rpcd cannot answer itself while it waits (the deadlock found in session 16).
+#   help-report [file]     default /tmp/virox-help-report.txt; prints the file name
+umask 077
+OUT="${1:-/tmp/virox-help-report.txt}"
+T="/tmp/help-report.$$"
+trap 'rm -f "$T".*' EXIT
+
+# ------------------------------------------------------------------ the words to remove
+{
+	uci -q show wireless | sed -n "s/^wireless\.[^.]*\.\(ssid\|key\|key[1-4]\|sae_password\|password\|identity\)='\(.*\)'$/\2/p"
+	uci -q show network | sed -n "s/^network\.[^.]*\.\(username\|password\|key\|macaddr\|ipaddr\|gateway\|ip6addr\)='\(.*\)'$/\2/p"
+	uci -q show dhcp | sed -n "s/^dhcp\.[^.]*\.\(name\|mac\|ip\|hostid\)='\(.*\)'$/\2/p"
+	uci -q show system | sed -n "s/^system\.[^.]*\.hostname='\(.*\)'$/\1/p"
+	uci -q show homenet | sed -n "s/^homenet\.[^.]*\.username='\(.*\)'$/\1/p"
+	awk -F '\t' '$2 != "" { print $2 }' /etc/homenet/data/devices.tsv /etc/homenet/data/people.tsv 2>/dev/null
+	awk -F '\t' '$5 != "" { print $5 }' /tmp/homenet/device-macs.tsv /etc/homenet/data/device-macs.tsv 2>/dev/null
+	awk '$4 != "*" && $4 != "" { print $4 }' /tmp/dhcp.leases 2>/dev/null
+	sed -n 's/^vx_\([^:]*\):.*/\1/p' /etc/passwd 2>/dev/null
+	cut -d: -f2 /etc/shadow 2>/dev/null
+	cat /etc/homenet/data/filter-block.txt /etc/homenet/data/filter-allow.txt /etc/homenet/data/kids-blocklist.txt 2>/dev/null
+} | tr ' ' '\n' | awk 'length($0) >= 3 && $0 != "*" && $0 != "x"' | sort -u > "$T.words"
+
+redact() {
+	awk -v wf="$T.words" '
+		BEGIN { while ((getline w < wf) > 0) words[++n] = w }
+		{
+			line = $0
+			for (i = 1; i <= n; i++) {
+				w = words[i]
+				while ((p = index(line, w)) > 0) line = substr(line, 1, p - 1) "<removed>" substr(line, p + length(w))
+			}
+			print line
+		}' |
+	sed -E -e 's/([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}/<mac>/g' \
+	       -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<ip>/g' \
+	       -e 's/([0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}/<ip6>/g' \
+	       -e 's/(password|passwd|psk|key|secret|token)=[^ ;,]*/\1=<removed>/Ig'
+}
+
+sec() { echo; echo "== $*"; }
+
+{
+	. /etc/lg7200-release 2>/dev/null
+	echo "Virox help report"
+	echo "made: $(date '+%F %T %Z')"
+	sec "versions"
+	echo "product: ${PRODUCT_NAME:-?} ${PRODUCT_VERSION:-?} (${BASE:-?})"
+	echo "board: $(cat /tmp/sysinfo/board_name 2>/dev/null) / $(cat /tmp/sysinfo/model 2>/dev/null)"
+	echo "kernel: $(uname -r)"
+	apk list --installed 2>/dev/null | grep -E '^(lg7200|homenet|luci-app-homenet|luci-app-lg7200|luci-theme-virox)' || true
+	sec "time and load"
+	echo "uptime: $(cut -d. -f1 /proc/uptime) s; load: $(cut -d' ' -f1-3 /proc/loadavg)"
+	if [ -f /var/run/lg7200-time-synced ]; then echo "clock: synced"; elif [ -f /var/run/lg7200-time-approximate ]; then echo "clock: approximate"; else echo "clock: not synced"; fi
+	sec "memory and storage"
+	grep -E '^(MemTotal|MemAvailable|MemFree):' /proc/meminfo
+	df -h / /overlay /tmp 2>/dev/null
+	sec "internet lines"
+	ubus call network.interface dump 2>/dev/null | jsonfilter -e '@.interface[*]' 2>/dev/null |
+		while read -r l; do echo "$l" | jsonfilter -e '@.interface' -e '@.proto' -e '@.up' -e '@.uptime' 2>/dev/null | tr '\n' ' '; echo; done
+	echo "network watch (line, state, since, gateway, checked):"; cat /tmp/homenet/watch.tsv 2>/dev/null
+	sec "Wi-Fi (channels and counts only)"
+	for d in $(iw dev 2>/dev/null | awk '/Interface/ { print $2 }'); do
+		echo "$d: $(iw dev "$d" info 2>/dev/null | awk '/channel/ { $1 = $1; print }') clients: $(iw dev "$d" station dump 2>/dev/null | grep -c '^Station')"
+	done
+	sec "home network"
+	if [ -f /etc/config/homenet ]; then
+		echo "enabled: $(uci -q get homenet.main.enabled); new devices: $(uci -q get homenet.main.new_devices || echo allow)"
+		echo "devices: $(grep -c . /etc/homenet/data/devices.tsv 2>/dev/null); people: $(grep -c . /etc/homenet/data/people.tsv 2>/dev/null)"
+		echo "controls: $(grep -c . /etc/homenet/data/controls.tsv 2>/dev/null); schedules: $(grep -c . /etc/homenet/data/schedules.tsv 2>/dev/null); kids: $(grep -c . /etc/homenet/data/kids.tsv 2>/dev/null); site locks: $(grep -c . /etc/homenet/data/sitelocks.tsv 2>/dev/null)"
+		echo "filter: $(tr '\n' ' ' < /tmp/homenet/filter/status 2>/dev/null)"
+		echo "wire ratio (day wire_up wire_down booked_up booked_down):"; tail -n 7 /tmp/homenet/wire-ratio.tsv 2>/dev/null
+	else
+		echo "not installed"
+	fi
+	sec "alerts (last 50: time, level, source, code)"
+	tail -n 50 /etc/lg7200/events 2>/dev/null | awk -F '\t' '{ print $2, $4, $5, $6 }'
+	sec "services"
+	for s in dnsmasq firewall network rpcd uhttpd homenet homenet-dns lg7200-watch sysntpd cron; do
+		[ -x /etc/init.d/$s ] || continue
+		printf '%s: %s\n' "$s" "$(/etc/init.d/$s running >/dev/null 2>&1 && echo running || echo stopped)"
+	done
+	sec "recent errors and warnings (system log)"
+	logread 2>/dev/null | grep -iE 'err|fail|crit|warn|refused|oom|panic' | tail -n 200
+	sec "kernel (last 80 lines)"
+	dmesg 2>/dev/null | tail -n 80
+} 2>/dev/null | redact > "$T.out"
+mv -f "$T.out" "$OUT"
+chmod 600 "$OUT"
+echo "$OUT"

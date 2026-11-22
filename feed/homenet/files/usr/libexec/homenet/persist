@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copy changed usage files from RAM to flash, atomically (cron every 10 minutes, P2).
+. /usr/lib/homenet/common.sh
+hn_persist

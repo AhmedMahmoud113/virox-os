@@ -1,0 +1,169 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# "Save my settings" / "restore" (BUILD-PLAN section 12.8) and the nightly backup (P7).
+#
+#   backup create [file]        one file with the Virox and home-network settings, usage history,
+#                               family logins (B7.3e item 7) and the router password; default
+#                               /tmp/virox-backup.tar.gz; prints "OK <file> <bytes>"
+#   backup check <file>         "OK <version> <date>" or "ERR <code>"
+#   backup restore <file>       put it back (on this or another Virox unit) and restart
+#   backup nightly              cron 03:30: to a USB stick if one is plugged in, last 14 kept (P7);
+#                               a paired access point as destination comes with B9 (Y1)
+#   backup list                 nightly backups found: "<path> <bytes> <date>"
+#
+# What a backup holds: /etc/config/{network,wireless,dhcp,firewall,system,homenet,rpcd,luci,
+# uhttpd,dropbear,upnpd,sqm,usteer}, lg7200's own choices (mode, language, notices), the data of
+# /etc/homenet/data (saved to flash first), the event list, and the /etc/passwd + /etc/shadow
+# lines of root and of the family logins (vx_*). It contains Wi-Fi passwords: it is stored
+# readable by root only and the page says to keep the file safe.
+# What a restore keeps of THIS unit (its identity, section 12.8): the MAC addresses in the
+# network settings, the radios' hardware paths, lg7200's unit state (MAC source, label MAC) and
+# product sections, the unit storage (unitcfg), and the SSH host keys (never in a backup).
+# After a restore the settings migrations run from the backup's schema version up (12.6).
+umask 077
+. /lib/functions/lg7200.sh 2>/dev/null
+CONFIGS="network wireless dhcp firewall system homenet rpcd luci uhttpd dropbear upnpd sqm usteer"
+T="/tmp/vxbackup.$$"
+trap 'rm -rf "$T"' EXIT
+
+err() { echo "ERR $1"; exit 2; }
+
+create() {
+	local out="${1:-/tmp/virox-backup.tar.gz}" c
+	mkdir -p "$T/b/etc/config" "$T/b/etc/homenet" "$T/b/etc/lg7200" || err no_space
+	[ -x /usr/libexec/homenet/persist ] && /usr/libexec/homenet/persist >/dev/null 2>&1
+	for c in $CONFIGS; do [ -f "/etc/config/$c" ] && cp -p "/etc/config/$c" "$T/b/etc/config/"; done
+	# lg7200: only the user's choices of the state section; identity and build defaults stay
+	uci -q show lg7200.state 2>/dev/null | grep -vE '\.(mac_source|mac_reapply|label_mac|mac_notice_dismissed|lan_moved)=' > "$T/b/etc/lg7200/state.uci"
+	if [ -d /etc/homenet/data ]; then
+		cp -a /etc/homenet/data "$T/b/etc/homenet/" && rm -rf "$T/b/etc/homenet/data/prev" "$T/b/etc/homenet/data/bad" "$T/b/etc/homenet/data/import"
+	fi
+	[ -f /etc/lg7200/events ] && cp -p /etc/lg7200/events "$T/b/etc/lg7200/"
+	grep -E '^(root|vx_[a-z0-9_]+):' /etc/passwd > "$T/b/etc/passwd.part"
+	grep -E '^(root|vx_[a-z0-9_]+):' /etc/shadow > "$T/b/etc/shadow.part"
+	. /etc/lg7200-release 2>/dev/null
+	{
+		echo "product=${PRODUCT_NAME:-Virox}"
+		echo "version=${PRODUCT_VERSION:-0}"
+		echo "date=$(date +%F' '%T)"
+		echo "board=$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+		echo "lg7200_schema=$(uci -q get lg7200.schema.version || echo 1)"
+		echo "homenet_schema=$(uci -q get homenet.schema.version || echo 1)"
+	} > "$T/b/VIROX-BACKUP"
+	tar -C "$T/b" -czf "$out.new" . || err write_failed
+	mv -f "$out.new" "$out"; chmod 600 "$out"
+	echo "OK $out $(wc -c < "$out")"
+}
+
+# a backup must be ours and safe to unpack: no absolute or ../ names, no links or devices
+check() {
+	local f="$1"
+	[ -s "$f" ] || err no_file
+	tar -tzf "$f" > "$T.list" 2> "$T.err" || err not_a_backup
+	# BusyBox tar strips leading / and ../ from names even when it only lists them, and says so
+	# on stderr: such a file is refused too (homenet-migrate does the same, session 12)
+	grep -qiE 'leading|unsafe' "$T.err" && err unsafe_backup
+	grep -qE '^/|(^|/)\.\.(/|$)' "$T.list" && err unsafe_backup
+	tar -tvzf "$f" 2>/dev/null | grep -qE '^[lhcbps]' && err unsafe_backup
+	grep -qx './VIROX-BACKUP' "$T.list" || err not_a_backup
+	mkdir -p "$T/r"
+	tar -C "$T/r" -xzf "$f" ./VIROX-BACKUP 2>/dev/null || err not_a_backup
+	grep -qx 'product=Virox' "$T/r/VIROX-BACKUP" || err not_a_backup
+	echo "OK $(sed -n 's/^version=//p' "$T/r/VIROX-BACKUP") $(sed -n 's/^date=//p' "$T/r/VIROX-BACKUP")"
+}
+
+# section names of <config> that carry a hardware identity on this unit, with their values
+keep_identity() { # writes $T/keep.uci: "key=value" lines that put this unit's identity back
+	{
+		uci -q show network | grep -E "\.macaddr='"
+		uci -q show wireless | grep -E "^wireless\.[^.]+\.(path|macaddr)='"
+	} | sed "s/='\(.*\)'$/=\1/" > "$T/keep.uci"
+}
+
+restore() {
+	local f="$1" c n cur
+	check "$f" >/dev/null || exit 2
+	mkdir -p "$T/r"; tar -C "$T/r" -xzf "$f" || err not_a_backup
+	keep_identity
+	/etc/init.d/homenet stop >/dev/null 2>&1
+	for c in $CONFIGS; do [ -f "$T/r/etc/config/$c" ] && cp -f "$T/r/etc/config/$c" "/etc/config/$c"; done
+	# this unit's MACs and radio paths, never the backup's (two units with one MAC on a network
+	# would fight over it): the backup's are deleted, this unit's put back
+	{ uci -q show network | grep -E "\.macaddr='"; uci -q show wireless | grep -E "^wireless\.[^.]+\.(path|macaddr)='"; } |
+		cut -d= -f1 | while read -r k; do uci -q delete "$k"; done
+	while IFS= read -r l; do uci -q set "$l"; done < "$T/keep.uci"
+	uci commit network; uci commit wireless
+	if [ -s "$T/r/etc/lg7200/state.uci" ]; then
+		sed -n "s/^\(lg7200\.state\.[a-z_]*\)=\(.*\)$/\1=\2/p" "$T/r/etc/lg7200/state.uci" | while IFS= read -r l; do
+			k="${l%%=*}"; v="${l#*=}"; v="${v#\'}"; v="${v%\'}"; uci -q set "$k=$v"
+		done
+		uci commit lg7200
+	fi
+	if [ -d "$T/r/etc/homenet/data" ]; then
+		mkdir -p /etc/homenet/data
+		cp -a "$T/r/etc/homenet/data/." /etc/homenet/data/
+		rm -rf /tmp/homenet/.ready      # RAM copies are taken from flash again
+	fi
+	[ -f "$T/r/etc/lg7200/events" ] && cp -f "$T/r/etc/lg7200/events" /etc/lg7200/events
+	# root password and family logins (vx_*): replace those lines, keep every system user
+	for p in passwd shadow; do
+		[ -s "$T/r/etc/$p.part" ] || continue
+		{ grep -vE '^(root|vx_[a-z0-9_]+):' "/etc/$p"; cat "$T/r/etc/$p.part"; } > "/etc/$p.vx"
+		# root first, as in OpenWrt's files
+		{ grep '^root:' "/etc/$p.vx"; grep -v '^root:' "/etc/$p.vx"; } > "/etc/$p.vx2"
+		[ "$p" = shadow ] && chmod 600 "/etc/$p.vx2" || chmod 644 "/etc/$p.vx2"
+		mv -f "/etc/$p.vx2" "/etc/$p"; rm -f "/etc/$p.vx"
+	done
+	# settings of an older version: the migrations run from the backup's schema version up
+	n="$(sed -n 's/^lg7200_schema=//p' "$T/r/VIROX-BACKUP")"
+	cur="$(uci -q get lg7200.schema.version || echo 1)"
+	if [ -n "$n" ] && [ "$n" -lt "$cur" ]; then
+		uci set lg7200.schema.version="$n"; uci commit lg7200
+		for s in /usr/libexec/lg7200/migrate.d/[0-9][0-9][0-9]-*.sh; do
+			[ -f "$s" ] || continue
+			m="$(basename "$s" | cut -c1-3 | sed 's/^0*//')"
+			[ "${m:-0}" -gt "$n" ] || continue
+			sh "$s" || { logger -t lg7200 "restore: migration $(basename "$s") failed"; break; }
+			uci set lg7200.schema.version="$m"; uci commit lg7200; n="$m"
+		done
+	fi
+	lg7200_event_add system settings_restored info from="$(sed -n 's/^date=//p' "$T/r/VIROX-BACKUP")" >/dev/null 2>&1
+	sync
+	echo "OK restarting"
+	[ "${VIROX_RESTORE_NOREBOOT:-0}" = 1 ] || ( sleep 3; reboot ) >/dev/null 2>&1 &
+}
+
+usb_dir() {
+	local m
+	for m in $(awk '$2 ~ "^/mnt/" { print $2 }' /proc/mounts); do
+		[ -w "$m" ] && { echo "$m/virox-backups"; return 0; }
+	done
+	return 1
+}
+
+nightly() {
+	local d f
+	d="$(usb_dir)" || exit 0                    # no USB stick: nothing to do (P7 destination 2)
+	mkdir -p "$d" || exit 0
+	f="$d/virox-backup-$(date +%F).tar.gz"
+	create "$f" >/dev/null || { lg7200_event_add system backup_failed warn where=usb >/dev/null 2>&1; exit 1; }
+	ls -1t "$d"/virox-backup-*.tar.gz 2>/dev/null | tail -n +15 | while read -r old; do rm -f "$old"; done
+	exit 0
+}
+
+list() {
+	local d f
+	d="$(usb_dir)" || exit 0
+	for f in "$d"/virox-backup-*.tar.gz; do
+		[ -f "$f" ] && echo "$f $(wc -c < "$f") $(date -r "$f" +%F)"
+	done
+}
+
+case "$1" in
+	create) create "$2" ;;
+	check) check "$2" ;;
+	restore) restore "$2" ;;
+	nightly) nightly ;;
+	list) list ;;
+	*) echo "usage: $0 create [file]|check <file>|restore <file>|nightly|list" >&2; exit 1 ;;
+esac

@@ -1,0 +1,54 @@
+/*
+ * Virox on the Vantage look (luci-theme-virox-vantage). Loaded after Vantage's stylesheet and
+ * after /luci-static/virox/virox.css (the shared Virox page components): maps the Virox component
+ * colours onto Vantage's roles (light and dark come from Vantage), uses the bundled Cairo font,
+ * and keeps the rail on the LEFT in both languages on wide screens (owner, 2026-11-18). On phones
+ * Vantage's own bottom bar stays. Logical properties only (BUILD-PLAN 10a checks).
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+:root {
+	--font: "Cairo", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+	--vx-accent: var(--accent);
+	--vx-accent-strong: var(--accent-text);
+	--vx-accent-soft: var(--accent-soft);
+	--vx-accent-line: var(--accent-line);
+	--vx-on-accent: var(--accent-ink);
+	--vx-ink: var(--text);
+	--vx-text: var(--text);
+	--vx-muted: var(--text-2);
+	--vx-line: var(--line-2);
+	--vx-bg: var(--bg);
+	--vx-card: var(--s1);
+	--vx-shadow: none;
+	--vx-radius: var(--r-lg);
+	--vx-radius-small: var(--r);
+}
+html[data-darkmode="true"] {
+	--vx-green: #4ade80; --vx-green-soft: #052e16;
+	--vx-amber: #fbbf24; --vx-amber-soft: #2a1a04;
+	--vx-red: #f87171; --vx-red-soft: #2a0b0b;
+}
+.vx-card { border: 1px solid var(--line); }
+.vt-brand img, .vt-login-head img { border-radius: var(--r); }
+
+/* breadcrumb chevrons and the host chip: mirrored in Arabic, no "·" text between values */
+html[dir="rtl"] .vt-crumb-sep { display: inline-block; transform: scaleX(-1); }
+.vt-host-sep { display: inline-block; inline-size: 1px; block-size: 1em; margin-inline: 6px; background: var(--line-2); vertical-align: middle; }
+
+/* the rail on the left in Arabic too (wide screens; phones keep Vantage's bottom bar) */
+@media (width > 720px) {
+	html[dir="rtl"] .vt-rail { inset-inline-start: auto; inset-inline-end: 0; border-inline-end: 0; border-inline-start: 1px solid var(--line); }
+	html[dir="rtl"] .vt-flyout { inset-inline-start: auto; inset-inline-end: var(--rail-w); }
+	html[dir="rtl"] .vt-frame, html[dir="rtl"][data-rail="pinned"] .vt-frame { margin-inline-start: 0; }
+	html[dir="rtl"] body.vt-auth .vt-frame { margin-inline-end: var(--rail-w); }
+	html[dir="rtl"][data-rail="pinned"] body.vt-auth .vt-frame { margin-inline-end: var(--rail-w-pinned); }
+	html[dir="rtl"] .vt-shell::before { inset-inline-start: auto; inset-inline-end: 0; }
+}
+@media (width > 900px) {
+	html[dir="rtl"][data-rail="pinned"] .vt-flyout { inset-inline-end: var(--rail-w-pinned); }
+}
+
+/* the Virox login inside Vantage's login card */
+.vt-login .vx-top { display: flex; justify-content: flex-end; margin-block-end: var(--sp-2); }
+.vt-login .vx-hint { color: var(--text-2); font-size: var(--fs-sm); margin-block: var(--sp-2) 0; }
+.vt-login .vx-pw-wrap { position: relative; display: block; }

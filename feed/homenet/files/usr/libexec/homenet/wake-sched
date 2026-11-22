@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Scheduled Wake-on-LAN (owner 2026-11-19): uci homenet 'wake' sections (device, time HH:MM,
+# days 0-6 with 0 = Sunday, enabled, action) become cron lines in a marked block of root's crontab.
+# action (owner 2026-11-21): wake (default), shutdown or sleep; the last two go to the Virox
+# program on that computer (virox.pc command), which does them within a few seconds.
+#   wake-sched cron             rewrite the block from uci
+#   wake-sched send <id>        a Wake-on-LAN packet to every MAC of device <id>
+#   wake-sched pc <id> <cmd>    shutdown | sleep to the Virox program of device <id>
+. /lib/functions.sh
+CRON=/etc/crontabs/root
+MARK="# homenet-wake"
+
+send() {
+	local lan
+	lan="$(uci -q get network.lan.device || echo br-lan)"
+	awk -F '\t' -v id="$1" '$2 == id { print $1 }' /tmp/homenet/device-macs.tsv /etc/homenet/data/device-macs.tsv 2>/dev/null | sort -u |
+	while read -r m; do /usr/bin/etherwake -b -i "$lan" "$m" >/dev/null 2>&1; done
+	logger -t homenet "scheduled wake: $1"
+}
+
+pc() {
+	local dev="$1" cmd="$2" id r
+	case "$cmd" in shutdown|sleep) ;; *) return 1 ;; esac
+	id="$(ubus call virox.pc list 2>/dev/null | jsonfilter -e "@.pcs[@.device='$dev'].id" 2>/dev/null | head -n 1)"
+	if [ -z "$id" ]; then logger -t homenet "scheduled $cmd: $dev has no Virox program"; return 0; fi
+	r="$(ubus call virox.pc command "{\"id\":\"$id\",\"cmd\":\"$cmd\"}" 2>/dev/null | jsonfilter -e '@.error' 2>/dev/null)"
+	logger -t homenet "scheduled $cmd: $dev ${r:-sent}"
+}
+
+cron() {
+	mkdir -p /etc/crontabs; touch "$CRON"
+	local tmp="$CRON.wake.$$"
+	grep -vF "$MARK" "$CRON" > "$tmp"
+	_one() {
+		local dev t d en hh mm act run
+		config_get dev "$1" device; config_get t "$1" time; config_get d "$1" days; config_get en "$1" enabled 1
+		config_get act "$1" action wake
+		case "$act" in
+			shutdown|sleep) run="pc '$dev' $act" ;;
+			*) run="send '$dev'" ;;
+		esac
+		[ "$en" = 1 ] && [ -n "$dev" ] || return 0
+		case "$t" in [0-2][0-9]:[0-5][0-9]) ;; *) return 0 ;; esac
+		hh="${t%%:*}"; mm="${t##*:}"
+		d="$(echo "$d" | tr -dc '0-6' | sed 's/./&,/g; s/,$//')"
+		[ -n "$d" ] || d='*'
+		mm="${mm#0}"; hh="${hh#0}"      # BusyBox sh has no 10# bases: drop one leading zero
+		echo "$mm $hh * * $d /usr/libexec/homenet/wake-sched $run $MARK" >> "$tmp"
+	}
+	config_load homenet
+	config_foreach _one wake
+	if cmp -s "$tmp" "$CRON"; then rm -f "$tmp"; else mv -f "$tmp" "$CRON"; /etc/init.d/cron restart; fi
+}
+
+case "$1" in
+	cron) cron ;;
+	send) send "$2" ;;
+	pc) pc "$2" "$3" ;;
+	*) echo "usage: $0 cron | send <id> | pc <id> shutdown|sleep" >&2; exit 1 ;;
+esac

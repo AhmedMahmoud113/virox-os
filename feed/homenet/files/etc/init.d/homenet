@@ -1,0 +1,63 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# homenet: per-device accounting at boot, usage saved to flash at shutdown, cron jobs installed
+# idempotently, IPv4-only LAN while enabled (P1).
+
+START=99
+STOP=05
+
+CRON=/etc/crontabs/root
+MARK='/usr/libexec/homenet/'
+
+cron_install() {
+	mkdir -p /etc/crontabs; touch "$CRON"
+	local tmp="$CRON.homenet.$$"
+	grep -vF "$MARK" "$CRON" > "$tmp"
+	cat >> "$tmp" <<-'EOF'
+		*/5 * * * * /usr/libexec/homenet/accounting save >/dev/null 2>&1
+		*/10 * * * * /usr/libexec/homenet/persist >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/controls apply >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/watch run >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/quality run >/dev/null 2>&1
+		*/2 * * * * /usr/libexec/homenet/kidsites run >/dev/null 2>&1
+		15 0 * * * /usr/libexec/homenet/accounting check-day yesterday >/dev/null 2>&1
+		*/10 * * * * /usr/libexec/homenet/filter update missing >/dev/null 2>&1
+		20 4 * * * /usr/libexec/homenet/filter update >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/identity keys-scan >/dev/null 2>&1
+		* * * * * [ -x /usr/libexec/homenet/lines ] && /usr/libexec/homenet/lines tick >/dev/null 2>&1
+		* * * * * [ -x /usr/libexec/homenet/apctl ] && /usr/libexec/homenet/apctl tick >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/vpn tick >/dev/null 2>&1
+		* * * * * /usr/libexec/homenet/ports apply >/dev/null 2>&1
+	EOF
+	if cmp -s "$tmp" "$CRON"; then rm -f "$tmp"; else mv -f "$tmp" "$CRON"; /etc/init.d/cron restart; fi
+}
+
+cron_remove() {
+	[ -f "$CRON" ] || return 0
+	grep -qF "$MARK" "$CRON" || return 0
+	grep -vF "$MARK" "$CRON" > "$CRON.homenet.$$"; mv -f "$CRON.homenet.$$" "$CRON"
+	/etc/init.d/cron restart
+}
+
+start() {
+	[ "$(uci -q get homenet.main.enabled)" = 0 ] && { cron_remove; /etc/init.d/homenet-dns stop 2>/dev/null; /usr/libexec/homenet/ipv6-lan on; return 0; }
+	. /usr/lib/homenet/common.sh
+	hn_prepare
+	/usr/libexec/homenet/accounting init
+	/usr/libexec/homenet/controls apply >/dev/null    # blocks, pauses, limits, policy, kids, locks
+	/usr/libexec/homenet/ipv6-lan off
+	cron_install
+	/usr/libexec/homenet/wake-sched cron
+	# the house filter's lists live in RAM: fetched again after a boot (and every 10 minutes
+	# by cron until that works)
+	( /usr/libexec/homenet/filter update missing >/dev/null 2>&1 ) &
+}
+
+stop() {
+	/usr/libexec/homenet/accounting save >/dev/null 2>&1
+	/usr/libexec/homenet/persist
+}
+
+reload() {
+	/usr/libexec/homenet/accounting rules
+}

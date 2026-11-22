@@ -1,0 +1,92 @@
+{#
+ Virox login page on the Vantage look (luci-theme-virox-vantage, GPL-3.0-or-later).
+ Layout and backdrop from Vantage v1.0.20 (sysauth.ut, login.js; Copyright 2026 anothaDev,
+ GPL-3.0-or-later, NOTICE.vantage). Virox: password only (user root is implied), both languages
+ with the switch (texts shared with the Argon look, luci.virox-login), lockout and reset hints,
+ no LuCI scripts, and no automatic switch to HTTPS (BUILD-PLAN 12.2: plain HTTP on the LAN, no
+ certificate warning). While root has no password it logs in automatically (setup wizard).
+-#}
+{%
+	import { getspnam } from 'luci.core';
+	import { texts } from 'luci.virox-login';
+
+	const nopass = (getspnam('root')?.pwdp === '');
+	const product = uci.get('lg7200', 'product', 'name') ?? 'Virox';
+	const ar = (dispatcher.lang == 'ar');
+	const T = texts(product);
+	const t = ar ? T.ar : T.en;
+	const look = (opt, ok) => { const v = uci.get('vantage_theme', 'appearance', opt); return (type(v) == 'string' && index(ok, v) >= 0) ? v : ''; };
+	const mode = { normal: 'auto', light: 'light', dark: 'dark' }[uci.get('lg7200', 'ui', 'mode') ?? 'light'] ?? 'light';
+	const look_theme = look('theme', [ 'auto', 'light', 'dark' ]) || mode;
+	const look_login = look('login', [ 'grid', 'stars', 'none' ]);
+	const look_power = look('power', [ 'normal', 'low' ]);
+-%}
+<!DOCTYPE html>
+<html lang="{{ ar ? 'ar' : 'en' }}" dir="{{ ar ? 'rtl' : 'ltr' }}" data-darkmode="true" data-vt-look-theme="{{ look_theme }}" data-vt-look-login="{{ look_login }}" data-vt-look-power="{{ look_power }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex">
+<title>{{ entityencode(t.title, true) }}</title>
+<script>
+(function (r) {
+	var v = [ null, r.getAttribute('data-vt-look-theme'), null ], ok = [ 'auto', 'light', 'dark' ], p = 'auto', i;
+	try { v[0] = localStorage.getItem('vantage.theme.own'); v[2] = localStorage.getItem('vantage.theme'); } catch (e) {}
+	for (i = 2; i >= 0; i--) if (ok.indexOf(v[i]) >= 0) p = v[i];
+	var dark = (p === 'dark') || (p !== 'light' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches));
+	r.setAttribute('data-darkmode', dark ? 'true' : 'false');
+	r.setAttribute('data-theme', p);
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="{{ media }}/vantage.css">
+<link rel="stylesheet" href="/luci-static/virox/virox.css">
+<link rel="stylesheet" href="{{ media }}/virox-vantage.css">
+<link rel="icon" href="{{ media }}/logo.svg" type="image/svg+xml">
+</head>
+<body class="vt-login-page" data-page="{{ entityencode(join('-', ctx.request_path), true) }}">
+{% if (nopass && !fuser): %}
+<form method="post" id="virox-autologin">
+	<input type="hidden" name="luci_username" value="root">
+	<input type="hidden" name="luci_password" value="">
+	<p class="virox-center">{{ t.starting }}</p>
+	<noscript><button class="btn cbi-button-positive">{{ _('Continue', 'Virox') }}</button></noscript>
+</form>
+<script>document.getElementById('virox-autologin').submit();</script>
+{% else %}
+<main class="vt-login vx-login" id="vx-login">
+	<div class="vt-login-card">
+		<div class="vx-top">
+			<button type="button" class="vx-langswitch" id="vx-login-lang">{{ t.other }}</button>
+		</div>
+		<div class="vt-login-head">
+			<img class="vt-login-mark" src="{{ media }}/logo.svg" alt="" width="44" height="44">
+			<h1 class="vt-login-title" data-t="title">{{ t.title }}</h1>
+		</div>
+{% if (fuser): %}
+		<div class="vt-login-error" role="alert" data-t="error">{{ t.error }}</div>
+{% endif %}
+		<form method="post" class="vt-login-form">
+			<input type="hidden" name="luci_username" value="root">
+			<label class="vt-field" for="luci_password">
+				<span class="vt-field-label" data-t="label">{{ t.label }}</span>
+				<span class="vx-pw-wrap">
+					<input class="cbi-input-password" id="luci_password" type="password" name="luci_password" dir="ltr" autocomplete="current-password" required>
+					<button type="button" class="vx-eye" aria-pressed="false" aria-label="{{ t.show }}" data-t-label="show"
+					        onclick="var i=document.getElementById('luci_password'),s=i.type=='password';i.type=s?'text':'password';this.setAttribute('aria-pressed',String(s));">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+					</button>
+				</span>
+			</label>
+			<button type="submit" class="btn cbi-button cbi-button-apply vt-login-submit" data-t="button">{{ t.button }}</button>
+			<p class="vx-hint" data-t="tries">{{ t.tries }}</p>
+			<p class="vx-hint" data-t="forgot">{{ t.forgot }}</p>
+		</form>
+	</div>
+</main>
+<script type="application/json" id="vx-login-texts">{{ replace(sprintf('%J', { texts: T, lang: ar ? 'ar' : 'en' }), '</', '<\\/') }}</script>
+<script src="/luci-static/virox/vx-login.js"></script>
+<script src="{{ media }}/login.js"></script>
+{% endif %}
+</body>
+</html>

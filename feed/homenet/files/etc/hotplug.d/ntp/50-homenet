@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# The clock became usable (NTP "stratum", or "approximate" from lg7200 time-fallback, B7.5b):
+# book the usage that waited for it now instead of at the next 5-minute save.
+case "$ACTION" in stratum|approximate) ;; *) exit 0 ;; esac
+[ "$(uci -q get homenet.main.enabled)" = 0 ] && exit 0
+[ -e /var/run/lg7200-time-synced ] || [ -e /var/run/lg7200-time-approx ] || exit 0
+/usr/libexec/homenet/accounting save >/dev/null 2>&1 &

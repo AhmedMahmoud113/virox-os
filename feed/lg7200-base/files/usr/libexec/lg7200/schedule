@@ -1,0 +1,184 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Night schedules for Wi-Fi and lights, and a scheduled restart (BUILD-PLAN 15.4 items 3-4,
+# virox.schedule). Everything is off by default. Settings in uci lg7200:
+#   config wifisched            (any number)  target all | 2g | 5g | guest ; days "0 1 ... 6"
+#                               (0 = Sunday: the day the off-time falls on) ; off "HH:MM" ;
+#                               on "HH:MM" (an on-time earlier than the off-time = the next
+#                               morning) ; enabled 0|1
+#   config leds 'leds'          mode on | off | night ; off "HH:MM" ; on "HH:MM"
+#   config restart 'restart'    enabled 0|1 ; every daily | weekly ; day 0-6 ; time "HH:MM"
+#
+#   schedule tick       cron every minute: puts the radios, the guest network and the lights in the
+#                       state the schedules want now (again after anything else switched them on),
+#                       and restarts the router at its time
+#   schedule state      what the schedules want now: wifi_<target>=on|off leds=on|off
+#   schedule restart    the scheduled restart now (usage saved first; never during an update)
+# Access points get the Wi-Fi and light schedules of the main router (apctl sync) and run the same
+# tick; they do not restart by their own schedule: the main router restarts them one at a time
+# after it is back (virox.apctl restart_aps).
+. /lib/functions.sh
+
+RUN=/tmp/lg7200-sched
+mkdir -p "$RUN"
+NOW_MIN=$(( $(date +%H | sed 's/^0//') * 60 + $(date +%M | sed 's/^0//') ))
+TODAY=$(date +%w)
+# tests: LG7200_SCHED_NOW="HH:MM <weekday 0-6>" instead of the clock
+if [ -n "${LG7200_SCHED_NOW:-}" ]; then
+	set -- "$@"; _t="${LG7200_SCHED_NOW% *}"; TODAY="${LG7200_SCHED_NOW#* }"
+	NOW_MIN=$(( $(echo "${_t%:*}" | sed s/^0//) * 60 + $(echo "${_t#*:}" | sed s/^0//) ))
+fi
+YDAY=$(( (TODAY + 6) % 7 ))
+
+hm() { local h="${1%:*}" m="${1#*:}"; echo $(( ${h#0} * 60 + ${m#0} )); }
+valid_hm() { echo "$1" | grep -Eq '^([01][0-9]|2[0-3]):[0-5][0-9]$'; }
+has_day() { case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }
+
+# inside <days> <off> <on>: is now inside the window that begins at <off> on one of <days>?
+inside() {
+	local days="$1" a b
+	valid_hm "$2" && valid_hm "$3" || return 1
+	a=$(hm "$2"); b=$(hm "$3")
+	if [ "$a" -lt "$b" ]; then
+		has_day "$days" "$TODAY" && [ "$NOW_MIN" -ge "$a" ] && [ "$NOW_MIN" -lt "$b" ]
+	elif [ "$a" -gt "$b" ]; then
+		{ has_day "$days" "$TODAY" && [ "$NOW_MIN" -ge "$a" ]; } || { has_day "$days" "$YDAY" && [ "$NOW_MIN" -lt "$b" ]; }
+	else return 1; fi
+}
+
+want_all=on; want_2g=on; want_5g=on; want_guest=on
+_wifisched() {
+	local s="$1" t
+	[ "$(uci -q get lg7200.$s.enabled)" = 0 ] && return 0
+	inside "$(uci -q get lg7200.$s.days)" "$(uci -q get lg7200.$s.off)" "$(uci -q get lg7200.$s.on)" || return 0
+	t="$(uci -q get lg7200.$s.target)"
+	case "$t" in all) want_all=off ;; 2g) want_2g=off ;; 5g) want_5g=off ;; guest) want_guest=off ;; esac
+}
+want_leds() {
+	case "$(uci -q get lg7200.leds.mode)" in
+		off) echo off ;;
+		night) inside "0 1 2 3 4 5 6" "$(uci -q get lg7200.leds.off)" "$(uci -q get lg7200.leds.on)" && echo off || echo on ;;
+		*) echo on ;;
+	esac
+}
+compute() { config_load lg7200; config_foreach _wifisched wifisched; }
+
+# the radios of one band ("2g" / "5g")
+radios_of() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.band='$1'$/\1/p"; }
+guest_ifaces() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.network='guest'$/\1/p"; }
+radio_up() { # is any interface of this radio up?
+	ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.$1.up" 2>/dev/null | grep -q true
+}
+
+wifi_apply() {
+	local band want r s changed=0
+	for band in 2g 5g; do
+		want=on; [ "$want_all" = off ] && want=off
+		eval "[ \"\$want_$band\" = off ]" && want=off
+		for r in $(radios_of $band); do
+			[ "$(uci -q get wireless.$r.disabled)" = 1 ] && continue
+			if [ "$want" = off ]; then
+				if radio_up "$r"; then wifi down "$r" >/dev/null 2>&1; logger -t lg7200 "schedule: Wi-Fi $band off"; fi
+				touch "$RUN/off-$r"
+			elif [ -f "$RUN/off-$r" ]; then
+				rm -f "$RUN/off-$r"; wifi up "$r" >/dev/null 2>&1; logger -t lg7200 "schedule: Wi-Fi $band on"
+			fi
+		done
+	done
+	# the guest network: its interfaces disabled (marked as ours), and back
+	for s in $(guest_ifaces); do
+		if [ "$want_guest" = off ] || [ "$want_all" = off ]; then
+			[ "$(uci -q get wireless.$s.disabled)" = 1 ] && continue
+			uci set wireless.$s.disabled=1; uci set wireless.$s.lg7200_sched_off=1; changed=1
+		elif [ "$(uci -q get wireless.$s.lg7200_sched_off)" = 1 ]; then
+			uci -q delete wireless.$s.lg7200_sched_off; uci set wireless.$s.disabled=0; changed=1
+		fi
+	done
+	if [ "$changed" = 1 ]; then uci commit wireless; wifi reload >/dev/null 2>&1; fi
+}
+
+leds_apply() {
+	local want l
+	want="$(want_leds)"
+	if [ "$want" = off ]; then
+		if [ ! -f "$RUN/leds.save" ]; then
+			for l in /sys/class/leds/*; do
+				[ -e "$l/brightness" ] || continue
+				echo "${l##*/} $(sed -n 's/.*\[\(.*\)\].*/\1/p' "$l/trigger" 2>/dev/null) $(cat "$l/brightness")"
+			done > "$RUN/leds.save"
+		fi
+		for l in /sys/class/leds/*; do
+			[ "$(cat "$l/brightness" 2>/dev/null)" = 0 ] && [ "$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$l/trigger" 2>/dev/null)" = none ] && continue
+			echo none > "$l/trigger" 2>/dev/null; echo 0 > "$l/brightness" 2>/dev/null
+		done
+	elif [ -f "$RUN/leds.save" ]; then
+		while read -r name trig br; do
+			[ -e "/sys/class/leds/$name" ] || continue
+			echo "${trig:-none}" > "/sys/class/leds/$name/trigger" 2>/dev/null
+			[ "${trig:-none}" = none ] && echo "${br:-0}" > "/sys/class/leds/$name/brightness" 2>/dev/null
+		done < "$RUN/leds.save"
+		rm -f "$RUN/leds.save"
+		# the link lights get their settings back from the system
+		/etc/init.d/led restart >/dev/null 2>&1
+	fi
+}
+
+updating() {
+	pgrep -f "lg7200-update (download|install)" >/dev/null 2>&1 && return 0
+	[ -n "$(sed -n 's/^installing=//p' /tmp/lg7200-update/status 2>/dev/null)" ] && return 0
+	grep -q '"state": *"\(preparing\|updating\|main\)"' /tmp/homenet/apctl/rolling.json 2>/dev/null
+}
+
+restart_now() {
+	if updating; then logger -t lg7200 "schedule: restart skipped, an update is running"; echo "ERR updating"; return 0; fi
+	# P2: the usage of today is saved first
+	[ -x /usr/libexec/homenet/accounting ] && /usr/libexec/homenet/accounting save >/dev/null 2>&1
+	[ -x /usr/libexec/homenet/persist ] && /usr/libexec/homenet/persist >/dev/null 2>&1
+	# the access points restart after this router is back, one at a time (apctl)
+	[ "$(uci -q get lg7200.state.mode)" != ap ] && [ -n "$(uci -q show apctl 2>/dev/null | grep '=ap$')" ] && date +%s > /etc/lg7200/restart-aps.pending
+	command -v lg7200_event_add >/dev/null 2>&1 || . /lib/functions/lg7200.sh 2>/dev/null
+	lg7200_event_add system scheduled_restart info >/dev/null 2>&1
+	logger -t lg7200 "schedule: restart"
+	echo OK
+	[ "${LG7200_SCHED_DRYRUN:-0}" = 1 ] || { sync; ( sleep 3; reboot ) >/dev/null 2>&1 & }
+}
+
+restart_due() {
+	local t day every last
+	[ "$(uci -q get lg7200.restart.enabled)" = 1 ] || return 1
+	# an access point is restarted by its main router (one at a time), not by its own schedule
+	[ "$(uci -q get lg7200.state.mode)" = ap ] && [ -n "$(uci -q get apctl.agent.token)" ] && return 1
+	t="$(uci -q get lg7200.restart.time)"; valid_hm "$t" || return 1
+	[ "$NOW_MIN" = "$(hm "$t")" ] || return 1
+	every="$(uci -q get lg7200.restart.every)"
+	[ "$every" = weekly ] && [ "$(uci -q get lg7200.restart.day)" != "$TODAY" ] && return 1
+	# once per day, and not right after a restart (a router that comes back within the same minute)
+	last="$(cat /etc/lg7200/restart.last 2>/dev/null)"; [ "$last" = "$(date +%F)" ] && return 1
+	[ "$(cut -d. -f1 /proc/uptime)" -gt 300 ] || return 1
+	# the clock must be right (P2): no restart on a boot-time clock
+	command -v lg7200_time_synced >/dev/null 2>&1 || . /lib/functions/lg7200.sh 2>/dev/null
+	command -v lg7200_time_synced >/dev/null 2>&1 && ! lg7200_time_synced && return 1
+	date +%F > /etc/lg7200/restart.last
+	return 0
+}
+
+tick() {
+	# nothing scheduled at all: nothing to do (the common case)
+	compute
+	wifi_apply
+	leds_apply
+	if restart_due; then restart_now >/dev/null; return 0; fi
+	# back after a scheduled restart: the access points, one at a time
+	if [ -f /etc/lg7200/restart-aps.pending ] && [ "$(cut -d. -f1 /proc/uptime)" -gt 180 ]; then
+		rm -f /etc/lg7200/restart-aps.pending
+		ubus call virox.apctl restart_aps >/dev/null 2>&1
+	fi
+	return 0
+}
+
+case "$1" in
+	tick) tick ;;
+	state) compute; echo "wifi_all=$want_all"; echo "wifi_2g=$want_2g"; echo "wifi_5g=$want_5g"; echo "wifi_guest=$want_guest"; echo "leds=$(want_leds)" ;;
+	restart) restart_now ;;
+	*) echo "usage: $0 tick|state|restart" >&2; exit 1 ;;
+esac

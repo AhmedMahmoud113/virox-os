@@ -1,0 +1,22 @@
+From adec75858ec1161b25ace42976e8239e05a82de7 Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Tue, 17 Nov 2026 02:42:43 +0200
+Subject: [PATCH 3/6] ramips: mt7621: mercury,gapm7200: use nand_do_upgrade
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh b/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh
+index a5ebd3af1d..1eb3431204 100644
+--- a/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh
++++ b/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh
+@@ -122,6 +122,7 @@ platform_do_upgrade() {
+ 	linksys,ea7500-v2|\
+ 	linksys,ea8100-v1|\
+ 	linksys,ea8100-v2|\
++	mercury,gapm7200|\
+ 	mts,wg430223|\
+ 	netgear,eax12|\
+ 	netgear,r6220|\

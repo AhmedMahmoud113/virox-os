@@ -1,0 +1,177 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Telling devices apart when phones change their Wi-Fi address (BUILD-PLAN B9 R5,
+# docs/dualwan-spec.md section 4, layers 2 and 3; layer 1 is the guide docs/ar/private-address.md).
+#
+#   identity dhcp <mac> <hostname>   DHCP hotplug: remember the DHCP fingerprint of the MAC (host
+#                                    name, client id, requested options + vendor class). With
+#                                    homenet.main.autolink=1, a NEW MAC that matches exactly one
+#                                    known device on all three is linked to it (event
+#                                    device_autolinked); a partial match is only proposed (event
+#                                    device_match_proposed), never linked silently.
+#   identity keys-apply              personal Wi-Fi passwords (uci homenet, sections "wifikey":
+#                                    person, key) -> one hostapd key file per home network with
+#                                    keyid=<person>; the household password stays valid
+#                                    (keyid=house). While any personal password exists the
+#                                    networks use WPA2 (one password per device is a WPA2
+#                                    feature); without, the previous encryption comes back.
+#                                    The key file is /var/run/hostapd-homenet-<section>.psk,
+#                                    root:network 640: hostapd runs as user "network" in a jail
+#                                    that sees /var/run (where OpenWrt keeps its own .psk files),
+#                                    not /etc. Made again from uci after every boot; a content
+#                                    change makes hostapd reload it (no Wi-Fi restart). On an
+#                                    access point (lg7200.state.mode=ap) the keys come from the
+#                                    main router as they are (its people list is not there).
+#   identity keyids                  "mac keyid" of connected devices that used a keyed password.
+#   identity keys-scan               (every minute) the person whose password a connected device
+#                                    used becomes the device's person when it has none yet.
+# Output of keys-apply: "OK" or "ERR <code>".
+. /usr/lib/homenet/common.sh
+
+FP="$HN_DATA/fingerprints.tsv"            # mac hostname client_id fingerprint day
+
+# ------------------------------------------------------------------ layer 2: DHCP fingerprint
+id_dhcp() {
+	local mac="$1" host fp cid today dev nmac first rows strong weak
+	hn_is_mac "$mac" || return 0
+	host="$(printf '%s' "${2:-}" | tr -d '\t\n' | cut -c1-40)"
+	[ "$host" = "*" ] && host=""
+	cid="$(printf '%s' "${DNSMASQ_CLIENT_ID:-}" | tr -d '\t\n' | cut -c1-80)"
+	# a client id that is only "01:" + this MAC changes with the MAC: it tells nothing apart
+	[ "$(echo "$cid" | tr 'A-F' 'a-f')" = "01:$mac" ] && cid=""
+	fp="$(printf '%s|%s' "${DNSMASQ_REQUESTED_OPTIONS:-}" "${DNSMASQ_VENDOR_CLASS:-}" | md5sum | cut -c1-12)"
+	# only a full request makes a fingerprint: a lease reported again (dnsmasq restart, renewal)
+	# may carry the vendor class without the requested options
+	[ -n "${DNSMASQ_REQUESTED_OPTIONS:-}" ] || fp=""
+	today="$(hn_today)"
+	# dnsmasq reports the leases it already has again when it restarts ("old"), without the name
+	# and the requested options: an empty value keeps the one remembered for this MAC
+	set -- $(awk -F '	' -v m="$mac" '$1 == m { print ($2 == "" ? "-" : $2), ($3 == "" ? "-" : $3), ($4 == "" ? "-" : $4); exit }' "$FP" 2>/dev/null)
+	[ -z "$host" ] && [ "${1:--}" != - ] && host="$1"
+	[ -z "$cid" ] && [ "${2:--}" != - ] && cid="$2"
+	[ -z "$fp" ] && [ "${3:--}" != - ] && fp="$3"
+	(
+		flock 6
+		{ awk -F '\t' -v m="$mac" '$1 != m' "$FP" 2>/dev/null; printf '%s\t%s\t%s\t%s\t%s\n' "$mac" "$host" "$cid" "$fp" "$today"; } |
+			tail -n 2000 > "$FP.new" && hn_write_records "$FP" < "$FP.new"
+		rm -f "$FP.new"
+	) 6>"$HN_RUN.fp.lock"
+	[ "$(uci -q get homenet.main.autolink)" = 1 ] || return 0
+	[ -n "$host" ] || [ -n "$fp" ] || return 0
+	dev="$(awk -F '\t' -v m="$mac" '$1 == m { print $2; exit }' "$HN_MACS")"
+	[ -n "$dev" ] || return 0
+	# only a MAC seen for the first time today, alone on its device record, is a candidate
+	nmac="$(awk -F '\t' -v d="$dev" '$2 == d' "$HN_MACS" | wc -l)"
+	first="$(awk -F '\t' -v m="$mac" '$1 == m { print $3; exit }' "$HN_MACS")"
+	[ "$nmac" = 1 ] && [ "$first" = "$today" ] || return 0
+	# known devices with the same name, the same fingerprint and (when both have one) client id
+	rows="$(awk -F '\t' -v m="$mac" -v h="$host" -v c="$cid" -v f="$fp" -v d="$dev" '
+		FILENAME == ARGV[1] { owner[$1] = $2; next }
+		$1 == m || !($1 in owner) || owner[$1] == d { next }
+		{
+			hm = (h != "" && $2 == h); fm = (f != "" && $4 == f); cm = (c == "" || $3 == "" || $3 == c)
+			if (hm && fm && cm) s[owner[$1]] = 1
+			else if (hm || (fm && h == "")) w[owner[$1]] = 1
+		}
+		END { for (k in s) print "S", k; for (k in w) if (!(k in s)) print "W", k }' "$HN_MACS" "$FP")"
+	strong="$(echo "$rows" | awk '$1 == "S" { print $2 }')"
+	weak="$(echo "$rows" | awk '$1 == "W" { print $2 }')"
+	if [ -n "$strong" ] && [ "$(echo "$strong" | wc -l)" = 1 ]; then
+		/usr/libexec/homenet/devices link "$mac" "$strong" >/dev/null 2>&1 &&
+			hn_event device_autolinked info mac="$mac" device_id="$strong" name="$host"
+	elif [ -n "$strong$weak" ]; then
+		hn_event device_match_proposed info mac="$mac" device_id="$(echo "$strong $weak" | awk '{ print $1 }')" new_id="$dev" name="$host"
+	fi
+}
+
+# ------------------------------------------------------------------ layer 3: personal passwords
+id_aps() { # home access-point networks (not the guest network): section name and ifname
+	uci -q -X show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-iface$/\1/p" | while read -r s; do
+		[ "$(uci -q get wireless.$s.mode)" = ap ] || continue
+		[ "$(uci -q get wireless.$s.network)" = guest ] && continue
+		echo "$s"
+	done
+}
+id_keys_apply() {
+	local keys s f house enc prev changed=0 ap=0
+	# an access point gets the keys from the main router; its own people list is empty
+	[ "$(uci -q get lg7200.state.mode)" = ap ] && ap=1
+	rm -rf /etc/homenet/wifikeys     # before r21 (hostapd could not read it there)
+	keys="$(uci -q show homenet | sed -n "s/^homenet\.\([^.]*\)=wifikey$/\1/p" | while read -r k; do
+		p="$(uci -q get homenet.$k.person)"; v="$(uci -q get homenet.$k.key)"
+		[ -n "$p" ] && [ -n "$v" ] || continue
+		[ "$ap" = 1 ] || awk -F '\t' -v p="$p" '$1 == p { f = 1 } END { exit !f }' "$HN_PEOPLE" || continue
+		printf 'keyid=%s 00:00:00:00:00:00 %s\n' "$p" "$v"
+	done)"
+	for s in $(id_aps); do
+		f="/var/run/hostapd-homenet-$s.psk"
+		house="$(uci -q get wireless.$s.key)"
+		enc="$(uci -q get wireless.$s.encryption)"
+		if [ -n "$keys" ] && [ -n "$house" ]; then
+			( umask 077; { printf 'keyid=house 00:00:00:00:00:00 %s\n' "$house"; echo "$keys"; } > "$f.new" )
+			# hostapd (user network) reads it, nobody else
+			if chgrp network "$f.new" 2>/dev/null; then chmod 640 "$f.new"; else chmod 644 "$f.new"; fi
+			cmp -s "$f.new" "$f" || { mv "$f.new" "$f"; changed=1; }
+			rm -f "$f.new"
+			[ "$(uci -q get wireless.$s.wpa_psk_file)" = "$f" ] || { uci set wireless.$s.wpa_psk_file="$f"; changed=1; }
+			case "$enc" in psk2*) ;; *)
+				uci set "homenet.main.enc_$s=$enc"
+				uci set wireless.$s.encryption='psk2+ccmp'; changed=1 ;;
+			esac
+		else
+			rm -f "$f"
+			[ -n "$(uci -q get wireless.$s.wpa_psk_file)" ] && { uci -q delete wireless.$s.wpa_psk_file; changed=1; }
+			prev="$(uci -q get "homenet.main.enc_$s")"
+			[ -n "$prev" ] && { uci set wireless.$s.encryption="$prev"; uci -q delete "homenet.main.enc_$s"; changed=1; }
+		fi
+	done
+	uci commit homenet
+	if [ "$changed" = 1 ]; then uci commit wireless; wifi reload >/dev/null 2>&1 & fi
+	echo OK
+}
+# "mac keyid" of the connected stations that used a keyed password. hostapd_cli is not in the
+# image (hostapd-utils); hostapd -s writes "AP-STA-CONNECTED <mac> ... keyid=<id>" to the system
+# log: the last line per MAC wins, and only MACs still connected (iwinfo) are kept.
+id_keyids() {
+	local ifc
+	if command -v hostapd_cli >/dev/null 2>&1; then
+		for ifc in $(ubus list 'hostapd.*' 2>/dev/null | sed 's/^hostapd\.//'); do
+			hostapd_cli -p /var/run/hostapd -i "$ifc" all_sta 2>/dev/null | awk '
+				/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/ { mac = $1; next }
+				/^keyid=/ && mac != "" { sub("^keyid=", ""); print mac, $0; mac = "" }'
+		done
+		return 0
+	fi
+	{
+		for ifc in $(ubus list 'hostapd.*' 2>/dev/null | sed 's/^hostapd\.//'); do
+			iw dev "$ifc" station dump 2>/dev/null | awk '$1 == "Station" { print "C", tolower($2) }'
+		done
+		logread 2>/dev/null | awk '/AP-STA-CONNECTED / {
+			mac = ""; kid = ""
+			for (i = 1; i < NF; i++) if ($i == "AP-STA-CONNECTED") mac = tolower($(i + 1))
+			for (i = 1; i <= NF; i++) if ($i ~ /^keyid=/) { kid = $i; sub("^keyid=", "", kid) }
+			if (mac != "") print "K", mac, kid
+		}'
+	} | awk '$1 == "C" { c[$2] = 1; next } $1 == "K" { k[$2] = $3 } END { for (m in k) if ((m in c) && k[m] != "") print m, k[m] }'
+}
+id_keys_scan() {
+	local mac kid dev cur
+	[ -n "$(uci -q show homenet | grep "=wifikey$")" ] || return 0
+	id_keyids | while read -r mac kid; do
+		case "$kid" in p[0-9]*) ;; *) continue ;; esac
+		dev="$(hn_device_for_mac "$mac")" || continue
+		cur="$(awk -F '\t' -v d="$dev" '$1 == d { print $3; exit }' "$HN_DEVICES")"
+		[ -z "$cur" ] || continue
+		/usr/libexec/homenet/devices set-person "$dev" "$kid" >/dev/null 2>&1 &&
+			hn_event device_person_from_key info device_id="$dev" person_id="$kid"
+	done
+}
+
+hn_prepare >/dev/null 2>&1
+case "$1" in
+	dhcp) id_dhcp "$2" "$3" ;;
+	keys-apply) id_keys_apply ;;
+	keys-scan) id_keys_scan ;;
+	keyids) id_keyids ;;
+	*) echo "usage: identity dhcp <mac> <hostname> | keys-apply | keys-scan | keyids" >&2; exit 2 ;;
+esac

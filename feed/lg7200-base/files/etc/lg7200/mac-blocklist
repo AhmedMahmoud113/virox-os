@@ -1,0 +1,5 @@
+# Factory MACs that must not be used as a unit's base MAC (PLAN 7.1).
+# One full MAC or a prefix per line. Duplicates found by tools/provision.sh are added here
+# for the next release.
+00:e0:4c:ac:34:de	cloned Factory MAC seen on reseller units (Realtek OUI)
+00:0c:43:	MediaTek reference/sample MAC prefix

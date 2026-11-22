@@ -1,0 +1,277 @@
+From bf2d32461ecda53f5d768c81e4ddd43af7a303d1 Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Tue, 17 Nov 2026 02:32:08 +0200
+Subject: [PATCH 1/6] ramips: add support for Mercury GAPM-7200
+
+MT7621 board with 128 MiB parallel NAND, MT7615 DBDC Wi-Fi, MT7530 switch (wan + 4 lan) and a PCA9535 I2C GPIO expander for the port LEDs. Board facts taken from the running device tree (read-only collection, 2026-11-17).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../ramips/dts/mt7621_mercury_gapm7200.dts    | 232 ++++++++++++++++++
+ target/linux/ramips/image/mt7621.mk           |  14 ++
+ 2 files changed, 246 insertions(+)
+ create mode 100644 target/linux/ramips/dts/mt7621_mercury_gapm7200.dts
+
+diff --git a/target/linux/ramips/dts/mt7621_mercury_gapm7200.dts b/target/linux/ramips/dts/mt7621_mercury_gapm7200.dts
+new file mode 100644
+index 0000000000..b2b4eff07f
+--- /dev/null
++++ b/target/linux/ramips/dts/mt7621_mercury_gapm7200.dts
+@@ -0,0 +1,232 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
++
++#include "mt7621.dtsi"
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
++
++/ {
++	compatible = "mercury,gapm7200", "mediatek,mt7621-soc";
++	model = "Mercury GAPM-7200";
++
++	aliases {
++		led-boot = &led_power;
++		led-failsafe = &led_power;
++		led-running = &led_power;
++		led-upgrade = &led_power;
++	};
++
++	chosen {
++		bootargs = "console=ttyS0,115200";
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		led_power: power {
++			label = "green:power";
++			gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
++		};
++
++		wlan2g {
++			label = "green:wlan2g";
++			gpios = <&gpio 18 GPIO_ACTIVE_LOW>;
++			linux,default-trigger = "phy0radio";
++		};
++
++		wlan5g {
++			label = "green:wlan5g";
++			gpios = <&gpio 7 GPIO_ACTIVE_LOW>;
++			linux,default-trigger = "phy1radio";
++		};
++
++		wan_green {
++			label = "green:wan";
++			gpios = <&expander 0 GPIO_ACTIVE_LOW>;
++		};
++
++		wan_blue {
++			label = "blue:wan";
++			gpios = <&expander 1 GPIO_ACTIVE_LOW>;
++		};
++
++		lan1_green {
++			label = "green:lan1";
++			gpios = <&expander 2 GPIO_ACTIVE_LOW>;
++		};
++
++		lan1_blue {
++			label = "blue:lan1";
++			gpios = <&expander 3 GPIO_ACTIVE_LOW>;
++		};
++
++		lan2_green {
++			label = "green:lan2";
++			gpios = <&expander 4 GPIO_ACTIVE_LOW>;
++		};
++
++		lan2_blue {
++			label = "blue:lan2";
++			gpios = <&expander 5 GPIO_ACTIVE_LOW>;
++		};
++
++		lan3_green {
++			label = "green:lan3";
++			gpios = <&expander 6 GPIO_ACTIVE_LOW>;
++		};
++
++		lan3_blue {
++			label = "blue:lan3";
++			gpios = <&expander 7 GPIO_ACTIVE_LOW>;
++		};
++
++		lan4_green {
++			label = "green:lan4";
++			gpios = <&expander 8 GPIO_ACTIVE_LOW>;
++		};
++
++		lan4_blue {
++			label = "blue:lan4";
++			gpios = <&expander 9 GPIO_ACTIVE_LOW>;
++		};
++
++		wps {
++			label = "green:wps";
++			gpios = <&expander 11 GPIO_ACTIVE_LOW>;
++			default-state = "on";
++		};
++	};
++
++	keys {
++		compatible = "gpio-keys";
++
++		reset {
++			label = "reset";
++			gpios = <&gpio 8 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_RESTART>;
++		};
++
++		wps {
++			label = "wps";
++			gpios = <&gpio 6 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_WPS_BUTTON>;
++		};
++
++		mode {
++			label = "mode";
++			gpios = <&gpio 10 GPIO_ACTIVE_LOW>;
++			linux,code = <BTN_0>;
++		};
++	};
++};
++
++&i2c {
++	status = "okay";
++
++	expander: gpio-expander@20 {
++		compatible = "nxp,pca9535";
++		reg = <0x20>;
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++};
++
++&nand {
++	status = "okay";
++
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "Bootloader";
++			reg = <0x0 0x80000>;
++			read-only;
++		};
++
++		partition@80000 {
++			label = "Config";
++			reg = <0x80000 0x80000>;
++			read-only;
++		};
++
++		partition@100000 {
++			label = "Factory";
++			reg = <0x100000 0x40000>;
++			read-only;
++
++			nvmem-layout {
++				compatible = "fixed-layout";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				eeprom_factory_0: eeprom@0 {
++					reg = <0x0 0x4da8>;
++				};
++			};
++		};
++
++		partition@140000 {
++			label = "kernel";
++			reg = <0x140000 0x400000>;
++		};
++
++		partition@540000 {
++			label = "ubi";
++			reg = <0x540000 0x7a40000>;
++		};
++
++		/* nothing after 0x7f80000: the last 0x80000 is left alone (BBT) */
++	};
++};
++
++&pcie {
++	status = "okay";
++};
++
++&pcie0 {
++	wifi@0,0 {
++		compatible = "mediatek,mt76";
++		reg = <0x0000 0 0 0 0>;
++		nvmem-cells = <&eeprom_factory_0>;
++		nvmem-cell-names = "eeprom";
++	};
++};
++
++&switch0 {
++	ports {
++		port@0 {
++			status = "okay";
++			label = "wan";
++		};
++
++		port@1 {
++			status = "okay";
++			label = "lan1";
++		};
++
++		port@2 {
++			status = "okay";
++			label = "lan2";
++		};
++
++		port@3 {
++			status = "okay";
++			label = "lan3";
++		};
++
++		port@4 {
++			status = "okay";
++			label = "lan4";
++		};
++	};
++};
++
++&state_default {
++	gpio {
++		groups = "jtag", "uart3", "wdt";
++		function = "gpio";
++	};
++};
+diff --git a/target/linux/ramips/image/mt7621.mk b/target/linux/ramips/image/mt7621.mk
+index 1b6360b9d6..d9400c192f 100644
+--- a/target/linux/ramips/image/mt7621.mk
++++ b/target/linux/ramips/image/mt7621.mk
+@@ -2214,6 +2214,20 @@ define Device/meig_slt866
+ endef
+ TARGET_DEVICES += meig_slt866
+ 
++define Device/mercury_gapm7200
++  $(Device/nand)
++  $(Device/uimage-lzma-loader)
++  IMAGE_SIZE := 125184k
++  DEVICE_VENDOR := Mercury
++  DEVICE_MODEL := GAPM-7200
++  DEVICE_ALT0_VENDOR := LG U+
++  DEVICE_ALT0_MODEL := LG-7200
++  IMAGES += factory.bin
++  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | 	check-size
++  DEVICE_PACKAGES := kmod-mt7615-firmware kmod-gpio-pca953x kmod-usb3 	-uboot-envtools
++endef
++TARGET_DEVICES += mercury_gapm7200
++
+ define Device/mercusys_mr70x-v1
+   $(Device/dsa-migration)
+   $(Device/tplink-safeloader)

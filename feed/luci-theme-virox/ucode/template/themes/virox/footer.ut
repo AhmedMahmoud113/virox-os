@@ -1,0 +1,32 @@
+{#
+	Virox theme: page footer. Derived from luci-theme-argon v2.4.3 (footer.ut, page_scripts.ut)
+	Copyright 2020 Jerrykuku <jerrykuku@qq.com>, luci-theme-material Copyright 2015 Lutty Yang,
+	Licensed to the public under the Apache License 2.0 (LICENSE.argon).
+	Virox changes: footer says "based on OpenWrt" with the source link (BUILD-PLAN B6 item 7) and
+	credits Argon, without "|" separators (10a item 2), and carries the author's copyright line
+	(owner 2026-11-22); the Virox scripts (notices, a language
+	chosen on the login page, light/dark) talk to the virox.* API (section 11).
+-#}
+	{% if (!blank_page): %}
+				</div>
+				<footer>
+					<div class="footer-content vx-footer">
+						<span>{{ version.distname }} <bdi dir="ltr">{{ version.distversion }}</bdi></span>
+						<span>{{ _('based on') }} <a href="https://openwrt.org" target="_blank" rel="noreferrer">OpenWrt</a></span>
+						<a href="{{ entityencode(version.disturl ?? '#', true) }}" target="_blank" rel="noreferrer">{{ _('Source code') }}</a>
+						<span>{{ _('Look based on') }} <a href="https://github.com/jerrykuku/luci-theme-argon" target="_blank" rel="noreferrer">Argon</a></span>
+						<span><bdi dir="ltr">© 2026 Ahmed Mahmoud</bdi></span>
+						<ul class="breadcrumb pull-right" id="modemenu" style="display:none"></ul>
+					</div>
+				</footer>
+			</main>
+		</div>
+	</div>
+	<script>var luciLocation = {{ ctx.path }};</script>
+	<script>
+		L.require('menu-virox');
+	</script>
+	{% include('themes/virox/scripts') %}
+	{% endif %}
+</body>
+</html>

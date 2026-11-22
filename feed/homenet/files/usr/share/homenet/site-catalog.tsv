@@ -1,0 +1,71 @@
+fb	social	Facebook	facebook.com,fbcdn.net,fbsbx.com
+instagram	social	Instagram	instagram.com,cdninstagram.com
+threads	social	Threads	threads.net
+x	social	X (Twitter)	x.com,twitter.com,twimg.com,t.co
+snapchat	social	Snapchat	snapchat.com,snapchat.net,sc-cdn.net
+reddit	social	Reddit	reddit.com,redditstatic.com,redd.it,redditmedia.com
+pinterest	social	Pinterest	pinterest.com,pinimg.com
+telegram	social	Telegram	telegram.org,t.me,telegram.me
+discord	social	Discord	discord.com,discordapp.com,discordapp.net,discord.media
+youtube	video	YouTube	youtube.com,youtu.be,youtube-nocookie.com,ytimg.com,googlevideo.com,youtubei.googleapis.com
+tiktok	video	TikTok	tiktok.com,tiktokcdn.com,tiktokv.com,byteoversea.com,ibytedtos.com
+twitch	video	Twitch	twitch.tv,twitchcdn.net,jtvnw.net
+netflix	streaming	Netflix	netflix.com,nflxvideo.net,nflximg.net,nflxext.com
+primevideo	streaming	Prime Video	primevideo.com,amazonvideo.com
+disneyplus	streaming	Disney+	disneyplus.com,disneyplus.com.dl.playstation.net
+shahid	streaming	Shahid	shahid.mbc.net,shahid.net
+watchit	streaming	WATCH IT	watchit.com
+osn	streaming	OSN+	osnplus.com,osn.com
+tod	streaming	TOD	tod.tv
+starzplay	streaming	STARZPLAY	starzplay.com
+crunchyroll	streaming	Crunchyroll	crunchyroll.com,crunchyrollcdn.com
+spotify	music	Spotify	spotify.com,scdn.co,spoti.fi
+soundcloud	music	SoundCloud	soundcloud.com,sndcdn.com
+anghami	music	Anghami	anghami.com,anghami.net
+steam	games	Steam	steampowered.com,steamcommunity.com,steamstatic.com,steamcontent.com
+epic	games	Epic Games	epicgames.com,store.epicgames.com
+roblox	games	Roblox	roblox.com,rbxcdn.com
+riot	games	Riot Games	riotgames.com,leagueoflegends.com,riotcdn.net
+playstation	games	PlayStation	playstation.com,playstation.net
+xbox	games	Xbox	xbox.com,xboxlive.com
+amazon	shopping	Amazon	amazon.com,amazon.eg,a2z.com
+shein	shopping	SHEIN	shein.com,shein.top
+temu	shopping	Temu	temu.com,temu.net
+aliexpress	shopping	AliExpress	aliexpress.com,alicdn.com
+tumblr	social	Tumblr	tumblr.com,tumblr.net
+quora	social	Quora	quora.com,quoracdn.net
+bluesky	social	Bluesky	bsky.app,bsky.social
+vk	social	VK	vk.com,vk.ru,vkuseraudio.net
+bereal	social	BeReal	bereal.com,bere.al,berealcdn.com
+amino	social	Amino	aminoapps.com,aminoapps.net
+imgur	social	Imgur	imgur.com,imgur.io,imgurinc.com
+ninegag	social	9GAG	9gag.com,9gag.tv,9cache.com
+dailymotion	video	Dailymotion	dailymotion.com,dmcdn.net
+vimeo	video	Vimeo	vimeo.com,vimeocdn.com,vimeocdn.net
+rumble	video	Rumble	rumble.com,rumble.cloud
+kick	video	Kick	kick.com,kickcdn.com
+max	streaming	Max / HBO Max	max.com,hbomax.com
+hulu	streaming	Hulu	hulu.com,huluim.com
+paramountplus	streaming	Paramount+	paramountplus.com
+peacock	streaming	Peacock	peacocktv.com
+tubi	streaming	Tubi	tubi.tv,tubi.io
+plex	streaming	Plex	plex.tv,plex.direct
+deezer	music	Deezer	deezer.com,deezer.net
+tidal	music	Tidal	tidal.com
+applemusic	music	Apple Music	music.apple.com
+minecraft	games	Minecraft	minecraft.net,minecraft-services.net,mojang.com
+battlenet	games	Battle.net	battle.net,blizzard.com,blizzard.net
+ubisoft	games	Ubisoft Connect	ubisoft.com,ubisoftconnect.com,ubi.com
+gog	games	GOG	gog.com,gog-statics.com
+ebay	shopping	eBay	ebay.com,ebaystatic.com
+etsy	shopping	Etsy	etsy.com,etsystatic.com
+noon	shopping	Noon	noon.com,nooncdn.com
+jumia	shopping	Jumia	jumia.com,jumia.com.eg,jumia.ma,jumia.sa
+pubg	games	PUBG Mobile	pubgmobile.com,pubg.com,igamecj.com,proximabeta.com
+freefire	games	Free Fire	freefiremobile.com,garena.com,garenanow.com
+fortnite	games	Fortnite	fortnite.com
+codm	games	Call of Duty	callofduty.com,activision.com,demonware.net
+efootball	games	eFootball	konami.net,konami.com
+eafc	games	EA SPORTS FC	ea.com,easports.com
+supercell	games	Clash of Clans, Clash Royale, Brawl Stars	supercell.com,clashofclans.com,clashroyale.com,brawlstars.com
+mlbb	games	Mobile Legends	mobilelegends.com,moonton.com

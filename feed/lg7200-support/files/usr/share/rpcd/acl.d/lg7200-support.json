@@ -1,0 +1,38 @@
+{
+	"lg7200-support": {
+		"description": "Virox API, support: help report, backup and restore (admin role)",
+		"read": {
+			"ubus": {
+				"virox.support": [
+					"report",
+					"backup_list"
+				]
+			},
+			"cgi-io": [
+				"download"
+			],
+			"file": {
+				"/tmp/virox-backup.tar.gz": [
+					"read"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.support": [
+					"backup_create",
+					"backup_check",
+					"backup_restore"
+				]
+			},
+			"cgi-io": [
+				"upload"
+			],
+			"file": {
+				"/tmp/virox-restore.tar.gz": [
+					"write"
+				]
+			}
+		}
+	}
+}

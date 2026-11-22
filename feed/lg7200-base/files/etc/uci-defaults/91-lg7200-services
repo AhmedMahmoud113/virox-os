@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Service defaults that must exist on every install (idempotent; also after upgrades).
+
+# Lockout page for login protection (12.3): a second uhttpd instance, static page only.
+if ! uci -q get uhttpd.lg7200_lockout >/dev/null; then
+	uci set uhttpd.lg7200_lockout=uhttpd
+	uci add_list uhttpd.lg7200_lockout.listen_http='0.0.0.0:8081'
+	uci add_list uhttpd.lg7200_lockout.listen_http='[::]:8081'
+	uci set uhttpd.lg7200_lockout.home=/www-lockout
+	uci set uhttpd.lg7200_lockout.error_page=/index.html
+	uci set uhttpd.lg7200_lockout.no_dirlists=1
+	uci set uhttpd.lg7200_lockout.max_requests=5
+	uci commit uhttpd
+fi
+
+# Login protection (12.3) for the JSON-RPC endpoint: rpcd does not log a failed `session login`,
+# so the guard cannot count those, and /ubus would allow unlimited password guessing. Anonymous
+# callers keep `session access` only; logging in goes through the LuCI login (POST /cgi-bin/luci,
+# counted by lg7200-loginguard), whose session id works for /ubus. Local ubus (root) is unchanged.
+ACL=/usr/share/rpcd/acl.d/unauthenticated.json
+if grep -q '"login"' "$ACL" 2>/dev/null; then
+	cat > "$ACL" <<-EOF
+		{
+			"unauthenticated": {
+				"description": "Access controls for unauthenticated requests (Virox: no session login over /ubus, BUILD-PLAN 12.3)",
+				"read": {
+					"ubus": {
+						"session": [ "access" ]
+					}
+				}
+			}
+		}
+	EOF
+fi
+
+# Night-only automatic channel choice (13.7): 03:20, skipped while any device is connected
+CRON=/etc/crontabs/root
+mkdir -p /etc/crontabs; touch "$CRON"
+grep -q "/usr/libexec/lg7200/wifi-night" "$CRON" ||
+	echo "20 3 * * * /usr/libexec/lg7200/wifi-night >/dev/null 2>&1" >> "$CRON"
+# USB disk sharing and printer (15.4 item 5): off until switched on; USB disks mount by themselves
+[ -x /usr/libexec/lg7200/usb ] && /usr/libexec/lg7200/usb apply >/dev/null 2>&1
+# Night schedules for Wi-Fi and lights, scheduled restart (15.4 items 3-4; all off by default)
+grep -q "/usr/libexec/lg7200/schedule tick" "$CRON" ||
+	echo "* * * * * /usr/libexec/lg7200/schedule tick >/dev/null 2>&1" >> "$CRON"
+
+# Games mode (P4): miniupnpd is shipped switched off; LAN side only, ports above 1024 only
+# (the package's default permission rules), leases expire.
+if uci -q get upnpd.config >/dev/null && [ -z "$(uci -q get lg7200.state.upnp_defaults)" ]; then
+	uci set upnpd.config.enabled=0
+	uci set upnpd.config.internal_iface=lan
+	uci set upnpd.config.external_iface=wan
+	uci set upnpd.config.clean_ruleset_interval=600
+	uci set upnpd.config.clean_ruleset_threshold=20
+	uci commit upnpd
+	uci -q get lg7200.state >/dev/null || uci set lg7200.state=state
+	uci set lg7200.state.upnp_defaults=1
+	uci commit lg7200
+fi
+exit 0

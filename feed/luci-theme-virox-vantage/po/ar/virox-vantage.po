@@ -1,0 +1,170 @@
+# Arabic for the Vantage look (simple formal Arabic, docs/ar/glossary.md). Only the texts of the
+# rail, top bar, search and appearance panel; the firewall diagram of the stock pages stays English.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-theme-virox-vantage\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+msgctxt "vantage-theme"
+msgid "Appearance"
+msgstr "المظهر"
+
+msgctxt "vantage-theme"
+msgid "Auto"
+msgstr "تلقائي"
+
+msgctxt "vantage-theme"
+msgid "Back to %s"
+msgstr "العودة إلى %s"
+
+msgctxt "vantage-theme"
+msgid "Breadcrumb"
+msgstr "مسار الصفحة"
+
+msgid "Checking…"
+msgstr "جارٍ الفحص…"
+
+msgid "Collapse navigation"
+msgstr "طي القائمة"
+
+msgid "Colour theme"
+msgstr "وضع العرض"
+
+msgid "Command palette"
+msgstr "لوحة الأوامر"
+
+msgid "Could not save this for every browser. Try again."
+msgstr "تعذّر الحفظ لكل المتصفحات. حاول مرة أخرى."
+
+msgctxt "vantage-theme"
+msgid "Dark"
+msgstr "داكن"
+
+msgid "Expand navigation"
+msgstr "توسيع القائمة"
+
+msgid "Follow system theme"
+msgstr "حسب الجهاز"
+
+msgid "Grid"
+msgstr "مربعات"
+
+msgctxt "vantage-theme"
+msgid "Home"
+msgstr "الرئيسية"
+
+msgid "Hostname"
+msgstr "اسم الجهاز"
+
+msgid "Jump to a page or action…"
+msgstr "انتقال إلى صفحة أو إجراء…"
+
+msgctxt "vantage-theme"
+msgid "Light"
+msgstr "فاتح"
+
+msgid "Log in again to save Appearance for every browser."
+msgstr "سجّل الدخول من جديد لحفظ المظهر لكل المتصفحات."
+
+msgid "Log out"
+msgstr "تسجيل الخروج"
+
+msgid "Login background"
+msgstr "خلفية صفحة الدخول"
+
+msgid "Logo only"
+msgstr "الشعار فقط"
+
+msgid "Low-power router"
+msgstr "راوتر منخفض الطاقة"
+
+msgctxt "vantage-theme"
+msgid "Main navigation"
+msgstr "القائمة الرئيسية"
+
+msgid "Model"
+msgstr "الطراز"
+
+msgctxt "vantage-theme"
+msgid "More actions"
+msgstr "إجراءات أخرى"
+
+msgid "Network path background"
+msgstr "خلفية مسار الشبكة"
+
+msgid "Next to the logo"
+msgstr "بجانب الشعار"
+
+msgid "No matching pages"
+msgstr "لا توجد صفحات مطابقة"
+
+msgctxt "vantage-theme"
+msgid "None"
+msgstr "لا شيء"
+
+msgid "Not found"
+msgstr "غير موجود"
+
+msgid "Off"
+msgstr "متوقف"
+
+msgid "On"
+msgstr "مفعّل"
+
+msgid "Other pages in %s"
+msgstr "صفحات أخرى في %s"
+
+msgid "Page tabs"
+msgstr "تبويبات الصفحة"
+
+msgctxt "vantage-theme"
+msgid "Results"
+msgstr "النتائج"
+
+msgid "Saved in this browser only."
+msgstr "محفوظ في هذا المتصفح فقط."
+
+msgid "Search pages"
+msgstr "البحث في الصفحات"
+
+msgid "Show full description"
+msgstr "عرض الوصف كاملًا"
+
+msgid "Show full help: %s"
+msgstr "عرض المساعدة كاملة: %s"
+
+msgid "Skip to content"
+msgstr "انتقال إلى المحتوى"
+
+msgid "Starfield"
+msgstr "نجوم"
+
+msgctxt "vantage-theme"
+msgid "This device"
+msgstr "هذا الجهاز"
+
+msgid "Use dark theme"
+msgstr "استخدام الوضع الداكن"
+
+msgid "Use light theme"
+msgstr "استخدام الوضع الفاتح"
+
+msgid "close"
+msgstr "إغلاق"
+
+msgid "navigate"
+msgstr "تنقل"
+
+msgctxt "vantage-theme"
+msgid "%d result"
+msgid_plural "%d results"
+msgstr[0] "%d نتيجة"
+msgstr[1] "%d نتيجة"
+msgstr[2] "%d نتيجة"
+msgstr[3] "%d نتيجة"
+msgstr[4] "%d نتيجة"
+msgstr[5] "%d نتيجة"

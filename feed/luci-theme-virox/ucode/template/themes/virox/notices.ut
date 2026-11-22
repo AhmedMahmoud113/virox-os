@@ -1,0 +1,60 @@
+{#
+	Virox: the one compact notice of a page (BUILD-PLAN 10a item 1), shared by both looks
+	(themes/virox and themes/virox-vantage include it at the top of the page content).
+	SPDX-License-Identifier: Apache-2.0
+-#}
+{%
+	import { getuid, getspnam } from 'luci.core';
+	import { popen } from 'fs';
+	import { cursor } from 'uci';
+
+	// same facts as `virox.setup notices` (PLAN 7.1, B6 items 1 and 8)
+	function vx_notices() {
+		const u = cursor();
+		let n = [];
+		if (u.get('lg7200', 'state', 'mac_source') == 'generated' &&
+		    u.get('lg7200', 'state', 'mac_notice_dismissed') != '1')
+			push(n, { code: 'mac_generated' });
+		const moved = u.get('lg7200', 'state', 'lan_moved');
+		if (moved)
+			push(n, { code: 'lan_moved', from: split(moved, ' ')[0], to: split(moved, ' ')[1] });
+		const fd = (u.get('lg7200', 'state', 'storage_notice_dismissed') == '1') ? null : popen('. /lib/functions/lg7200.sh; [ "$(lg7200_unitcfg_backend)" = file ] && ls /sys/class/ubi 2>/dev/null | head -n 1');
+		if (fd) { if (length(trim(fd.read('all') ?? ''))) push(n, { code: 'storage_file' }); fd.close(); }
+		return n;
+	}
+	// the address move everywhere until it is confirmed; the generated MAC and the file-only
+	// storage only on Home
+	function vx_notice() {
+		const home = (join('/', ctx.request_path) in [ 'admin/home', 'admin' ]);
+		for (let n in vx_notices())
+			if (n.code == 'lan_moved' || home)
+				return n;
+		return null;
+	}
+
+	const vx_nopass = (getuid() == 0 && getspnam('root')?.pwdp === '');
+	const vx_on_setup = (join('/', ctx.request_path) == 'admin/setup');
+	const vx_board = ubus.call('system', 'board');
+	const vn = (vx_board?.rootfs_type == 'initramfs' || vx_nopass || vx_on_setup) ? null : vx_notice();
+-%}
+{% if (vx_board?.rootfs_type == "initramfs"): %}
+<div class="vx-notice warn" role="status">
+	<span class="vx-notice-text"><strong>{{ _('System running in recovery (initramfs) mode.') }}</strong></span>
+</div>
+{% elif (vn?.code == 'mac_generated'): %}
+<div class="vx-notice" id="vx-n-mac" role="status">
+	<span class="vx-notice-text">{{ replace(entityencode(_('The device MAC was generated automatically')), 'MAC', '<bdi dir="ltr">MAC</bdi>') }}.</span>
+	<a href="{{ dispatcher.build_url('admin/settings') }}#vx-mac">{{ replace(entityencode(_('Type the MAC from the label')), 'MAC', '<bdi dir="ltr">MAC</bdi>') }}</a>
+	<button type="button" class="btn cbi-button" onclick="vxDismiss('mac_generated', 'vx-n-mac')">{{ _('Got it') }}</button>
+</div>
+{% elif (vn?.code == 'lan_moved'): %}
+<div class="vx-notice warn" id="vx-n-lan" role="status">
+	<span class="vx-notice-text">{{ sprintf(_('The router moved to a new address: %s'), '') }}<bdi dir="ltr">{{ vn.to }}</bdi></span>
+	<button type="button" class="btn cbi-button" onclick="vxDismiss('lan_moved', 'vx-n-lan')">{{ _('Got it') }}</button>
+</div>
+{% elif (vn?.code == 'storage_file'): %}
+<div class="vx-notice" id="vx-n-storage" role="status">
+	<span class="vx-notice-text">{{ _('Note: a factory reset gives this router a new Wi-Fi name and password. To set it up again after a reset, connect a computer to it by cable. Installing an update (Settings, Update) keeps them for good.') }}</span>
+	<button type="button" class="btn cbi-button" onclick="vxDismiss('storage_file', 'vx-n-storage')">{{ _('Got it') }}</button>
+</div>
+{% endif %}

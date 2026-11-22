@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Watcher for the temporary setup network (P6), run by procd so it survives the button handler
+# that started it. Not enabled at boot (no START): started by "setupnet start" only.
+
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/libexec/lg7200/setupnet watch
+	procd_close_instance
+}

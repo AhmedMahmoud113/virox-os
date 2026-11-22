@@ -1,0 +1,278 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Device and people records (B7.3a): a device has an internal id and a list of MACs; a person
+# owns devices. Called by the virox.homenet API (and by hand / tests).
+#
+#   devices link <mac> <device_id>      the MAC belongs to that device from now on; if the MAC's
+#                                       old device has no MAC left, it is merged into the target
+#   devices merge <from_id> <into_id>   all MACs and all usage of <from> move to <into>; usage of
+#                                       the same day is added, never counted twice; <from> is gone
+#   devices set-name <device_id> <name>      "" clears it
+#   devices set-person <device_id> <person_id>   "" = nobody
+#   devices person-add <name>           prints the new id (p1, p2, ... never reused)
+#   devices person-rename <person_id> <name>
+#   devices person-delete <person_id>   its devices stay, without a person
+#   devices restore-previous            put back the previous version of the record files
+#   devices list
+# Output: "OK [value]" or "ERR <code>" (exit 2). Names: any text (Arabic too) without control
+# characters, at most 40 characters.
+# Runs under the accounting lock and the device lock, so a 5-minute save or a new device seen
+# at the same moment never sees a half-written state.
+umask 077
+. /usr/lib/homenet/common.sh
+TMPB="${HN_RUN:?}/dev.$$"
+trap 'rm -f "$TMPB".*' EXIT
+
+err() { echo "ERR $1"; exit 2; }
+
+hn_prepare || err prepare_failed
+exec 9>"$HN_RUN.save.lock"
+flock 9
+exec 7>"$HN_RUN.devices.lock"
+flock 7
+
+exists() { awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_DEVICES"; }
+person_exists() { awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_PEOPLE"; }
+
+# name: no control characters, trimmed, at most 40 characters (UTF-8 counted as characters)
+clean_name() {
+	local n
+	n="$(printf '%s' "$1" | tr -d '\000-\037\177' | sed 's/^ *//; s/ *$//')"
+	[ "$(printf '%s' "$n" | LC_ALL=C tr -d '\200-\277' | wc -c)" -le 40 ] || return 1
+	printf '%s' "$n"
+}
+
+# set column <col> of the row with id <id> in <file> to <value>
+set_col() { # <file> <id> <col> <value>
+	awk -F '\t' -v OFS='\t' -v id="$2" -v c="$3" -v v="$4" '$1 == id { $c = v } { print }' "$1" > "$TMPB.col"
+	hn_write_records "$1" < "$TMPB.col" || err write_refused
+}
+
+# usage per line (accounting, B9 two lines): the rows of one id go to another, same day and line added
+lines_rename() { # <from> <to>
+	local f="$HN_RUN/usage-lines.tsv"
+	[ -s "$f" ] || return 0
+	awk -F '\t' -v OFS='\t' -v f="$1" -v t="$2" '
+		{ id = ($2 == f ? t : $2); key = $1 SUBSEP id SUBSEP $3; u[key] += $4; d[key] += $5 }
+		END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%s\t%.0f\t%.0f\n", p[1], p[2], p[3], u[k], d[k] } }
+	' "$f" | sort > "$TMPB.lines"
+	hn_write "$f" < "$TMPB.lines"
+}
+
+merge() { # <from> <into>
+	local from="$1" into="$2"
+	[ "$from" != "$into" ] || err same_device
+	exists "$from" && exists "$into" || err unknown_device
+	# MACs
+	awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '$2 == f { $2 = t } { print }' "$HN_MACS" > "$TMPB.macs"
+	hn_write_records "$HN_MACS" < "$TMPB.macs" || err write_refused
+	hn_write_records "$HN_DATA/device-macs.tsv" < "$HN_MACS" || err write_refused
+	# usage history: same day -> added
+	awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '
+		{ id = ($2 == f ? t : $2); key = $1 SUBSEP id; u[key] += $3; d[key] += $4 }
+		END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+	' "$HN_HISTORY" | sort > "$TMPB.hist"
+	hn_write "$HN_HISTORY" < "$TMPB.hist"
+	lines_rename "$from" "$into"
+	# pending usage (before clock sync)
+	if [ -s "$HN_RUN/pending.tsv" ]; then
+		awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '
+			{ id = ($1 == f ? t : $1); u[id] += $2; d[id] += $3 }
+			END { for (id in u) printf "%s\t%.0f\t%.0f\n", id, u[id], d[id] }
+		' "$HN_RUN/pending.tsv" | sort > "$TMPB.pend"
+		hn_write "$HN_RUN/pending.tsv" < "$TMPB.pend"
+	fi
+	# device record: keep <into>; take the name and person of <from> only where <into> has none.
+	# The file is read twice: the first pass is NR == FNR (FILENAME is the same for both passes;
+	# testing FILENAME == ARGV[1] made the second pass print nothing and emptied the file)
+	awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '
+		NR == FNR { if ($1 == f) { fname = $2; fperson = $3 } next }
+		$1 == f { next }
+		$1 == t { if ($2 == "" && fname != "") $2 = fname; if ($3 == "" && fperson != "") $3 = fperson }
+		{ print }
+	' "$HN_DEVICES" "$HN_DEVICES" > "$TMPB.devs"
+	hn_write_records "$HN_DEVICES" "$from" < "$TMPB.devs" || err write_refused
+	# controls of <from> now apply to <into> (a blocked phone that came back with a new MAC
+	# and is linked to its old record stays blocked)
+	if [ -s "$HN_DATA/controls.tsv" ]; then
+		awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '{ if ($1 == f) $1 = t; k = $1 SUBSEP $2; if (!(k in seen)) { seen[k] = 1; print } }' \
+			"$HN_DATA/controls.tsv" > "$TMPB.ctl"
+		hn_write "$HN_DATA/controls.tsv" < "$TMPB.ctl"
+	fi
+	# tables with the target in column 2 (schedules, site locks): every row moves to <into>
+	for f in schedules.tsv sitelocks.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '$2 == f { $2 = t } { print }' "$HN_DATA/$f" > "$TMPB.t2"
+		hn_write "$HN_DATA/$f" < "$TMPB.t2"
+	done
+	# one row per target (daily time, speed limit, usage limit, kids mode): the row of <from>
+	# applies to <into> unless <into> has its own (whatever the row order)
+	for f in timelimits.tsv speed.tsv limits.tsv kids.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v OFS='\t' -v f="$from" -v t="$into" '
+			NR == FNR { if ($1 == t) own = 1; next }
+			$1 == f { if (own) next; $1 = t } { print }
+		' "$HN_DATA/$f" "$HN_DATA/$f" > "$TMPB.t1"
+		hn_write "$HN_DATA/$f" < "$TMPB.t1"
+	done
+	# flash copies now: a merge must not be undone by a power cut
+	hn_persist
+	hn_event device_merged info from="$from" into="$into"
+	echo OK
+}
+
+link() { # <mac> <device_id>
+	local mac into="$2" old left
+	mac="$(printf '%s' "$1" | tr 'A-F-' 'a-f:')"
+	hn_is_mac "$mac" || err invalid_mac
+	exists "$into" || err unknown_device
+	old="$(awk -F '\t' -v m="$mac" '$1 == m { print $2 }' "$HN_MACS")"
+	if [ -z "$old" ]; then
+		{ cat "$HN_MACS"; printf '%s\t%s\t%s\t%s\t\n' "$mac" "$into" "$(hn_today)" "$(hn_today)"; } > "$TMPB.macs"
+		hn_write_records "$HN_MACS" < "$TMPB.macs" || err write_refused
+		hn_write_records "$HN_DATA/device-macs.tsv" < "$HN_MACS" || err write_refused
+		echo OK; return 0
+	fi
+	[ "$old" = "$into" ] && { echo OK; return 0; }
+	left="$(awk -F '\t' -v d="$old" -v m="$mac" '$2 == d && $1 != m' "$HN_MACS" | wc -l)"
+	if [ "$left" -eq 0 ]; then
+		merge "$old" "$into"          # the old device was only this MAC: its usage moves too
+	else
+		# the old device keeps its other MACs and the usage already booked on it
+		awk -F '\t' -v OFS='\t' -v m="$mac" -v t="$into" '$1 == m { $2 = t } { print }' "$HN_MACS" > "$TMPB.macs"
+		hn_write_records "$HN_MACS" < "$TMPB.macs" || err write_refused
+		hn_write_records "$HN_DATA/device-macs.tsv" < "$HN_MACS" || err write_refused
+		hn_event mac_linked info mac="$mac" into="$into" from="$old"
+		echo OK
+	fi
+}
+
+set_name() { # <device_id> <name>
+	local n
+	exists "$1" || err unknown_device
+	n="$(clean_name "$2")" || err name_too_long
+	set_col "$HN_DEVICES" "$1" 2 "$n"
+	echo OK
+}
+
+set_person() { # <device_id> <person_id|"">
+	exists "$1" || err unknown_device
+	[ -z "$2" ] || person_exists "$2" || err unknown_person
+	set_col "$HN_DEVICES" "$1" 3 "$2"
+	echo OK
+}
+
+person_add() { # <name>
+	local n id
+	n="$(clean_name "$1")" || err name_too_long
+	[ -n "$n" ] || err name_empty
+	awk -F '\t' -v n="$n" '$2 == n { f = 1 } END { exit !f }' "$HN_PEOPLE" && err name_taken
+	id="$(hn_new_id p)"
+	{ cat "$HN_PEOPLE"; printf '%s\t%s\n' "$id" "$n"; } | hn_write_records "$HN_PEOPLE" || err write_refused
+	echo "OK $id"
+}
+
+person_rename() { # <person_id> <name>
+	local n
+	person_exists "$1" || err unknown_person
+	n="$(clean_name "$2")" || err name_too_long
+	[ -n "$n" ] || err name_empty
+	awk -F '\t' -v n="$n" -v id="$1" '$2 == n && $1 != id { f = 1 } END { exit !f }' "$HN_PEOPLE" && err name_taken
+	set_col "$HN_PEOPLE" "$1" 2 "$n"
+	echo OK
+}
+
+person_delete() { # <person_id>
+	person_exists "$1" || err unknown_person
+	awk -F '\t' -v id="$1" '$1 != id' "$HN_PEOPLE" > "$TMPB.ppl"
+	hn_write_records "$HN_PEOPLE" "$1" < "$TMPB.ppl" || err write_refused
+	awk -F '\t' -v OFS='\t' -v id="$1" '$3 == id { $3 = "" } { print }' "$HN_DEVICES" > "$TMPB.devs"
+	hn_write_records "$HN_DEVICES" < "$TMPB.devs" || err write_refused
+	# everything set on the person ends with it
+	for f in controls.tsv timelimits.tsv speed.tsv limits.tsv kids.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v id="$1" '$1 != id' "$HN_DATA/$f" > "$TMPB.t1"
+		hn_write "$HN_DATA/$f" < "$TMPB.t1"
+	done
+	for f in schedules.tsv sitelocks.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v id="$1" '$2 != id' "$HN_DATA/$f" > "$TMPB.t2"
+		hn_write "$HN_DATA/$f" < "$TMPB.t2"
+	done
+	echo OK
+}
+
+# Put back the previous version of the record files (one API call, B7.3c): the snapshot taken
+# just before the last change, all three files together. The current files are kept in
+# $HN_DATA/bad/; the RAM copy of the MAC list is refreshed from flash.
+# forget <device_id>: the device leaves the list (owner 2026-11-20: old cards of devices that are
+# gone). Its MACs, address mappings, controls, limits, schedules and hold go with it; its usage
+# stays in the totals under the id "removed" (shown as "Removed devices"), so the package and the
+# day totals do not change. A device that comes back later is a new device.
+forget() {
+	local id="$1" macs
+	exists "$id" || err unknown_device
+	macs="$(awk -F '\t' -v d="$id" '$2 == d { print $1 }' "$HN_MACS" | tr '\n' ' ')"
+	awk -F '\t' -v d="$id" '$2 != d' "$HN_MACS" > "$TMPB.macs"
+	hn_write_records "$HN_MACS" $macs < "$TMPB.macs" || err write_refused
+	hn_write_records "$HN_DATA/device-macs.tsv" $macs < "$HN_MACS" || err write_refused
+	awk -F '\t' -v d="$id" '$1 != d' "$HN_DEVICES" > "$TMPB.devs"
+	hn_write_records "$HN_DEVICES" "$id" < "$TMPB.devs" || err write_refused
+	# addresses that pointed at its MACs
+	if [ -n "$macs" ] && [ -s "$HN_IPMAP" ]; then
+		awk -F '\t' -v m=" $macs" 'index(m, " " $2 " ") == 0' "$HN_IPMAP" > "$TMPB.map"
+		hn_write "$HN_IPMAP" < "$TMPB.map"
+	fi
+	# usage: same day -> added to "removed"
+	awk -F '\t' -v OFS='\t' -v f="$id" '
+		{ i = ($2 == f ? "removed" : $2); key = $1 SUBSEP i; u[key] += $3; d[key] += $4 }
+		END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+	' "$HN_HISTORY" | sort > "$TMPB.hist"
+	hn_write "$HN_HISTORY" < "$TMPB.hist"
+	lines_rename "$id" removed
+	# everything set on the device ends with it
+	for f in controls.tsv timelimits.tsv speed.tsv limits.tsv kids.tsv held.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v d="$id" '$1 != d' "$HN_DATA/$f" > "$TMPB.t1"
+		hn_write "$HN_DATA/$f" < "$TMPB.t1"
+	done
+	for f in schedules.tsv sitelocks.tsv; do
+		[ -s "$HN_DATA/$f" ] || continue
+		awk -F '\t' -v d="$id" '$2 != d' "$HN_DATA/$f" > "$TMPB.t2"
+		hn_write "$HN_DATA/$f" < "$TMPB.t2"
+	done
+	hn_persist
+	hn_event device_forgotten info device_id="$id"
+	echo OK
+}
+
+restore_previous() {
+	local f
+	[ -f "$HN_DATA/prev/devices.tsv" ] || err no_previous
+	mkdir -p "$HN_DATA/bad"
+	for f in $HN_RECORDS; do
+		[ -f "$HN_DATA/$f" ] && cp -f "$HN_DATA/$f" "$HN_DATA/bad/$f"
+		hn_write "$HN_DATA/$f" < "$HN_DATA/prev/$f"
+	done
+	hn_write "$HN_MACS" < "$HN_DATA/device-macs.tsv"
+	logger -t homenet "device records restored from the previous version"
+	hn_event data_restored warn
+	echo OK
+}
+
+# controls depend on which MACs and people belong to a device: re-apply after such changes
+controls_apply() { HN_LOCKED=1 /usr/libexec/homenet/controls apply >/dev/null 2>&1; }
+
+case "$1" in
+	link) link "$2" "$3"; controls_apply ;;
+	merge) merge "$2" "$3"; controls_apply ;;
+	forget) forget "$2"; controls_apply ;;
+	set-name) set_name "$2" "$3" ;;
+	set-person) set_person "$2" "$3"; controls_apply ;;
+	person-add) person_add "$2" ;;
+	person-rename) person_rename "$2" "$3" ;;
+	person-delete) person_delete "$2"; controls_apply ;;
+	restore-previous) restore_previous; controls_apply ;;
+	list) cat "$HN_DEVICES"; echo; cat "$HN_MACS"; echo; cat "$HN_PEOPLE" ;;
+	*) echo "usage: $0 link|merge|set-name|set-person|person-add|person-rename|person-delete|restore-previous|list ..." >&2; exit 1 ;;
+esac

@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# A unit that is not set up yet opens the temporary setup network at boot (owner decision
+# 2026-11-19, BUILD-PLAN P6), after Wi-Fi is up; setupnet closes it when the wizard is saved.
+# An access point with no main router answering brings its fallback address up (ap-fallback).
+
+START=99
+
+start() {
+	( sleep 20; /usr/libexec/lg7200/setupnet firstboot ) >/dev/null 2>&1 &
+	/usr/libexec/lg7200/ap-fallback boot
+}

@@ -1,0 +1,15 @@
+{
+	"homenet-admin": {
+		"description": "Virox API, open a port for a device (port forwarding), admin role",
+		"read": {
+			"ubus": {
+				"virox.ports": [ "list" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.ports": [ "add", "set", "remove" ]
+			}
+		}
+	}
+}

@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# BUILD-PLAN 13.7: the automatic channel choice (ACS) is repeated only at night and only when no
+# device is connected to any Wi-Fi network of this router, never in the middle of use. Run by
+# cron once a night (91-lg7200-services); radios with a fixed channel are left alone.
+# LG7200_WIFI_NIGHT_DRY=1: print the decision, change nothing (tests).
+auto=0
+for r in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-device$/\1/p"); do
+	[ "$(uci -q get wireless.$r.channel)" = auto ] && [ "$(uci -q get wireless.$r.disabled)" != 1 ] && auto=1
+done
+[ "$auto" = 1 ] || { echo "no radio with an automatic channel"; exit 0; }
+clients=0
+for ifc in $(iw dev 2>/dev/null | awk '/Interface/ { i = $2 } /type AP/ { print i }'); do
+	n=$(iw dev "$ifc" station dump 2>/dev/null | grep -c '^Station')
+	clients=$((clients + n))
+done
+if [ "$clients" -gt 0 ]; then
+	echo "skipped: $clients device(s) connected"
+	exit 0
+fi
+echo "rescan: no device connected"
+[ "${LG7200_WIFI_NIGHT_DRY:-0}" = 1 ] && exit 0
+logger -t lg7200 "night channel choice: no device connected, the radios choose again"
+wifi reload

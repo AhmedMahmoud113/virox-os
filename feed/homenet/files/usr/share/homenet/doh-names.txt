@@ -1,0 +1,31 @@
+# Names that answer "no such name" for devices in kids mode or with a site lock (BUILD-PLAN P8).
+# Canaries: Firefox turns its own DNS-over-HTTPS off when use-application-dns.net does not
+# exist; iPhones turn iCloud Private Relay off when mask.icloud.com / mask-h2.icloud.com do not.
+use-application-dns.net
+mask.icloud.com
+mask-h2.icloud.com
+# Public DNS-over-HTTPS servers by name
+dns.google
+dns.google.com
+dns64.dns.google
+cloudflare-dns.com
+one.one.one.one
+dns.quad9.net
+dns9.quad9.net
+dns10.quad9.net
+dns11.quad9.net
+doh.opendns.com
+doh.familyshield.opendns.com
+dns.adguard.com
+dns.adguard-dns.com
+dns-family.adguard.com
+dns.nextdns.io
+doh.cleanbrowsing.org
+doh.mullvad.net
+dns.mullvad.net
+doh.dns.sb
+dns.controld.com
+freedns.controld.com
+dns.switch.ch
+ordns.he.net
+doh.xfinity.com

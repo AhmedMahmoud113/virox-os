@@ -1,0 +1,43 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Login protection (BUILD-PLAN 12.3). Neither rpcd nor LuCI 25.12 throttle logins; LuCI logs
+#   "luci: failed login on /<path> for <user> from <address>"
+# for every wrong password. After 5 of them from one address within 5 minutes, that address
+# is put into the nft sets lg7200_locked4/6 (5-minute timeout): its HTTP requests then only reach
+# the lockout page, HTTPS is refused. Nothing is stored on flash.
+#
+# usage: loginguard            follow the system log (procd service)
+#        loginguard <address>  count one failure for <address> (used by the follower and tests)
+
+LIMIT=5
+WINDOW=300
+DIR=/tmp/lg7200-loginguard
+
+fail() {
+	local ip="$1" now f n
+	case "$ip" in *[!0-9a-fA-F.:]*|'') return 0 ;; esac
+	mkdir -p "$DIR"
+	now="$(date +%s)"
+	f="$DIR/$(echo "$ip" | tr ':' '_')"
+	{ [ -f "$f" ] && awk -v now="$now" -v w="$WINDOW" '$1 > now - w' "$f"; echo "$now"; } > "$f.new"
+	mv -f "$f.new" "$f"
+	n="$(wc -l < "$f")"
+	if [ "$n" -ge "$LIMIT" ]; then
+		case "$ip" in
+			*:*) nft add element inet fw4 lg7200_locked6 "{ $ip }" ;;
+			*)   nft add element inet fw4 lg7200_locked4 "{ $ip }" ;;
+		esac
+		rm -f "$f"
+		logger -t lg7200 -p authpriv.warning "login: $n wrong passwords from $ip, blocked for 5 minutes"
+	fi
+}
+
+if [ -n "$1" ]; then
+	fail "$1"
+	exit 0
+fi
+
+logread -f -e "luci: failed login" | while read -r line; do
+	ip="${line##* from }"
+	fail "$ip"
+done

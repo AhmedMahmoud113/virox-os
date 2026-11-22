@@ -1,0 +1,106 @@
+{#
+	Virox theme: shared document head. Derived from luci-theme-argon v2.4.3 (header.htm)
+	Copyright 2020 Jerrykuku <jerrykuku@qq.com>, luci-theme-material Copyright 2015 Lutty Yang,
+	Licensed to the public under the Apache License 2.0 (LICENSE.argon).
+	Virox changes (BUILD-PLAN 10b): the look settings come from lg7200.ui (mode, accent, accent_dark,
+	blur, transparency; defaults = the LG-7200 as delivered: light, #2563eb, #1d4ed8; blur 10 and 0.5 (Argon defaults)
+	value); dark.css is put inline as Argon 2.4.3 does (auto: under prefers-color-scheme); right-
+	to-left pages get dir="rtl"; the Virox stylesheet and the bundled Arabic font come after
+	Argon's; no branding service, no online background; the login page loads no LuCI scripts (an
+	anonymous page must not call the API, 10b item 7).
+	Callers supply hostname and is_login.
+-#}
+{%
+	import { stat, readfile, lsdir } from 'fs';
+	import { cursor } from 'uci';
+
+	let cfg = cursor();
+	http.prepare_content('text/html; charset=UTF-8');
+
+	function validColor(value, fallback) {
+		return type(value) == 'string' && match(value, /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/) ? value : fallback;
+	}
+	function validNumber(value, fallback, maximum) {
+		return type(value) == 'string' && match(value, /^(0|[1-9][0-9]*)(\.[0-9]+)?$/) && +value <= maximum ? value : fallback;
+	}
+
+	const ui = cfg.get_all('lg7200', 'ui') ?? {};
+	let mode = (ui.mode in [ 'normal', 'light', 'dark' ]) ? ui.mode : 'light';
+	let primary = validColor(ui.accent, '#2563eb');
+	let dark_primary = validColor(ui.accent_dark, '#1d4ed8');
+	let blur_radius = validNumber(ui.blur, '10', 100);
+	let blur_opacity = validNumber(ui.transparency, '0.5', 1);
+	const bar_color = mode == 'dark' ? dark_primary : primary;
+	const dark_css = (mode != 'light') ? (readfile('/www' + media + '/css/dark.css') ?? '') : '';
+	// colour roles our pages use, with Argon 2.4.3's values (light, then dark)
+	const roles = '--background-color:#f4f5f7;--surface-color:#fff;--surface-raised:#fff;--text-color:#32325d;--text-strong:#32325d;' +
+		'--muted-text:#6b7a90;--border-color:#e9ecef;--border-muted:#e9ecef;--link-color:var(--primary);--accent-text:#fff;' +
+		'--focus-ring:var(--primary);--field-gap:1rem;--section-inset:1.25rem;--radius-card:.375rem;';
+	const roles_dark = '--background-color:#1e1e1e;--surface-color:#2c2c2c;--surface-raised:#333;--text-color:#ccc;--text-strong:#ddd;' +
+		'--muted-text:#a0a0a0;--border-color:#444;--border-muted:#444;--link-color:#a5b2ff;--accent-text:#fff;--focus-ring:#a5b2ff;';
+	const rtl = (dispatcher.lang in [ 'ar', 'fa', 'he', 'ur' ]);
+
+	const css_stat = stat('/www' + media + '/css/cascade.css');
+	const css_version = css_stat ? sprintf('%d-%d', css_stat.mtime, css_stat.size) : '0';
+	const vx_stat = stat('/www' + media + '/virox.css');
+	const vx_version = vx_stat ? sprintf('%d-%d', vx_stat.mtime, vx_stat.size) : '0';
+	// the browser keeps every page file under one version tag (?v=): with the LuCI version alone
+	// it never changed between our updates, so an updated page ran with an old helper file (owner
+	// 2026-11-20). The tag now carries the newest change time of our page files and styles.
+	let res_mtime = 0;
+	for (let d in [ '/www/luci-static/resources/view/homenet', '/www/luci-static/resources/view/lg7200',
+	                '/www/luci-static/resources/homenet', '/www/luci-static/resources/virox',
+	                '/www/luci-static/virox', '/www/luci-static/virox/css', '/usr/lib/lua/luci/i18n' ])
+		for (let n in (lsdir(d) ?? [])) {
+			const s = stat(d + '/' + n);
+			if (s && s.mtime > res_mtime) res_mtime = s.mtime;
+		}
+	const res_version = sprintf('%s-%d', version.luciversion, res_mtime);
+-%}
+<!DOCTYPE html>
+<html lang="{{ dispatcher.lang }}" dir="{{ rtl ? 'rtl' : 'ltr' }}" data-argon-mode="{{ mode }}">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{ hostname }}{{ node?.title ? ` | ${striptags(_(node.title))}` : '' }}</title>
+	<meta name="robots" content="noindex, nofollow">
+	<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+	<meta name="darkreader-lock">
+	{% if (mode == 'normal'): %}
+	<meta name="theme-color" media="(prefers-color-scheme: light)" content="{{ primary }}">
+	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="{{ dark_primary }}">
+	{% else %}
+	<meta name="theme-color" content="{{ bar_color }}">
+	{% endif %}
+	<link rel="icon" href="{{ media }}/logo.svg" sizes="any">
+	<link rel="stylesheet" href="{{ media }}/css/cascade.css?v={{ css_version }}">
+	<link rel="stylesheet" href="{{ media }}/virox.css?v={{ vx_version }}">
+	<style title="text/css">
+		:root { --primary: {{ primary }}; --dark-primary: {{ dark_primary }}; --blur-radius:{{ blur_radius }}px; --blur-opacity:{{ blur_opacity }};
+			--blur-radius-dark:{{ blur_radius }}px; --blur-opacity-dark:{{ blur_opacity }}; {{ roles }} }
+		{% if (mode == 'normal'): %}
+		@media (prefers-color-scheme: dark) { {{ dark_css }} :root { {{ roles_dark }} } }
+		{% elif (mode == 'dark'): %}
+		{{ dark_css }} :root { {{ roles_dark }} }
+		{% endif %}
+	</style>
+	<link rel="stylesheet" href="{{ media }}/css/home-look.css?v={{ res_version }}">
+	{% if (node?.css): %}
+	<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">
+	{% endif -%}
+	{% if (css): %}
+	<style title="text/css">
+		{{ css }}
+	</style>
+	{% endif -%}
+	{% if (!is_login): %}
+	<script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}?v={{ res_version }}"></script>
+	<script src="{{ resource }}/cbi.js?v={{ res_version }}"></script>
+	{#- the page's translation list carries every catalog's entry and the last one wins there, so an
+	    entry the upstream Arabic catalog gets wrong would hide ours; the server finds ours first
+	    (lg7200-setup sorts after base), so its answer goes into the list again (owner 2026-11-20) #}
+	<script>if (window.TR) { {% for (let s in [ 'Apply unchecked' ]): %}TR[sfh({{ sprintf('%J', s) }})] = {{ sprintf('%J', _(s)) }}; {% endfor %}}</script>
+	<script src="{{ resource }}/luci.js?v={{ res_version }}"></script>
+	{% endif %}
+</head>

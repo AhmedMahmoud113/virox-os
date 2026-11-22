@@ -1,0 +1,24 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Filtered DNS for kids mode and site locks: one dnsmasq per profile, written by
+# /usr/libexec/homenet/dns into /var/etc/homenet-dns/<port>.conf. Not enabled at boot: the
+# homenet service builds the profiles and starts this one when a profile exists. Calling
+# `start` again updates the running set (procd restarts an instance only when its file changed,
+# and stops instances whose file is gone).
+
+USE_PROCD=1
+DIR=/var/etc/homenet-dns
+
+start_service() {
+	local f p
+	for f in "$DIR"/*.conf; do
+		[ -f "$f" ] || continue
+		p="${f##*/}"; p="${p%.conf}"
+		case "$p" in *[!0-9]*) continue ;; esac
+		procd_open_instance "p$p"
+		procd_set_param command /usr/sbin/dnsmasq -k -C "$f"
+		procd_set_param file "$f"
+		procd_set_param respawn 3600 5 5
+		procd_close_instance
+	done
+}

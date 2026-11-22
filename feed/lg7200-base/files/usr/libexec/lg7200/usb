@@ -1,0 +1,122 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# USB: share a flash disk and a printer on the home network (BUILD-PLAN 15.4 item 5, virox.usb).
+# Settings in uci lg7200, section usb: share 0|1, name (the share name, default the router name),
+# password_set 0|1 (the password itself only in ksmbd's own user file), printer 0|1.
+#
+#   usb apply          disks: every partition mounted under /mnt (block-mount, automatic) is shared
+#                      by ksmbd (SMB2/3 only, no SMB1) on the LAN interface only; read and write;
+#                      with a password only the user "virox"; the nightly backups folder is hidden.
+#                      printer: p910nd on port 9100 of the LAN address only, when a USB printer
+#                      (/dev/usb/lp0) is there. Nothing on the WAN or the guest network.
+#   usb password <pw>  set the share password (8-64 characters; empty: remove it)
+#   usb eject <sdX>    unmount every partition of that disk and power it down (safe remove)
+#   usb printer-name   the printer's maker and model (IEEE 1284 id)
+# "OK" or "ERR <code>".
+. /lib/functions.sh
+
+err() { echo "ERR $1"; exit 2; }
+mounts() { awk '$2 ~ "^/mnt/[^/]+$" && $1 ~ "^/dev/" { print $1, $2, $3 }' /proc/mounts; }
+lan_ip() { local a; a="$(uci -q get network.lan.ipaddr)"; a="${a%/*}"; [ -n "$a" ] || a="$(ip -4 -o addr show dev "$(uci -q get network.lan.device || echo br-lan)" 2>/dev/null | awk '{ sub("/.*", "", $4); print $4; exit }')"; echo "$a"; }
+cfg() { uci -q get lg7200.usb.$1; }
+share_name() {
+	local n; n="$(cfg name)"
+	[ -n "$n" ] || n="$(uci -q get system.@system[0].hostname)"
+	echo "${n:-Virox}" | tr -c 'A-Za-z0-9_-' '-' | sed 's/-*$//' | cut -c1-15
+}
+
+share_apply() {
+	local n i dev mp fs name users guest
+	[ -f /etc/config/ksmbd ] || touch /etc/config/ksmbd
+	# our sections only (named vx_*); the globals are ours too
+	for s in $(uci -q -X show ksmbd | sed -n "s/^ksmbd\.\([^.]*\)=share$/\1/p"); do uci -q delete ksmbd.$s; done
+	uci -q delete ksmbd.globals
+	uci set ksmbd.globals=globals
+	uci set ksmbd.globals.workgroup=WORKGROUP
+	uci set ksmbd.globals.description="$(share_name)"
+	uci set ksmbd.globals.interface=lan
+	uci set ksmbd.globals.allow_legacy_protocols=0
+	i=0
+	if [ "$(cfg share)" = 1 ]; then
+		mounts > /tmp/lg7200-usb.mounts
+		while read -r dev mp fs; do
+			i=$((i + 1))
+			name="$(share_name)"; [ "$i" -gt 1 ] && name="$name-$i"
+			uci set ksmbd.vx_$i=share
+			uci set ksmbd.vx_$i.name="$name"
+			uci set ksmbd.vx_$i.path="$mp"
+			uci set ksmbd.vx_$i.read_only=no
+			uci set ksmbd.vx_$i.browseable=yes
+			uci set ksmbd.vx_$i.force_root=1
+			uci set ksmbd.vx_$i.create_mask=0666
+			uci set ksmbd.vx_$i.dir_mask=0777
+			# the nightly settings backups (P7) hold the Wi-Fi passwords: never shared
+			uci set ksmbd.vx_$i.veto_files='/virox-backups/'
+			if [ "$(cfg password_set)" = 1 ]; then
+				uci set ksmbd.vx_$i.guest_ok=no; uci set ksmbd.vx_$i.users=virox
+			else
+				uci set ksmbd.vx_$i.guest_ok=yes
+			fi
+		done < /tmp/lg7200-usb.mounts
+		rm -f /tmp/lg7200-usb.mounts
+	fi
+	uci commit ksmbd
+	[ -x /etc/init.d/ksmbd ] || return 0
+	if [ "$i" -gt 0 ]; then /etc/init.d/ksmbd enable; /etc/init.d/ksmbd restart >/dev/null 2>&1
+	else /etc/init.d/ksmbd stop >/dev/null 2>&1; /etc/init.d/ksmbd disable; fi
+}
+
+printer_apply() {
+	local s
+	[ -x /etc/init.d/p910nd ] || return 0
+	[ -f /etc/config/p910nd ] || touch /etc/config/p910nd
+	s="$(uci -q show p910nd | sed -n "s/^p910nd\.\([^.]*\)=p910nd$/\1/p" | head -n 1)"
+	[ -n "$s" ] || s="$(uci add p910nd p910nd)"
+	uci set p910nd.$s.device=/dev/usb/lp0
+	uci set p910nd.$s.port=0
+	uci set p910nd.$s.bidirectional=1
+	uci set p910nd.$s.bind="$(lan_ip)"
+	uci set p910nd.$s.mdns=0
+	if [ "$(cfg printer)" = 1 ]; then uci set p910nd.$s.enabled=1; else uci set p910nd.$s.enabled=0; fi
+	uci commit p910nd
+	if [ "$(cfg printer)" = 1 ] && [ -e /dev/usb/lp0 ]; then /etc/init.d/p910nd enable; /etc/init.d/p910nd restart >/dev/null 2>&1
+	else /etc/init.d/p910nd stop >/dev/null 2>&1; fi
+}
+
+case "$1" in
+	apply)
+		uci -q get lg7200.usb >/dev/null || { uci set lg7200.usb=usb; uci commit lg7200; }
+		# automatic mounting of USB disks under /mnt (block-mount)
+		if uci -q get fstab.@global[0] >/dev/null && [ "$(uci -q get fstab.@global[0].anon_mount)" != 1 ]; then
+			uci set fstab.@global[0].anon_mount=1; uci commit fstab
+		fi
+		share_apply; printer_apply; echo OK ;;
+	password)
+		command -v ksmbd.adduser >/dev/null 2>&1 || err not_installed
+		uci -q get lg7200.usb >/dev/null || uci set lg7200.usb=usb
+		if [ -z "$2" ]; then
+			ksmbd.adduser -d virox >/dev/null 2>&1
+			uci set lg7200.usb.password_set=0
+		else
+			[ "${#2}" -ge 8 ] && [ "${#2}" -le 64 ] || err invalid_password
+			# (3.5: add or update; older: -a)
+			ksmbd.adduser -p "$2" virox >/dev/null 2>&1 || ksmbd.adduser -a virox -p "$2" >/dev/null 2>&1 || err password_failed
+			uci set lg7200.usb.password_set=1
+		fi
+		uci commit lg7200
+		share_apply; echo OK ;;
+	eject)
+		case "$2" in sd[a-z]) ;; *) err invalid_disk ;; esac
+		[ -e "/sys/block/$2" ] || err invalid_disk
+		sync
+		for m in $(awk -v d="/dev/$2" 'index($1, d) == 1 { print $2 }' /proc/mounts); do umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || err busy; done
+		share_apply
+		[ -w "/sys/block/$2/device/delete" ] && echo 1 > "/sys/block/$2/device/delete"
+		echo OK ;;
+	printer-name)
+		id="$(cat /sys/class/usbmisc/lp0/device/ieee1284_id 2>/dev/null)"
+		mfg="$(echo "$id" | tr ';' '\n' | sed -n 's/^\(MFG\|MANUFACTURER\)://p' | head -n 1)"
+		mdl="$(echo "$id" | tr ';' '\n' | sed -n 's/^\(MDL\|MODEL\)://p' | head -n 1)"
+		echo "$mfg $mdl" | sed 's/^ *//; s/ *$//' ;;
+	*) echo "usage: $0 apply|password <pw>|eject <sdX>|printer-name" >&2; exit 1 ;;
+esac

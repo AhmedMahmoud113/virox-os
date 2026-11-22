@@ -1,0 +1,15 @@
+{
+	"homenet-admin": {
+		"description": "Virox API, two internet lines, admin role",
+		"read": {
+			"ubus": {
+				"virox.lines": [ "status", "tune_state" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"virox.lines": [ "enable", "set_line", "set_default", "renewed", "calibrate", "assign", "both", "borrow", "end", "speedtest", "tune" ]
+			}
+		}
+	}
+}

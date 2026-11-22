@@ -1,0 +1,620 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Device controls (B7 feature 2: pause / block) and the new-devices policy (BUILD-PLAN B7.3c).
+#
+#   controls block <target>              no internet until unblocked
+#   controls unblock <target>
+#   controls pause <target> <minutes>    1..1440; internet comes back by itself
+#   controls resume <target>             end a pause now
+#   controls approve <device_id>         a held new device ("ask me first") gets internet
+#   controls sched-add <target> <days> <start> <end> [label]     prints "OK <id>"
+#   controls sched-update <id> <target> <days> <start> <end> [label]
+#   controls sched-enable <id> 0|1
+#   controls sched-remove <id>
+#   controls timelimit <target> <minutes>   daily internet time (B7 feature 4), 0 = no limit;
+#       a minute counts when the device (or the person's devices together) moved more than
+#       homenet.main.active_kb KB (default 40, B7.3d) in it, so an idle phone's background
+#       traffic does not use the allowance; when it is used up the device is cut until the next
+#       day (local midnight, synced clock only)
+#   controls timelimit-extra <target> <minutes>   extra internet time for today only (owner
+#       2026-11-22), 5..720, added to what was given before today; extra on a person also counts
+#       for each of its devices that has a limit of its own
+#   controls time-request <person> <minutes>   a family login asks for more time (30 or 60):
+#       one event "time_request" for the admin; at most one request per person in 10 minutes
+#   controls speed <target> <down_kbit> <up_kbit>   speed limit (B7 feature 5) in kbit/s (whole
+#       numbers, B7.3e): 0 = none in that direction, else 100-1000000; one shared limiter per
+#       direction for all MACs of the device, or for all devices of the person; device and
+#       person limits both apply
+#   controls limit <target> <mb> [warn_percent]     usage limit per billing cycle (B7 feature 6) in
+#       MB (1 MB = 1048576 bytes), 0 = none; warn 50-100 (default 80); used up -> cut until the
+#       next cycle or a higher limit
+#       internet off on the given days between start and end (B7 feature 3): days = digits 0-6
+#       (0 = Sunday), times HH:MM local; end <= start runs past midnight (the part after
+#       midnight belongs to the day it started). At most 64. Nothing before the clock is
+#       synced (P2).
+#   controls policy allow|ask            new-devices policy (see below)
+#   controls apply                       rebuild the nft rules (cron every minute, after changes)
+#   controls list
+# <target> is a device id (dN: all its MACs) or a person id (pN: every device of the person).
+# Output "OK" or "ERR <code>" (exit 2).
+#
+# How it is enforced (table inet homenet):
+#  - MACs of blocked / paused / held devices: dropped when they come in from the LAN (chain
+#    "control", priority -5, before counting: these bytes never reach the ISP);
+#  - their current IPv4 addresses: dropped on the way back to the LAN (chain "control_in",
+#    priority 15, AFTER counting at 10: the ISP has already delivered and billed those bytes,
+#    so they are booked, BUILD-PLAN B7.5d);
+#  - speed limits: upload in "speed_up" (priority -4, by MAC, before counting), download in
+#    "speed_down" (priority 15, by address, after counting); rewritten only when they change,
+#    so the limiters keep their state;
+#  - "ask me first": only MACs of known, approved devices may go out through a WAN at all,
+#    so a phone that shows a new random MAC has no internet from its first packet;
+#  - open connections of a device that just became blocked are deleted from conntrack, so a
+#    running video or download stops at once (B7.3c), not when it reconnects.
+# Data: controls.tsv  target  kind(block|pause)  until(epoch, pause only)
+#       schedules.tsv id  target  days  start  end  enabled  label
+#       timelimits.tsv  target  minutes;  screentime.tsv (RAM, persisted)  date  target  minutes
+#       timeextra.tsv  date  target  minutes   (extra time given for that day; older days dropped)
+#       held.tsv      device_id  date  mac      (new devices waiting for approval)
+#       speed.tsv     target  down_kbit  up_kbit
+#       limits.tsv    target  bytes  warn_percent
+#       limit-alerted.tsv  cycle_start  key  level   (one alert per cycle; key @package = package)
+#       $HN_RUN/quota.tsv  target  used_bytes  limit_bytes  warn  up(0|1)   (for the API)
+umask 077
+. /usr/lib/homenet/common.sh
+TMPB="${HN_RUN:?}/ctl.$$"
+trap 'rm -f "$TMPB".*' EXIT
+CTL="$HN_DATA/controls.tsv"
+SCH="$HN_DATA/schedules.tsv"
+SCH_ACTIVE="$HN_RUN/schedules-active"
+TL="$HN_DATA/timelimits.tsv"
+ST="$HN_RUN/screentime.tsv"
+ST_LAST="$HN_RUN/screentime.last"       # epoch minute + per-address byte totals of the last tick
+EXTRA="$HN_DATA/timeextra.tsv"
+TREQ="$HN_RUN/time-requests"            # epoch  person   (the last request of each person)
+ST_KB="$(uci -q get homenet.main.active_kb)"
+case "$ST_KB" in ''|*[!0-9]*) ST_KB=40 ;; esac
+ST_THRESHOLD=$(( ST_KB * 1000 ))
+LAST="$HN_RUN/ctl-blocked-ips"
+SPD="$HN_DATA/speed.tsv"
+SPD_APPLIED="$HN_RUN/speed.applied"
+LIM="$HN_DATA/limits.tsv"
+LIM_ALERTED="$HN_DATA/limit-alerted.tsv"
+QUOTA="$HN_RUN/quota.tsv"
+GB=1073741824
+
+err() { echo "ERR $1"; exit 2; }
+
+hn_prepare || err prepare_failed
+# called from the devices script, which already holds both locks
+if [ -z "$HN_LOCKED" ]; then
+	exec 9>"$HN_RUN.save.lock"; flock 9
+	exec 7>"$HN_RUN.devices.lock"; flock 7
+fi
+[ -f "$CTL" ] || : > "$CTL"
+[ -f "$HN_HELD" ] || : > "$HN_HELD"
+[ -f "$SCH" ] || : > "$SCH"
+[ -f "$TL" ] || : > "$TL"
+[ -f "$ST" ] || : > "$ST"
+[ -f "$EXTRA" ] || : > "$EXTRA"
+[ -f "$SPD" ] || : > "$SPD"
+[ -f "$LIM" ] || : > "$LIM"
+
+target_ok() {
+	case "$1" in
+		d[0-9]*) awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_DEVICES" ;;
+		p[0-9]*) awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$HN_PEOPLE" ;;
+		*) return 1 ;;
+	esac
+}
+
+set_row() { # <target> <kind> <until>: replace the row of this target and kind
+	{ awk -F '\t' -v t="$1" -v k="$2" '!($1 == t && $2 == k)' "$CTL"; printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$TMPB.ctl"
+	hn_write "$CTL" < "$TMPB.ctl"
+}
+
+del_row() { # <target> <kind>
+	awk -F '\t' -v t="$1" -v k="$2" '!($1 == t && $2 == k)' "$CTL" > "$TMPB.ctl"
+	hn_write "$CTL" < "$TMPB.ctl"
+}
+
+# Daily internet time (B7 feature 4). Once per minute (the first apply in a new minute): bytes
+# per address since the last tick -> device -> person; a target with a limit gets one minute
+# when it moved more than ST_THRESHOLD bytes. Prints the targets whose time is used up today.
+timelimits() {
+	local today nowmin lastmin
+	[ -s "$TL" ] || { rm -f "$ST_LAST"; return 0; }
+	hn_synced || return 0
+	today="$(hn_today)"; nowmin=$(( $(date +%s) / 60 ))
+	local tbl="inet homenet"; [ "$(uci -q get lg7200.state.mode)" = ap ] && tbl="bridge homenet_ap"   # access point: the bridge counts
+	{ nft list set $tbl upload 2>/dev/null; nft list set $tbl download 2>/dev/null; } | awk '
+		{ line = $0; gsub(/[{},]/, " ", line); n = split(line, a, /[[:space:]]+/)
+		  for (i = 1; i <= n; i++) if (a[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && a[i+1] == "counter" && a[i+5] ~ /^[0-9]+$/) b[a[i]] += a[i+5] }
+		END { for (ip in b) print ip "\t" b[ip] }' > "$TMPB.now"
+	lastmin="$(head -n 1 "$ST_LAST" 2>/dev/null)"
+	if [ -n "$lastmin" ] && [ "$nowmin" -gt "$lastmin" ]; then
+		tail -n +2 "$ST_LAST" > "$TMPB.last"
+		awk -F '\t' -v OFS='\t' -v d="$today" -v th="$ST_THRESHOLD" '
+			FILENAME == ARGV[1] { mac[$1] = $2; next }
+			FILENAME == ARGV[2] { dev[$1] = $2; next }
+			FILENAME == ARGV[3] { person[$1] = $3; next }
+			FILENAME == ARGV[4] { prev[$1] = $2; next }
+			FILENAME == ARGV[5] { delta = $2 - prev[$1]; if (delta < 0) delta = $2; id = dev[mac[$1]]; if (id == "") next
+			                      act[id] += delta; if (person[id] != "") act[person[id]] += delta; next }
+			FILENAME == ARGV[6] { lim[$1] = $2; next }
+			{ if ($1 == d) used[$2] = $3 }
+			END { for (t in lim) { u = used[t] + 0; if (act[t] > th) u++; print d, t, u } }
+		' "$HN_IPMAP" "$HN_MACS" "$HN_DEVICES" "$TMPB.last" "$TMPB.now" "$TL" "$ST" > "$TMPB.st"
+		# today's rows from the tick, other targets of today kept, older days dropped
+		awk -F '\t' -v d="$today" 'FILENAME == ARGV[1] { k[$2] = 1; print; next } $1 == d && !($2 in k)' "$TMPB.st" "$ST" > "$TMPB.st2"
+		cmp -s "$TMPB.st2" "$ST" || hn_write "$ST" < "$TMPB.st2"
+	fi
+	if [ -z "$lastmin" ] || [ "$nowmin" -gt "$lastmin" ]; then
+		{ echo "$nowmin"; cat "$TMPB.now"; } > "$ST_LAST"
+	fi
+	# used up today: the limit plus today's extra time (a device also gets its person's extra)
+	awk -F '\t' -v d="$today" '
+		FILENAME == ARGV[1] { if ($1 == d) used[$2] = $3; next }
+		FILENAME == ARGV[2] { if ($1 == d) ex[$2] += $3; next }
+		FILENAME == ARGV[3] { person[$1] = $3; next }
+		($2 + 0) > 0 && used[$1] >= $2 + ex[$1] + (person[$1] != "" ? ex[person[$1]] : 0) { print $1 }' "$ST" "$EXTRA" "$HN_DEVICES" "$TL" > "$TMPB.tlup"
+	# one alert per target and day
+	while read -r t; do
+		grep -qx "$today $t" "$HN_RUN/timelimit-alerted" 2>/dev/null && continue
+		echo "$today $t" >> "$HN_RUN/timelimit-alerted"
+		hn_event time_limit_reached info target="$t"
+	done < "$TMPB.tlup"
+	cat "$TMPB.tlup"
+}
+
+# Usage limits per billing cycle (B7 feature 6) and the package (homenet.main.package_mb).
+# Usage = booked bytes of the cycle (devices; for a person all its devices; for the package
+# everything: devices, router, unknown, unattributed, plus the admin's ISP calibration of this
+# cycle, B7.3e item 5c). Writes $QUOTA for the API, raises one alert per cycle and level, prints
+# the targets whose limit is used up. Usage is folded every 5 minutes (accounting save), so a
+# limit acts within about 5 minutes of being reached. Nothing before the clock is synced (P2).
+quotas() {
+	local pkg pwarn start off
+	pkg="$(hn_package_bytes)"; pwarn="$(uci -q get homenet.main.package_warn)"
+	if ! hn_synced || { [ ! -s "$LIM" ] && [ "$pkg" = 0 ]; }; then
+		: > "$QUOTA"; return 0
+	fi
+	set -- $(hn_cycle); start="$1"
+	off="$(hn_calib_offset "$start")"
+	[ -f "$LIM_ALERTED" ] || : > "$LIM_ALERTED"
+	[ -f "$HN_RUN/unattributed.tsv" ] || : > "$HN_RUN/unattributed.tsv"
+	: > "$TMPB.qalert"; : > "$TMPB.qcut"
+	awk -F '\t' -v OFS='\t' -v start="$start" -v pkg="${pkg:-0}" -v pwarn="${pwarn:-80}" -v off="${off:-0}" \
+		-v alerts="$TMPB.qalert" -v cut="$TMPB.qcut" '
+		FILENAME == ARGV[1] { person[$1] = $3; next }
+		FILENAME == ARGV[2] { if ($1 >= start) { b = $3 + $4; total += b; used[$2] += b; if (person[$2] != "") used[person[$2]] += b } next }
+		FILENAME == ARGV[3] { if ($1 >= start) total += $3 + $4; next }
+		FILENAME == ARGV[4] { if ($1 == start) done[$2 SUBSEP $3] = 1; next }
+		{ lim[$1] = $2; warn[$1] = $3 }
+		END {
+			for (t in lim) {
+				u = used[t] + 0; up = (u >= lim[t] + 0) ? 1 : 0
+				print t, sprintf("%.0f", u), lim[t], warn[t], up
+				if (up) print t > cut
+				lvl = up ? "full" : (u * 100 >= lim[t] * warn[t] ? "warn" : "")
+				if (lvl != "" && !done[t SUBSEP lvl]) print t, lvl, sprintf("%.0f", u), lim[t] > alerts
+			}
+			if (pkg + 0 > 0) {
+				total += off; if (total < 0) total = 0
+				l = sprintf("%.0f", pkg); up = (total >= l + 0) ? 1 : 0
+				print "@package", sprintf("%.0f", total), l, pwarn, up
+				lvl = up ? "full" : (total * 100 >= l * pwarn ? "warn" : "")
+				if (lvl != "" && !done["@package" SUBSEP lvl]) print "@package", lvl, sprintf("%.0f", total), l > alerts
+			}
+		}' "$HN_DEVICES" "$HN_HISTORY" "$HN_RUN/unattributed.tsv" "$LIM_ALERTED" "$LIM" > "$TMPB.quota"
+	cmp -s "$TMPB.quota" "$QUOTA" || cp -f "$TMPB.quota" "$QUOTA"
+	if [ -s "$TMPB.qalert" ]; then
+		while IFS="$TAB" read -r t lvl u l; do
+			case "$t:$lvl" in
+				@package:warn) hn_event package_warn warn used="$u" package="$l" ;;
+				@package:full) hn_event package_used_up danger used="$u" package="$l" ;;
+				*:warn) hn_event usage_limit_warn warn target="$t" used="$u" limit="$l" ;;
+				*:full) hn_event usage_limit_reached warn target="$t" used="$u" limit="$l" ;;
+			esac >/dev/null 2>&1
+			printf '%s\t%s\t%s\n' "$start" "$t" "$lvl"
+			[ "$lvl" = full ] && printf '%s\t%s\twarn\n' "$start" "$t"
+		done < "$TMPB.qalert" > "$TMPB.qa"
+		# only this cycle's rows are kept
+		{ awk -F '\t' -v s="$start" '$1 == s' "$LIM_ALERTED"; cat "$TMPB.qa"; } | sort -u > "$TMPB.qa2"
+		hn_write "$LIM_ALERTED" < "$TMPB.qa2"
+	fi
+	cat "$TMPB.qcut"
+}
+
+# Speed limits (B7 feature 5): one rule per target and direction = one shared limiter for all
+# the target's MACs (upload, before counting) or addresses (download, after counting). The
+# burst is a quarter second of the rate, at least 128 KB: GRO hands the forward hook merged
+# packets of up to 64 KB, and a packet larger than the bucket could never pass.
+# The chains are rewritten only when the rules change, so the limiters keep their state.
+speed() {
+	local lan="$1"
+	awk -F '\t' -v lan="$lan" '
+		function add(list, x) { return list == "" ? x : list ", " x }
+		function rule(chain, dir, m, set, kbit,   r, b) {
+			r = kbit * 125; b = int(r / 4); if (b < 131072) b = 131072
+			printf "add rule inet homenet %s %s { %s } limit rate over %d bytes/second burst %d bytes counter drop comment \"%s %s\"\n", chain, m, set, r, b, $1, dir
+		}
+		FILENAME == ARGV[1] { person[$1] = $3; next }
+		FILENAME == ARGV[2] { dev[$1] = $2; macs[$2] = add(macs[$2], $1); if (person[$2] != "") macs[person[$2]] = add(macs[person[$2]], $1); next }
+		FILENAME == ARGV[3] { d = dev[$2]; if (d == "") next; ips[d] = add(ips[d], $1); if (person[d] != "") ips[person[d]] = add(ips[person[d]], $1); next }
+		{
+			if ($3 + 0 > 0 && macs[$1] != "") rule("speed_up", "up", "iifname \"" lan "\" ether saddr", macs[$1], $3)
+			if ($2 + 0 > 0 && ips[$1] != "") rule("speed_down", "down", "oifname \"" lan "\" ip daddr", ips[$1], $2)
+		}' "$HN_DEVICES" "$HN_MACS" "$HN_IPMAP" "$SPD" > "$TMPB.spd"
+	if ! nft list chain inet homenet speed_down >/dev/null 2>&1 || ! cmp -s "$TMPB.spd" "$SPD_APPLIED"; then
+		{
+			echo "add chain inet homenet speed_up { type filter hook forward priority -4; policy accept; }"
+			echo "add chain inet homenet speed_down { type filter hook forward priority 15; policy accept; }"
+			echo "flush chain inet homenet speed_up"
+			echo "flush chain inet homenet speed_down"
+			cat "$TMPB.spd"
+		} > "$TMPB.spdnft"
+		if nft -f "$TMPB.spdnft"; then cp -f "$TMPB.spd" "$SPD_APPLIED"
+		else logger -t homenet "speed limits: nft failed"; rm -f "$SPD_APPLIED"; fi
+	fi
+}
+
+# Speed limits on an access point (owner 2026-11-20: the controls work in AP mode too): its devices'
+# traffic crosses the bridge, so table bridge homenet_ap limits it there, by MAC both ways (the
+# bridge sees the device's MAC on the way back too). Traffic inside the house is never limited.
+ap_speed() {
+	local a net
+	nft list table bridge homenet_ap >/dev/null 2>&1 || return 0
+	a="$(ip -4 -o addr show dev "$(hn_lan_dev)" 2>/dev/null | awk '$3 == "inet" { print $4; exit }')"
+	[ -n "$a" ] || return 0
+	net="$(eval "$(/bin/ipcalc.sh "$a")"; echo "$NETWORK/$PREFIX")"
+	awk -F '\t' -v net="$net" '
+		function add(list, x) { return list == "" ? x : list ", " x }
+		function rule(chain, dir, m, set, kbit,   r, b) {
+			r = kbit * 125; b = int(r / 4); if (b < 131072) b = 131072
+			printf "add rule bridge homenet_ap %s %s { %s } limit rate over %d bytes/second burst %d bytes counter drop comment \"%s %s\"\n", chain, m, set, r, b, $1, dir
+		}
+		FILENAME == ARGV[1] { person[$1] = $3; next }
+		FILENAME == ARGV[2] { macs[$2] = add(macs[$2], $1); if (person[$2] != "") macs[person[$2]] = add(macs[person[$2]], $1); next }
+		FNR == 1 { print "add rule bridge homenet_ap speed_up ether type ip ip daddr " net " return"
+		           print "add rule bridge homenet_ap speed_down ether type ip ip saddr " net " return" }
+		{
+			if ($3 + 0 > 0 && macs[$1] != "") rule("speed_up", "up", "ether saddr", macs[$1], $3)
+			if ($2 + 0 > 0 && macs[$1] != "") rule("speed_down", "down", "ether daddr", macs[$1], $2)
+		}' "$HN_DEVICES" "$HN_MACS" "$SPD" > "$TMPB.spd"
+	if ! nft list chain bridge homenet_ap speed_down >/dev/null 2>&1 || ! cmp -s "$TMPB.spd" "$SPD_APPLIED"; then
+		{
+			echo "add chain bridge homenet_ap speed_up { type filter hook forward priority -4; policy accept; }"
+			echo "add chain bridge homenet_ap speed_down { type filter hook forward priority 15; policy accept; }"
+			echo "flush chain bridge homenet_ap speed_up"
+			echo "flush chain bridge homenet_ap speed_down"
+			cat "$TMPB.spd"
+		} > "$TMPB.spdnft"
+		if nft -f "$TMPB.spdnft"; then cp -f "$TMPB.spd" "$SPD_APPLIED"
+		else logger -t homenet "speed limits (access point): nft failed"; rm -f "$SPD_APPLIED"; fi
+	fi
+}
+
+# Guest network limits (owner 2026-11-22), uci homenet.guest: down_kbit / up_kbit = one shared
+# limiter per direction for all guests together (0 = none), on br-guest in table inet homenet
+# (router mode and an access point that serves its own guests alike; guests of Virox access
+# points reach the main router's br-guest through the tunnel, so they share the same limiter);
+# off_at = epoch at which the guest network switches itself off (set from guest.hours when it
+# is turned on). Rewritten only when the rules change, so the limiters keep their state.
+GUEST_APPLIED="$HN_RUN/guest-speed.applied"
+guest_limits() {
+	local on d u gdev r b
+	on="$(uci -q get homenet.guest.enabled)"
+	gdev="$(uci -q get network.guest.device)"; gdev="${gdev:-br-guest}"
+	d="$(uci -q get homenet.guest.down_kbit)"; u="$(uci -q get homenet.guest.up_kbit)"
+	case "$d" in ''|*[!0-9]*) d=0 ;; esac
+	case "$u" in ''|*[!0-9]*) u=0 ;; esac
+	: > "$TMPB.gsp"
+	if [ "$on" = 1 ]; then
+		if [ "$u" -gt 0 ]; then r=$(( u * 125 )); b=$(( r / 4 )); [ "$b" -ge 131072 ] || b=131072
+			echo "add rule inet homenet guest_up iifname \"$gdev\" limit rate over $r bytes/second burst $b bytes counter drop" >> "$TMPB.gsp"; fi
+		if [ "$d" -gt 0 ]; then r=$(( d * 125 )); b=$(( r / 4 )); [ "$b" -ge 131072 ] || b=131072
+			echo "add rule inet homenet guest_down oifname \"$gdev\" limit rate over $r bytes/second burst $b bytes counter drop" >> "$TMPB.gsp"; fi
+	fi
+	if ! nft list chain inet homenet guest_down >/dev/null 2>&1 || ! cmp -s "$TMPB.gsp" "$GUEST_APPLIED"; then
+		{
+			echo "add chain inet homenet guest_up { type filter hook forward priority -4; policy accept; }"
+			echo "add chain inet homenet guest_down { type filter hook forward priority 15; policy accept; }"
+			echo "flush chain inet homenet guest_up"
+			echo "flush chain inet homenet guest_down"
+			cat "$TMPB.gsp"
+		} > "$TMPB.gspnft"
+		if nft -f "$TMPB.gspnft"; then cp -f "$TMPB.gsp" "$GUEST_APPLIED"
+		else logger -t homenet "guest speed: nft failed"; rm -f "$GUEST_APPLIED"; fi
+	fi
+	# switch off by itself at the chosen time (needs a set clock: an unsynced clock may jump)
+	local off
+	off="$(uci -q get homenet.guest.off_at)"
+	case "$off" in ''|*[!0-9]*) return 0 ;; esac
+	[ "$on" = 1 ] && [ "$off" -gt 0 ] && hn_synced || return 0
+	[ "$(date +%s)" -ge "$off" ] || return 0
+	uci -q set homenet.guest.enabled=0; uci -q delete homenet.guest.off_at; uci commit homenet
+	hn_event guest_auto_off info >/dev/null 2>&1
+	# the guest script reloads network and Wi-Fi: in the background, without this script's locks
+	/usr/libexec/homenet/guest apply >/dev/null 2>&1 7>&- 9>&- &
+	return 0
+}
+
+# whole number between $2 and $3 (or 0 when $4 = zero_ok)
+int_in() {
+	case "$1" in ''|*[!0-9]*|0?*) return 1 ;; esac      # no leading zeros (ash reads them as octal)
+	[ "${#1}" -le 12 ] || return 1
+	[ "$1" = 0 ] && [ "$4" = zero_ok ] && return 0
+	[ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+
+# Access point mode (owner 2026-11-20): the unit bridges, nothing of its devices passes the
+# inet forward hook above, so block / pause / schedules / time and usage limits / "ask me first"
+# are applied on the bridge too (table bridge homenet_ap, made by accounting), with the same lists.
+# Internet = the other end outside the LAN subnet (the main router's); the house LAN stays
+# reachable, as in router mode. Order: learn (a new device must be seen to be held and approved,
+# the counting rule comes after the drops) -> drop upload of cut / unknown MACs (-5, before
+# counting) -> count (0) -> drop download to cut MACs (10, after counting: the main router's ISP
+# delivered those bytes). IPv6 of a cut MAC is dropped except link-local.
+ap_controls() { # <policy>
+	local a net
+	nft list table bridge homenet_ap >/dev/null 2>&1 || return 0
+	a="$(ip -4 -o addr show dev "$(hn_lan_dev)" 2>/dev/null | awk '$3 == "inet" { print $4; exit }')"
+	[ -n "$a" ] || return 0
+	net="$(eval "$(/bin/ipcalc.sh "$a")"; echo "$NETWORK/$PREFIX")"
+	{
+		echo "add set bridge homenet_ap ctl_mac { type ether_addr; }"
+		echo "add set bridge homenet_ap ctl_known { type ether_addr; }"
+		echo "add chain bridge homenet_ap control { type filter hook forward priority -5; policy accept; }"
+		echo "add chain bridge homenet_ap control_in { type filter hook forward priority 10; policy accept; }"
+		echo "add counter bridge homenet_ap ctl_dropped_in"
+		echo "flush set bridge homenet_ap ctl_mac"
+		echo "flush set bridge homenet_ap ctl_known"
+		[ -s "$TMPB.macs" ] && echo "add element bridge homenet_ap ctl_mac $(elems "$TMPB.macs")"
+		[ -s "$TMPB.known" ] && echo "add element bridge homenet_ap ctl_known $(elems "$TMPB.known")"
+		echo "flush chain bridge homenet_ap control"
+		echo "flush chain bridge homenet_ap control_in"
+		echo "add rule bridge homenet_ap control ether type ip ip saddr $net ip daddr != $net ip daddr != { 224.0.0.0/4, 255.255.255.255 } update @seen { ip saddr . ether saddr }"
+		echo "add rule bridge homenet_ap control ether saddr @ctl_mac ether type ip ip daddr != $net drop"
+		echo "add rule bridge homenet_ap control ether saddr @ctl_mac ether type ip6 ip6 daddr != fe80::/10 drop"
+		[ "$1" = ask ] && echo "add rule bridge homenet_ap control ether saddr != @ctl_known ether type ip ip saddr $net ip daddr != $net drop"
+		echo "add rule bridge homenet_ap control_in ether daddr @ctl_mac ether type ip ip saddr != $net counter name ctl_dropped_in drop"
+		echo "add rule bridge homenet_ap control_in ether daddr @ctl_mac ether type ip6 ip6 saddr != fe80::/10 drop"
+	} > "$TMPB.apnft"
+	nft -f "$TMPB.apnft" || logger -t homenet "controls: access point rules failed"
+}
+
+apply() {
+	local now lan wans w policy rules ip
+	now="$(date +%s)"
+	lan="$(hn_lan_dev)"
+	wans="$(hn_wan_devs) $(hn_vpn_dev)"
+	policy="$(hn_policy)"
+	# expired pauses and held ids of devices that no longer exist (linked / merged away)
+	awk -F '\t' -v now="$now" '!($2 == "pause" && $3 + 0 <= now)' "$CTL" > "$TMPB.ctl"
+	cmp -s "$TMPB.ctl" "$CTL" || hn_write "$CTL" < "$TMPB.ctl"
+	awk -F '\t' 'FILENAME == ARGV[1] { ok[$1] = 1; next } ok[$1]' "$HN_DEVICES" "$HN_HELD" > "$TMPB.held"
+	cmp -s "$TMPB.held" "$HN_HELD" || hn_write "$HN_HELD" < "$TMPB.held"
+	# schedules in force now (only with a usable clock, P2)
+	: > "$TMPB.sact"
+	if hn_synced; then
+		set -- $(date '+%w %H:%M')
+		awk -F '\t' -v dow="$1" -v now="$2" -v act="$TMPB.sact" '
+			$6 == "1" {
+				days = $3; s = $4; e = $5; yday = (dow + 6) % 7; on = 0
+				if (e > s) on = (index(days, dow) && now >= s && now < e)
+				else on = ((index(days, dow) && now >= s) || (index(days, yday) && now < e))
+				if (on) { print $1 > act; print $2 }
+			}' "$SCH" > "$TMPB.stargets"
+	else
+		: > "$TMPB.stargets"
+	fi
+	cmp -s "$TMPB.sact" "$SCH_ACTIVE" 2>/dev/null || cp -f "$TMPB.sact" "$SCH_ACTIVE"
+	timelimits > "$TMPB.ttargets"
+	quotas > "$TMPB.qtargets"
+	cut -f1 "$CTL" | cat - "$TMPB.stargets" "$TMPB.ttargets" "$TMPB.qtargets" | sort -u > "$TMPB.targets"
+	# devices to cut: targets (a person expands to its devices) + held devices
+	awk -F '\t' '
+		FILENAME == ARGV[1] { t[$1] = 1; next }
+		FILENAME == ARGV[2] { if (($1 in t) || ($3 != "" && ($3 in t))) print $1; next }
+		{ print $1 }
+	' "$TMPB.targets" "$HN_DEVICES" "$HN_HELD" | sort -u > "$TMPB.cut"
+	awk -F '\t' 'FILENAME == ARGV[1] { c[$1] = 1; next } c[$2] { print $1 }' "$TMPB.cut" "$HN_MACS" | sort -u > "$TMPB.macs"
+	awk -F '\t' 'FILENAME == ARGV[1] { m[$1] = 1; next } m[$2] { print $1 }' "$TMPB.macs" "$HN_IPMAP" | sort -u > "$TMPB.ips"
+	# known MACs for "ask me first": every MAC of a device that is not held
+	awk -F '\t' 'FILENAME == ARGV[1] { h[$1] = 1; next } !h[$2] { print $1 }' "$HN_HELD" "$HN_MACS" | sort -u > "$TMPB.known"
+	elems() { awk 'BEGIN { s = "" } { s = s (s == "" ? "" : ", ") $1 } END { if (s != "") print "{ " s " }" }' "$1"; }
+	{
+		echo "add table inet homenet"
+		echo "add set inet homenet ctl_mac { type ether_addr; }"
+		echo "add set inet homenet ctl_ip { type ipv4_addr; }"
+		echo "add set inet homenet ctl_known { type ether_addr; }"
+		echo "add chain inet homenet control { type filter hook forward priority -5; policy accept; }"
+		echo "add chain inet homenet control_in { type filter hook forward priority 15; policy accept; }"
+		# bytes of blocked / paused devices dropped on the way back (they reached the WAN, so the ISP
+		# counts them; B7.5d names them as the only gap of the usage count)
+		echo "add counter inet homenet ctl_dropped_in"
+		echo "flush set inet homenet ctl_mac"
+		echo "flush set inet homenet ctl_ip"
+		echo "flush set inet homenet ctl_known"
+		[ -s "$TMPB.macs" ] && echo "add element inet homenet ctl_mac $(elems "$TMPB.macs")"
+		[ -s "$TMPB.ips" ] && echo "add element inet homenet ctl_ip $(elems "$TMPB.ips")"
+		[ -s "$TMPB.known" ] && echo "add element inet homenet ctl_known $(elems "$TMPB.known")"
+		echo "flush chain inet homenet control"
+		echo "flush chain inet homenet control_in"
+		echo "add rule inet homenet control iifname \"$lan\" ether saddr @ctl_mac drop"
+		echo "add rule inet homenet control_in oifname \"$lan\" ip daddr @ctl_ip counter name ctl_dropped_in drop"
+		if [ "$policy" = ask ]; then
+			for w in $wans; do
+				echo "add rule inet homenet control iifname \"$lan\" oifname \"$w\" ether saddr != @ctl_known drop"
+			done
+		fi
+	} > "$TMPB.nft"
+	nft -f "$TMPB.nft" || { logger -t homenet "controls: nft failed"; return 1; }
+	if [ "$(uci -q get lg7200.state.mode)" = ap ]; then ap_controls "$policy"; ap_speed
+	else speed "$lan"; fi
+	guest_limits
+	# cut the open connections of addresses that were not cut before
+	[ -f "$LAST" ] || : > "$LAST"
+	awk 'FILENAME == ARGV[1] { old[$1] = 1; next } !old[$1]' "$LAST" "$TMPB.ips" > "$TMPB.newips"
+	if command -v conntrack >/dev/null 2>&1; then
+		while read -r ip; do
+			conntrack -D -s "$ip" >/dev/null 2>&1
+			conntrack -D -d "$ip" >/dev/null 2>&1
+		done < "$TMPB.newips"
+	fi
+	cp -f "$TMPB.ips" "$LAST"
+	# kids mode and site locks follow device, person and address changes (own lock, in the
+	# background, without this script's lock descriptors)
+	if [ -s "$HN_DATA/kids.tsv" ] || [ -s "$HN_DATA/sitelocks.tsv" ] || [ -s "$HN_RUN/dns.applied" ]; then
+		/usr/libexec/homenet/dns apply >/dev/null 2>&1 7>&- 9>&- &
+	fi
+}
+
+sched_check() { # <target> <days> <start> <end> <label>: sets S_DAYS S_LABEL or exits with ERR
+	target_ok "$1" || err unknown_target
+	S_DAYS="$(printf '%s' "$2" | tr -cd '0-6' | awk '{ for (i = 0; i <= 6; i++) if (index($0, i)) printf "%d", i }')"
+	[ -n "$S_DAYS" ] || err invalid_days
+	echo "$3" | grep -Eq '^([01][0-9]|2[0-3]):[0-5][0-9]$' || err invalid_time
+	echo "$4" | grep -Eq '^([01][0-9]|2[0-3]):[0-5][0-9]$' || err invalid_time
+	[ "$3" != "$4" ] || err same_time
+	S_LABEL="$(printf '%s' "$5" | tr -d '\000-\037\177' | cut -c1-60)"
+}
+
+sched_exists() { awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$SCH"; }
+
+case "$1" in
+	speed)
+		target_ok "$2" || err unknown_target
+		int_in "$3" 100 1000000 zero_ok || err invalid_speed      # 0, or 0.1-1000 Mbit/s
+		int_in "$4" 100 1000000 zero_ok || err invalid_speed
+		dk=$(( $3 )); uk=$(( $4 ))
+		{ awk -F '\t' -v t="$2" '$1 != t' "$SPD"; [ "$dk$uk" != 00 ] && printf '%s\t%s\t%s\n' "$2" "$dk" "$uk"; } > "$TMPB.sp"
+		hn_write "$SPD" < "$TMPB.sp"; apply; echo OK ;;
+	limit)
+		target_ok "$2" || err unknown_target
+		int_in "$3" 1 102400000 zero_ok || err invalid_limit      # MB, up to 100000 GB
+		w="${4:-80}"
+		int_in "$w" 50 100 || err invalid_warn
+		b=$(( $3 * 1048576 ))
+		{ awk -F '\t' -v t="$2" '$1 != t' "$LIM"; [ "$b" != 0 ] && printf '%s\t%s\t%s\n' "$2" "$b" "$w"; } > "$TMPB.lim"
+		hn_write "$LIM" < "$TMPB.lim"
+		# a new limit may alert again in this cycle
+		if [ -s "$LIM_ALERTED" ]; then
+			awk -F '\t' -v t="$2" '$2 != t' "$LIM_ALERTED" > "$TMPB.la"; hn_write "$LIM_ALERTED" < "$TMPB.la"
+		fi
+		apply; echo OK ;;
+	calibrate)
+		# the admin typed what the ISP shows as remaining (MB): the package continues from it
+		int_in "$2" 0 102400000 zero_ok || err invalid_remaining
+		pkg="$(hn_package_bytes)"
+		[ "$pkg" != 0 ] || err no_package
+		rmb="$2"; rem=$(( $2 * 1048576 ))
+		[ "$rem" -le "$pkg" ] || err invalid_remaining
+		hn_synced || err clock_not_synced
+		set -- $(hn_cycle); start="$1"
+		used="$(hn_cycle_used "$start")"
+		uci set homenet.main.calib_cycle="$start"
+		uci set homenet.main.calib_offset="$(( pkg - rem - used ))"
+		uci set homenet.main.calib_time="$(date +%s)"
+		uci set homenet.main.calib_router_used="$used"
+		uci commit homenet
+		if [ -s "$LIM_ALERTED" ]; then
+			awk -F '\t' '$2 != "@package"' "$LIM_ALERTED" > "$TMPB.la"; hn_write "$LIM_ALERTED" < "$TMPB.la"
+		fi
+		hn_event package_calibrated info remaining_mb="$rmb" router_used="$used" >/dev/null 2>&1
+		apply; echo OK ;;
+	package-changed)
+		# package size or renewal day changed (settings): the package may alert again
+		if [ -s "$LIM_ALERTED" ]; then
+			awk -F '\t' '$2 != "@package"' "$LIM_ALERTED" > "$TMPB.la"; hn_write "$LIM_ALERTED" < "$TMPB.la"
+		fi
+		apply; echo OK ;;
+	timelimit)
+		target_ok "$2" || err unknown_target
+		case "$3" in ''|*[!0-9]*) err invalid_minutes ;; esac
+		[ "$3" -le 1440 ] || err invalid_minutes
+		{ awk -F '\t' -v t="$2" '$1 != t' "$TL"; [ "$3" -gt 0 ] && printf '%s\t%s\n' "$2" "$3"; } > "$TMPB.tl"
+		hn_write "$TL" < "$TMPB.tl"; apply; echo OK ;;
+	timelimit-extra)
+		target_ok "$2" || err unknown_target
+		case "$3" in ''|*[!0-9]*|0?*) err invalid_minutes ;; esac
+		[ "$3" -ge 5 ] && [ "$3" -le 720 ] || err invalid_minutes
+		hn_synced || err clock_not_synced
+		today="$(hn_today)"
+		# only today's rows stay
+		{ awk -F '\t' -v d="$today" '$1 == d' "$EXTRA"; printf '%s\t%s\t%s\n' "$today" "$2" "$3"; } > "$TMPB.ex"
+		hn_write "$EXTRA" < "$TMPB.ex"
+		# the "used up" alert may come again today when the extra time is used up too
+		[ -f "$HN_RUN/timelimit-alerted" ] && { grep -vx "$today $2" "$HN_RUN/timelimit-alerted" > "$TMPB.ta"; cp -f "$TMPB.ta" "$HN_RUN/timelimit-alerted"; }
+		hn_event time_extra_given info target="$2" minutes="$3" >/dev/null 2>&1
+		apply; echo OK ;;
+	time-request)
+		case "$2" in p[0-9]*) ;; *) err unknown_target ;; esac
+		target_ok "$2" || err unknown_target
+		case "$3" in 30|60) ;; *) err invalid_minutes ;; esac
+		now="$(date +%s)"
+		[ -f "$TREQ" ] || : > "$TREQ"
+		last="$(awk -v p="$2" '$2 == p { t = $1 } END { print t + 0 }' "$TREQ")"
+		[ $(( now - last )) -ge 600 ] || err too_soon
+		{ awk -v p="$2" '$2 != p' "$TREQ"; echo "$now $2"; } > "$TMPB.tr"; cp -f "$TMPB.tr" "$TREQ"
+		hn_event time_request info person="$2" minutes="$3" >/dev/null 2>&1
+		echo OK ;;
+	sched-add)
+		sched_check "$2" "$3" "$4" "$5" "$6"
+		[ "$(grep -c . "$SCH")" -lt 64 ] || err too_many
+		id="$(hn_new_id s)"
+		{ cat "$SCH"; printf '%s\t%s\t%s\t%s\t%s\t1\t%s\n' "$id" "$2" "$S_DAYS" "$4" "$5" "$S_LABEL"; } > "$TMPB.sch"
+		hn_write "$SCH" < "$TMPB.sch"; apply; echo "OK $id" ;;
+	sched-update)
+		sched_exists "$2" || err unknown_schedule
+		sched_check "$3" "$4" "$5" "$6" "$7"
+		awk -F '\t' -v OFS='\t' -v id="$2" -v t="$3" -v d="$S_DAYS" -v a="$5" -v b="$6" -v l="$S_LABEL" \
+			'$1 == id { $2 = t; $3 = d; $4 = a; $5 = b; $7 = l } { print }' "$SCH" > "$TMPB.sch"
+		hn_write "$SCH" < "$TMPB.sch"; apply; echo OK ;;
+	sched-enable)
+		sched_exists "$2" || err unknown_schedule
+		case "$3" in 0|1) ;; *) err invalid_value ;; esac
+		awk -F '\t' -v OFS='\t' -v id="$2" -v e="$3" '$1 == id { $6 = e } { print }' "$SCH" > "$TMPB.sch"
+		hn_write "$SCH" < "$TMPB.sch"; apply; echo OK ;;
+	sched-remove)
+		sched_exists "$2" || err unknown_schedule
+		awk -F '\t' -v id="$2" '$1 != id' "$SCH" > "$TMPB.sch"
+		hn_write "$SCH" < "$TMPB.sch"; apply; echo OK ;;
+	block)
+		target_ok "$2" || err unknown_target
+		set_row "$2" block ""; apply; echo OK ;;
+	unblock)
+		target_ok "$2" || err unknown_target
+		del_row "$2" block; apply; echo OK ;;
+	pause)
+		target_ok "$2" || err unknown_target
+		case "$3" in ''|*[!0-9]*) err invalid_minutes ;; esac
+		[ "$3" -ge 1 ] && [ "$3" -le 1440 ] || err invalid_minutes
+		set_row "$2" pause "$(( $(date +%s) + $3 * 60 ))"; apply; echo OK ;;
+	resume)
+		target_ok "$2" || err unknown_target
+		del_row "$2" pause; apply; echo OK ;;
+	approve)
+		awk -F '\t' -v id="$2" '$1 == id { f = 1 } END { exit !f }' "$HN_HELD" || err not_held
+		awk -F '\t' -v id="$2" '$1 != id' "$HN_HELD" > "$TMPB.held"
+		hn_write "$HN_HELD" < "$TMPB.held"
+		apply; echo OK ;;
+	policy)
+		case "$2" in
+			allow|ask) ;;
+			*) err invalid_policy ;;
+		esac
+		if [ "$2" = ask ] && [ "$(hn_policy)" != ask ]; then
+			# every device present now is known before the policy closes the door,
+			# so switching it on never cuts the admin's own computer
+			flock -u 9 2>/dev/null; flock -u 7 2>/dev/null
+			/usr/libexec/homenet/accounting discover >/dev/null 2>&1
+			flock 9; flock 7
+		fi
+		uci set homenet.main.new_devices="$2"; uci commit homenet
+		apply; echo OK ;;
+	apply) apply && echo OK ;;
+	list) cat "$CTL"; echo; cat "$HN_HELD"; echo; cat "$SCH"; echo; hn_policy ;;
+	*) echo "usage: $0 block|unblock|pause|resume|approve|policy|sched-add|sched-update|sched-enable|sched-remove|timelimit|timelimit-extra|time-request|speed|limit|apply|list ..." >&2; exit 1 ;;
+esac

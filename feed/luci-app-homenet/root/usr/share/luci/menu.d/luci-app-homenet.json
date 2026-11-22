@@ -1,0 +1,132 @@
+{
+	"admin/home": {
+		"title": "Home",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "homenet/home"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/devices": {
+		"title": "Devices",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "homenet/devices"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/map": {
+		"title": "Network map",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "homenet/map"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/usage": {
+		"title": "Usage",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "homenet/usage"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/control": {
+		"title": "Control",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "homenet/control"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/internet": {
+		"title": "Internet",
+		"order": 6,
+		"action": {
+			"type": "view",
+			"path": "homenet/settings"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/wifi": {
+		"title": "Wi-Fi",
+		"order": 7,
+		"action": {
+			"type": "view",
+			"path": "homenet/settings"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/wake": {
+		"title": "Wake computers",
+		"order": 8,
+		"action": {
+			"type": "view",
+			"path": "homenet/wake"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/settings": {
+		"title": "Settings",
+		"order": 9,
+		"action": {
+			"type": "view",
+			"path": "homenet/settings"
+		},
+		"depends": {
+			"acl": [
+				"homenet-admin"
+			]
+		}
+	},
+	"admin/me": {
+		"title": "My devices",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "homenet/me"
+		},
+		"depends": {
+			"acl": [
+				"homenet-user"
+			]
+		}
+	}
+}

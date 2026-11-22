@@ -1,0 +1,84 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Wi-Fi power and channel limits (BUILD-PLAN section 13, owner decisions 2026-11-21, 15.2).
+#
+#   wifi-power apply [reload]   set country, txpower caps and the 5 GHz channel list of every radio
+#                               from lg7200.wifi.power (high | normal) and lg7200.product.country
+#   wifi-power check            one line per radio: name band country channel [channels] txpower
+#
+# Rules:
+#  - normal: the unit's country (EG): the kernel holds every radio to the Egyptian limits.
+#  - high ("stronger 2.4 GHz", the owner's choice, above the Egyptian 2.4 GHz limit): the radios use
+#    the US rules, so 2.4 GHz reaches the card's 25 dBm. 5 GHz stays on the Egyptian rules:
+#      * channels 36-64 only, for a fixed channel and for the automatic choice;
+#      * 23 dBm on 36-48 (the same value in both rule sets);
+#      * on 52-64, where the US rules allow 24 dBm, a txpower of 20 (the Egyptian value), and the
+#        automatic choice list holds only 36-48 (so the automatic choice cannot go above 20 there).
+#    Never a txpower above the value of the rules in force.
+#  - A lower level set by the owner for an access point (apctl: medium 17, low 14) is kept.
+. /lib/functions.sh
+
+CAP_5G_UPPER=20     # Egypt, 5250-5330 MHz (channels 52-64)
+
+in_range() { [ "$1" -ge "$2" ] 2>/dev/null && [ "$1" -le "$3" ] 2>/dev/null; }
+
+_radio() {
+	local s="$1" band ch chs tx new_chs c hi=64
+	band="$(uci -q get wireless.$s.band)"
+	uci set wireless.$s.country="$country"
+	[ "$band" = 5g ] || return 0
+	ch="$(uci -q get wireless.$s.channel)"
+	tx="$(uci -q get wireless.$s.txpower)"
+	# the automatic choice list: 36-64 (36-48 under other rules than EG), never empty
+	[ "$country" = EG ] || hi=48
+	chs="$(uci -q get wireless.$s.channels)"
+	new_chs=""
+	for c in $chs; do
+		case "$c" in *-*) c="${c%-*}" ;; esac
+		in_range "$c" 36 $hi && new_chs="$new_chs $c"
+	done
+	new_chs="${new_chs# }"
+	[ -n "$new_chs" ] || new_chs="36 40 44 48"
+	[ "$new_chs" = "$chs" ] || uci set wireless.$s.channels="$new_chs"
+	# a fixed channel above 64 is never used: back to the automatic choice
+	case "$ch" in auto|'') ch=auto ;; *) in_range "$ch" 36 64 || { uci set wireless.$s.channel=auto; ch=auto; } ;; esac
+	# 52-64 under other rules than EG: held to the Egyptian value
+	if [ "$country" != EG ] && [ "$ch" != auto ] && in_range "$ch" 52 64; then
+		if [ -z "$tx" ] || [ "$tx" -gt "$CAP_5G_UPPER" ] 2>/dev/null; then
+			uci set wireless.$s.txpower=$CAP_5G_UPPER
+			uci set wireless.$s.lg7200_txcap=1
+		fi
+	elif [ "$(uci -q get wireless.$s.lg7200_txcap)" = 1 ]; then
+		# the cap is ours and no longer needed (a level of the owner replaces it, see apctl)
+		uci -q delete wireless.$s.txpower
+		uci -q delete wireless.$s.lg7200_txcap
+	fi
+}
+
+apply() {
+	local power
+	[ -f /etc/config/wireless ] || return 0
+	power="$(uci -q get lg7200.wifi.power)"
+	country="$(uci -q get lg7200.product.country)"; country="${country:-EG}"
+	[ "$power" = high ] && country=US
+	config_load wireless
+	config_foreach _radio wifi-device
+	if [ -n "$(uci -q changes wireless)" ]; then
+		uci commit wireless
+		[ "${1:-}" = reload ] && wifi reload >/dev/null 2>&1
+	fi
+	return 0
+}
+
+check() {
+	local s
+	for s in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)=wifi-device$/\1/p"); do
+		echo "$s $(uci -q get wireless.$s.band) $(uci -q get wireless.$s.country) $(uci -q get wireless.$s.channel) [$(uci -q get wireless.$s.channels)] $(uci -q get wireless.$s.txpower)"
+	done
+}
+
+case "$1" in
+	apply) apply "$2" ;;
+	check) check ;;
+	*) echo "usage: $0 apply [reload] | check" >&2; exit 1 ;;
+esac

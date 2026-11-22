@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# DHCP guard + time without NTP (BUILD-PLAN B7.5b), see /usr/libexec/lg7200/watch.
+
+START=96
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/libexec/lg7200/watch
+	procd_set_param respawn 3600 5 0
+	procd_close_instance
+}

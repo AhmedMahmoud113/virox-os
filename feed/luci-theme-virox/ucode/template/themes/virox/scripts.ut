@@ -1,0 +1,32 @@
+{#
+	Virox page scripts shared by both looks: API calls of the notices, and the language a user
+	chose on the login page (stored in this browser), applied once logged in (section 11).
+	SPDX-License-Identifier: Apache-2.0
+-#}
+<script>
+	function vxCall(object, method, params, args) {
+		return L.require('rpc').then(function(rpc) {
+			return rpc.declare({ object: object, method: method, params: params }).apply(null, args);
+		});
+	}
+	(function() {
+		var want = null;
+		try { want = localStorage.getItem('vx-lang-want'); localStorage.removeItem('vx-lang-want'); } catch (e) {}
+		if (want && want != document.documentElement.lang)
+			vxCall('virox.setup', 'set_language', [ 'lang' ], [ want ]).then(function() { location.reload(); });
+	})();
+	// the two buttons of the top bar: the other language, light <-> dark (stored in lg7200.ui)
+	function vxLang(lang) {
+		vxCall('virox.setup', 'set_language', [ 'lang' ], [ lang ]).then(function() { location.reload(); });
+	}
+	function vxMode() {
+		var m = document.documentElement.getAttribute('data-argon-mode');
+		var dark = m == 'dark' || (m == 'normal' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+		vxCall('virox.setup', 'set_theme', [ 'look', 'mode', 'accent' ], [ '', dark ? 'light' : 'dark', '' ]).then(function() { location.reload(); });
+	}
+	function vxDismiss(code, id) {
+		vxCall('virox.setup', 'dismiss_notice', [ 'code' ], [ code ]).then(function() {
+			var e = document.getElementById(id); if (e) e.remove();
+		});
+	}
+</script>

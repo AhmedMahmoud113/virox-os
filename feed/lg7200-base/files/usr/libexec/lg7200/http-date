@@ -1,0 +1,57 @@
+#!/usr/bin/ucode
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// http-date [--verify] <https-url>: print the server's time (Unix seconds) from the Date header
+// of one HTTPS request (BUILD-PLAN B7.5b, time without NTP). Any HTTP status is fine, only the
+// Date header is read; the body is not downloaded.
+//   --verify  the certificate must validate against the system CA bundle (and the host name);
+//             without it the answer is only a hint (see time-fallback).
+// Exit 0 + seconds on stdout, 1 on any failure (no answer within 15 s, no Date header, TLS).
+'use strict';
+
+import * as uloop from 'uloop';
+import * as uclient from 'uclient';
+
+const CA = '/etc/ssl/certs/ca-certificates.crt';
+const MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+
+let verify = false, url;
+for (let a in ARGV) {
+	if (a == '--verify') verify = true;
+	else url = a;
+}
+if (!url || !match(url, /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/.*)?$/)) {
+	warn('usage: http-date [--verify] https://host/path\n');
+	exit(1);
+}
+
+// "Tue, 17 Nov 2026 22:43:31 GMT" (RFC 9110 IMF-fixdate)
+function parse_date(s) {
+	const m = match(s ?? '', /^[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/);
+	if (!m || !MON[m[2]]) return null;
+	return timegm({ mday: +m[1], mon: MON[m[2]], year: +m[3], hour: +m[4], min: +m[5], sec: +m[6] });
+}
+
+let result = null, uc;
+uloop.init();
+const guard = uloop.timer(15000, () => uloop.end());
+uc = uclient.new(url, null, {
+	header_done: () => {
+		const h = uc.get_headers() ?? {};
+		result = parse_date(h.date ?? h.Date);
+		uloop.end();
+	},
+	data_read: () => {},
+	data_eof: () => uloop.end(),
+	error: () => uloop.end()
+});
+if (!uc || !uc.ssl_init(verify ? { ca_files: [ CA ], verify: true } : { verify: false }) ||
+    !uc.connect() || !uc.request('HEAD')) {
+	exit(1);
+}
+uloop.run();
+guard.cancel();
+uc.disconnect();
+if (result == null || result < 1000000000)
+	exit(1);
+print(result, '\n');
+exit(0);

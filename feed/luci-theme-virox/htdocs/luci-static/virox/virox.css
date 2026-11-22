@@ -1,0 +1,547 @@
+/*
+ * Virox layer on top of the Argon look (BUILD-PLAN sections 10, 10a, 10b).
+ * css/cascade.css and css/dark.css are luci-theme-argon v2.4.3 (Apache-2.0, LICENSE.argon), the
+ * release the LG-7200 runs as delivered, converted to logical
+ * properties by tools/css-logical.py. This file adds: the bundled Arabic font, 44 px touch
+ * targets, and the Virox
+ * page components (cards, notices, badges, lists, Home, Devices, wizard), all on Argon's
+ * colour roles, so light / dark / the accent colour of Settings apply to them too.
+ * Logical properties only (10a checks).
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* ---------------------------------------------------------------- font
+ * Cairo (SIL OFL 1.1, fonts/Cairo-OFL.txt), Arabic + basic Latin, weights 400-700, bundled: no
+ * external fonts (section 10.9). Argon's own font files are not shipped (licences). */
+@font-face {
+	font-family: "Cairo";
+	src: url("fonts/cairo-arabic-latin.woff2") format("woff2");
+	font-weight: 400 700;
+	font-style: normal;
+	font-display: swap;
+}
+/* Google Sans Flex: the open (OFL) version of Google Sans, the font of the Argon look; Latin
+ * letters only, so Arabic letters come from Cairo (fonts/README). */
+@font-face {
+	font-family: "Google Sans Flex";
+	src: url("fonts/google-sans-flex-latin.woff2") format("woff2");
+	font-weight: 400 700;
+	font-style: normal;
+	font-display: swap;
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+:root { --font-family-sans-serif: "Google Sans Flex", "Cairo", "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
+body, button, input, select, textarea { font-family: var(--font-family-sans-serif); }
+html[lang="ar"] body { line-height: 1.6; }
+
+/* ---------------------------------------------------------------- tokens
+ * The Virox component names, mapped onto Argon's roles (light and dark come from Argon). */
+:root {
+	--vx-accent: var(--primary);
+	--vx-accent-strong: var(--link-color, var(--primary));
+	--vx-accent-soft: color-mix(in srgb, var(--primary) 10%, var(--surface-color, #fff));
+	--vx-accent-line: color-mix(in srgb, var(--primary) 35%, var(--surface-color, #fff));
+	--vx-on-accent: var(--accent-text, #fff);
+	--vx-ink: var(--text-strong);
+	--vx-text: var(--text-color);
+	--vx-muted: var(--muted-text);
+	--vx-line: var(--border-color);
+	--vx-bg: var(--background-color);
+	--vx-card: var(--surface-color);
+	--vx-green: #15803d;
+	--vx-green-soft: #f0fdf4;
+	--vx-amber: #b45309;
+	--vx-amber-soft: #fffbeb;
+	--vx-red: #b91c1c;
+	--vx-red-soft: #fef2f2;
+	--vx-shadow: 0 0 2rem 0 rgba(136, 152, 170, .15);
+	--vx-focus: var(--focus-ring, var(--primary));
+
+	--vx-radius: .375rem;
+	--vx-radius-small: .375rem;
+	--vx-space-1: 4px;
+	--vx-space-2: 8px;
+	--vx-space-3: 12px;
+	--vx-space-4: 16px;
+	--vx-space-5: 24px;
+	--vx-space-6: 32px;
+	--vx-touch: 44px;             /* minimum touch target (10a item 9) */
+	--vx-content: 960px;          /* content width on wide screens (10a item 7) */
+	--vx-font-mono: ui-monospace, Consolas, "DejaVu Sans Mono", monospace;
+	--vx-size-small: 15px;        /* 10a item 10: body text at least 15 px */
+	--vx-size-body: 16px;
+	--vx-size-title: 22px;
+	--vx-size-big: 26px;
+	--vx-weight-strong: 600;
+	--vx-weight-title: 700;
+}
+:root[data-argon-mode="dark"] {
+	--vx-green: #4ade80; --vx-green-soft: #052e16;
+	--vx-amber: #fbbf24; --vx-amber-soft: #2a1a04;
+	--vx-red: #f87171; --vx-red-soft: #2a0b0b;
+	--vx-shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-argon-mode="light"]):not([data-argon-mode="dark"]) {
+		--vx-green: #4ade80; --vx-green-soft: #052e16;
+		--vx-amber: #fbbf24; --vx-amber-soft: #2a1a04;
+		--vx-red: #f87171; --vx-red-soft: #2a0b0b;
+		--vx-shadow: none;
+	}
+}
+
+/* ---------------------------------------------------------------- base */
+:focus-visible { outline: 3px solid var(--vx-focus) !important; outline-offset: 2px; }
+bdi, .vx-ltr, .vx-val, input[type="password"], .vx-mono { unicode-bidi: isolate; }
+.vx-val { white-space: nowrap; font-variant-numeric: tabular-nums; }
+html[dir="rtl"] .vx-chev, html[dir="rtl"] .vx-flip { transform: scaleX(-1); }
+.vx-icon { inline-size: 24px; block-size: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.btn, .cbi-button, button, input[type="submit"], select, input[type="text"], input[type="password"], input[type="number"], input[type="time"] { min-height: var(--vx-touch); }
+html[dir="rtl"] input[dir="ltr"], html[dir="rtl"] input[type="password"], html[dir="rtl"] input[type="number"] { text-align: end; }
+.btn[disabled], button[disabled] { opacity: .5; cursor: not-allowed; }
+a.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--vx-space-1); text-decoration: none !important; }
+
+/* ---------------------------------------------------------------- the sidebar
+ * At the inline start, as Argon puts it: on the right of an Arabic page, on the left of an
+ * English one (owner, 2026-11-19; the 2026-11-18 "left in both languages" rule is withdrawn). */
+.main-left .brand { display: inline-flex; align-items: center; gap: var(--vx-space-2); }
+.main-left .brand img { flex: none; }
+.main-left .nav > li.vx-side-label { padding: var(--vx-space-4) var(--vx-space-4) var(--vx-space-1); margin-block-start: var(--vx-space-2);
+	border-block-start: 1px solid var(--vx-line); color: var(--vx-muted); font-size: var(--vx-size-small); font-weight: var(--vx-weight-strong); }
+.main-left .nav > li.vx-side-end { margin-block-start: var(--vx-space-2); border-block-start: 1px solid var(--vx-line); padding-block-start: var(--vx-space-2); }
+.main-left .nav > li > a > span { min-width: 0; overflow-wrap: anywhere; }
+.main-left .nav > li > a { min-block-size: var(--vx-touch); }
+
+/* the Virox pages: content about 960 px wide, centred (10a item 7) */
+body.vx-simple #maincontent > .container { max-width: var(--vx-content); margin-inline: auto; inline-size: 100%; box-sizing: border-box; }
+/* the setup wizard has no menu while the unit is being set up */
+body[data-page="admin-setup"] .main-left,
+body[data-page="admin-setup"] .showSide,
+body[data-page="admin-setup"] #indicators,
+body[data-page="admin-setup"] #tabmenu { display: none !important; }
+
+.vx-footer { display: flex; flex-wrap: wrap; gap: var(--vx-space-1) var(--vx-space-4); justify-content: center; }
+
+/* ---------------------------------------------------------------- login page (Argon layout) */
+.vx-login .vx-top { display: flex; justify-content: flex-end; margin-block-end: var(--vx-space-2); }
+.vx-login .brand-text { font-family: var(--font-family-sans-serif) !important; }
+.vx-login .vx-label { display: block; font-weight: var(--vx-weight-strong); margin-block-end: var(--vx-space-1); }
+.vx-login .vx-hint { font-size: var(--vx-size-small); opacity: .85; margin-block: var(--vx-space-2) 0; }
+.vx-login .cbi-button-apply { inline-size: 100%; }
+.vx-langswitch {
+	display: inline-flex; align-items: center; min-height: 36px !important; block-size: 36px;
+	padding: 0 var(--vx-space-3); border: 1px solid var(--vx-line); border-radius: 99px;
+	color: inherit !important; background: transparent;
+	font-weight: var(--vx-weight-strong); font-size: var(--vx-size-small);
+	text-decoration: none !important; cursor: pointer; white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- shared components */
+.vx-card {
+	background: var(--vx-card);
+	border-radius: var(--vx-radius);
+	box-shadow: var(--vx-shadow);
+	padding: var(--vx-space-5);
+	margin-block: var(--vx-space-4);
+}
+
+/* notices: at most one per page, one line plus a link (10a item 1) */
+.vx-notice {
+	display: flex; flex-wrap: wrap; align-items: center; gap: var(--vx-space-2) var(--vx-space-3);
+	border-radius: var(--vx-radius-small);
+	padding: var(--vx-space-2) var(--vx-space-3);
+	margin-block: 0 var(--vx-space-3);
+	border-inline-start: 4px solid var(--vx-accent);
+	background: var(--vx-accent-soft);
+	color: var(--vx-text);
+	font-size: var(--vx-size-small);
+}
+.vx-notice .vx-notice-text { flex: 1 1 14em; min-width: 0; }
+.vx-notice a { font-weight: var(--vx-weight-strong); }
+.vx-notice button { min-height: 36px !important; padding: 0 var(--vx-space-3); }
+.vx-notice.warn { border-color: var(--vx-amber); background: var(--vx-amber-soft); }
+.vx-notice.error { border-color: var(--vx-red); background: var(--vx-red-soft); }
+.vx-notice.ok { border-color: var(--vx-green); background: var(--vx-green-soft); }
+body.vx-simple #maincontent > .alert-message { max-width: var(--vx-content); }
+
+.vx-center { text-align: center; }
+.virox-center { text-align: center; padding: var(--vx-space-6); }
+
+/* password field with an eye button inside it */
+.vx-pw-wrap { position: relative; display: block; }
+.vx-pw-wrap input { padding-inline-end: 52px !important; width: 100%; box-sizing: border-box; }
+.vx-eye {
+	position: absolute;
+	inset-block: 0;
+	inset-inline-end: 0;
+	inline-size: 48px;
+	min-height: 0 !important;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent !important;
+	border: 0 !important;
+	box-shadow: none !important;
+	color: var(--vx-muted);
+	padding: 0 !important;
+	cursor: pointer;
+}
+.vx-eye svg { inline-size: 24px; block-size: 24px; }
+.vx-eye:hover, .vx-eye[aria-pressed="true"] { color: var(--vx-accent); }
+/* a password field is always left-to-right, so the eye sits at its end */
+html[dir="rtl"] .vx-pw-wrap { direction: ltr; }
+
+/* QR code on the done screen */
+.vx-qr { display: flex; flex-direction: column; align-items: center; gap: var(--vx-space-2); margin-block: var(--vx-space-4); }
+.vx-qr svg { inline-size: 220px; block-size: auto; background: #fff; padding: 12px; border-radius: var(--vx-radius-small); border: 1px solid var(--vx-line); }
+.vx-qr p { color: var(--vx-muted); margin: 0; text-align: center; }
+
+/* ---------------------------------------------------------------- setup wizard */
+.vx-wizard {
+	max-width: 560px;
+	margin-inline: auto;
+	/* the wizard card stays light; with the PC in dark mode only these soft colours turned dark
+	   (dark text on a dark box, owner 2026-11-20) */
+	--vx-green: #15803d; --vx-green-soft: #f0fdf4;
+	--vx-amber: #b45309; --vx-amber-soft: #fffbeb;
+	--vx-red: #b91c1c; --vx-red-soft: #fef2f2;
+}
+.vx-progress {
+	display: flex;
+	gap: var(--vx-space-2);
+	list-style: none;
+	padding: 0;
+	margin: var(--vx-space-4) 0;
+}
+.vx-progress li {
+	flex: 1;
+	height: 6px;
+	border-radius: 99px;
+	background: var(--vx-line);
+}
+.vx-progress li.done, .vx-progress li.current { background: var(--vx-accent); }
+.vx-step-label {
+	color: var(--vx-muted);
+	font-size: var(--vx-size-small);
+	margin: 0;
+}
+.vx-wizard h2 {
+	font-size: var(--vx-size-title);
+	color: var(--vx-ink);
+	margin-block: var(--vx-space-2) var(--vx-space-3);
+}
+/* Argon's dark mode puts every h2 / h3 on a grey #333 box; in the wizard that box sat on the page
+   like a stray bar (owner 2026-11-20) */
+.vx-wizard h2, .vx-wizard h3 { background: none; color: var(--vx-ink); }
+.vx-wizard p.vx-help { color: var(--vx-muted); margin-block: 0 var(--vx-space-4); }
+
+.vx-field { margin-block-end: var(--vx-space-4); }
+.vx-field label {
+	display: block;
+	font-size: var(--vx-size-body);
+	font-weight: var(--vx-weight-strong);
+	margin-block-end: var(--vx-space-1);
+	color: var(--vx-ink);
+}
+.vx-field .vx-hint { display: block; color: var(--vx-muted); font-size: var(--vx-size-small); margin-block-start: var(--vx-space-1); }
+.vx-field input, .vx-field select { width: 100%; box-sizing: border-box; }
+.vx-field .vx-error { display: block; color: var(--vx-red); font-size: var(--vx-size-small); margin-block-start: var(--vx-space-1); }
+.vx-field input[aria-invalid="true"] { border-color: var(--vx-red); }
+
+.vx-choices { display: grid; gap: var(--vx-space-3); }
+.vx-choice {
+	display: flex;
+	gap: var(--vx-space-3);
+	align-items: flex-start;
+	padding: var(--vx-space-4);
+	border: 2px solid var(--vx-line);
+	border-radius: var(--vx-radius);
+	background: var(--vx-card);
+	cursor: pointer;
+	min-height: var(--vx-touch);
+}
+.vx-choice:has(input:checked) { border-color: var(--vx-accent); background: var(--vx-accent-soft); }
+.vx-choice input { margin-block-start: 4px; inline-size: 20px; block-size: 20px; min-height: 0; flex: none; }
+.vx-choice strong { display: block; color: var(--vx-ink); font-size: var(--vx-size-body); font-weight: var(--vx-weight-strong); }
+.vx-choice span { color: var(--vx-muted); font-size: var(--vx-size-small); }
+
+.vx-actions {
+	display: flex;
+	gap: var(--vx-space-3);
+	justify-content: space-between;
+	margin-block-start: var(--vx-space-5);
+}
+.vx-actions .btn, .vx-actions button { flex: 1; font-size: var(--vx-size-body); }
+
+.vx-secret {
+	display: flex;
+	gap: var(--vx-space-2);
+	align-items: center;
+	background: var(--vx-accent-soft);
+	border: 1px solid var(--vx-accent-line);
+	border-radius: var(--vx-radius-small);
+	padding: var(--vx-space-3);
+	margin-block-end: var(--vx-space-3);
+}
+.vx-secret dt { color: var(--vx-muted); font-size: var(--vx-size-small); }
+.vx-secret dd { margin: 0; font-family: var(--vx-font-mono); font-size: var(--vx-size-big); color: var(--vx-ink); direction: ltr; unicode-bidi: isolate; word-break: break-all; }
+.vx-secret dl { flex: 1; margin: 0; }
+
+.vx-summary { display: grid; grid-template-columns: max-content 1fr; gap: var(--vx-space-2) var(--vx-space-4); }
+.vx-summary dt { color: var(--vx-muted); }
+.vx-summary dd { margin: 0; color: var(--vx-ink); font-weight: 600; }
+
+.vx-lang { display: flex; gap: var(--vx-space-3); }
+.vx-lang button { flex: 1; font-size: var(--vx-size-title); }
+.vx-lang button[aria-pressed="true"] { outline: 3px solid var(--vx-accent); }
+
+/* setup page: no menus while the unit is being set up */
+body[data-page="admin-setup"] #topmenu,
+body[data-page="admin-setup"] #tabmenu,
+body[data-page="admin-setup"] #modemenu,
+body[data-page="admin-setup"] #indicators,
+body[data-page="admin-setup"] .vx-menu-btn { display: none !important; }
+
+/* ---------------------------------------------------------------- home-network pages */
+.vx-page h1 { font-size: var(--vx-size-title); margin-block: var(--vx-space-2) var(--vx-space-4); }
+.vx-page h3 { font-size: var(--vx-size-body); margin-block: var(--vx-space-4) var(--vx-space-2); }
+.vx-grid { display: grid; gap: var(--vx-space-4); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.vx-grid .vx-card { margin: 0; }
+.vx-big { font-size: var(--vx-size-title); font-weight: var(--vx-weight-title); color: var(--vx-ink); margin-block: var(--vx-space-1); line-height: 1.35; }
+.vx-page .vx-hint { color: var(--vx-muted); font-size: var(--vx-size-small); }
+.vx-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vx-attention { border-inline-start: 6px solid var(--vx-amber); }
+.vx-warn-text { color: var(--vx-amber); font-weight: var(--vx-weight-strong); }
+
+/* lists: name on one side, value or actions next to it */
+.vx-list { list-style: none; margin: 0; padding: 0; }
+.vx-list > li {
+	display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+	gap: var(--vx-space-2); padding-block: var(--vx-space-2); border-block-end: 1px solid var(--vx-line);
+	min-height: var(--vx-touch);
+}
+.vx-list > li:last-child { border-block-end: 0; }
+.vx-list .vx-name { flex: 1 1 10em; min-width: 0; overflow-wrap: anywhere; }
+.vx-list .vx-actions { display: inline-flex; gap: var(--vx-space-2); flex-wrap: wrap; margin: 0; }
+.vx-rows { display: flex; flex-direction: column; gap: 2px; }
+.vx-row-line { display: block; color: var(--vx-muted); font-size: var(--vx-size-small); }
+.vx-links a { display: block; min-height: var(--vx-touch); line-height: var(--vx-touch); }
+
+/* status words: text plus a shape, never colour alone (10.11) */
+.vx-badge {
+	display: inline-flex; align-items: center; gap: var(--vx-space-1);
+	border-radius: 999px; padding: 2px 10px; font-size: var(--vx-size-small); font-weight: var(--vx-weight-strong);
+	border: 1px solid currentColor; white-space: nowrap;
+}
+.vx-badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.vx-badge-ok { color: var(--vx-green); background: var(--vx-green-soft); }
+.vx-badge-warn { color: var(--vx-amber); background: var(--vx-amber-soft); }
+.vx-badge-warn::before { border-radius: 0; transform: rotate(45deg); }
+.vx-badge-bad { color: var(--vx-red); background: var(--vx-red-soft); }
+.vx-badge-bad::before { border-radius: 1px; }
+.vx-badge-info { color: var(--vx-accent-strong); background: var(--vx-accent-soft); }
+.vx-badge-muted { color: var(--vx-muted); background: transparent; }
+.vx-badge-muted::before { background: transparent; border: 2px solid currentColor; width: 6px; height: 6px; }
+.vx-badges { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); margin-block: var(--vx-space-2); }
+.vx-badges:empty { display: none; }
+
+/* bars */
+.vx-meter { height: 12px; border-radius: 999px; background: var(--vx-line); overflow: hidden; margin-block: var(--vx-space-2); }
+.vx-meter-fill { height: 100%; background: var(--vx-accent); border-radius: inherit; }
+.vx-meter-fill.warn { background: var(--vx-amber); }
+.vx-meter-fill.full { background: var(--vx-red); }
+
+/* chips (sections of a page; they wrap, so every section is in sight) */
+.vx-chips { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); margin-block-end: var(--vx-space-3); }
+.vx-chips .btn { white-space: nowrap; min-height: 40px; border-radius: 999px; padding-inline: var(--vx-space-4); }
+.vx-chips .btn[aria-pressed="true"],
+.vx-chips .btn.active { background: var(--vx-accent) !important; border-color: var(--vx-accent) !important; color: var(--vx-on-accent) !important; }
+
+/* forms inside cards and the "More" sheet */
+/* a form inside a card is a sub-part under a thin line, not a box in a box */
+.vx-page fieldset, .vx-more fieldset { border: 0; border-block-start: 1px solid var(--vx-line); border-radius: 0; padding: var(--vx-space-4) 0 0; margin: var(--vx-space-4) 0 0; min-inline-size: 0; }
+.vx-page legend, .vx-more legend { float: inline-start; inline-size: 100%; padding: 0; margin-block-end: var(--vx-space-3); font-size: 1rem; font-weight: bold; color: var(--vx-ink); }
+.vx-page legend + *, .vx-more legend + * { clear: both; }
+.vx-inline { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); align-items: center; margin-block: var(--vx-space-2); }
+.vx-inline input, .vx-inline select { flex: 1 1 12em; min-width: 0; }
+.vx-check, .vx-switch { display: inline-flex; align-items: center; gap: var(--vx-space-2); min-height: var(--vx-touch); margin-inline-end: var(--vx-space-3); }
+.vx-switch { display: flex; flex-wrap: wrap; }
+.vx-days, .vx-sites { display: flex; flex-wrap: wrap; }
+.vx-choice-row { display: grid; gap: var(--vx-space-2); grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-block: var(--vx-space-3); }
+.vx-choice-row .btn { min-height: var(--vx-touch); }
+.vx-more { max-height: 70vh; overflow-y: auto; }
+.vx-label { display: block; font-weight: var(--vx-weight-strong); margin-block-end: var(--vx-space-1); }
+.vx-row-actions { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); margin-block-start: var(--vx-space-3); }
+.vx-row-actions .btn { flex: 0 1 auto; padding-inline: var(--vx-space-4); }
+
+/* usage: day bars and the table that turns into cards on a phone */
+.vx-bars { list-style: none; margin: 0; padding: 0; }
+.vx-bars li { display: grid; grid-template-columns: 4em 1fr auto; gap: var(--vx-space-2); align-items: center; min-height: 28px; }
+.vx-bar { height: 12px; background: var(--vx-line); border-radius: 999px; overflow: hidden; }
+.vx-bar span { display: block; height: 100%; background: var(--vx-accent); }
+.vx-table { width: 100%; border-collapse: collapse; }
+.vx-table th, .vx-table td { text-align: start; padding: var(--vx-space-2); border-block-end: 1px solid var(--vx-line); }
+.vx-table tr.vx-special td:first-child { font-style: italic; }
+.vx-usage { display: grid; grid-template-columns: auto 1fr; gap: 0 var(--vx-space-3); margin-block: var(--vx-space-2); }
+.vx-usage dt { color: var(--vx-muted); font-weight: normal; }
+.vx-usage dd { margin: 0; }
+
+/* loading / empty / error (10.8) */
+.vx-state { padding: var(--vx-space-4); color: var(--vx-muted); }
+.vx-error-box { border: 1px solid var(--vx-red); border-radius: var(--vx-radius-small); color: var(--vx-text); background: var(--vx-red-soft); }
+.vx-radio { border-block-end: 1px solid var(--vx-line); padding-block-end: var(--vx-space-3); margin-block-end: var(--vx-space-3); }
+
+/* ---------------------------------------------------------------- Home (10a item 6) */
+.vx-home .vx-grid { gap: 10px; }
+.vx-home .vx-card { padding: var(--vx-space-3) var(--vx-space-4); }
+.vx-status { display: flex; align-items: center; gap: var(--vx-space-3); }
+.vx-status-icon {
+	display: grid; place-items: center; flex: none;
+	inline-size: 48px; block-size: 48px; border-radius: 50%;
+	background: var(--vx-green-soft); color: var(--vx-green);
+}
+.vx-status-icon .vx-icon { inline-size: 28px; block-size: 28px; }
+.vx-status.bad .vx-status-icon { background: var(--vx-red-soft); color: var(--vx-red); }
+.vx-status.wait .vx-status-icon { background: var(--vx-accent-soft); color: var(--vx-accent); }
+.vx-status .vx-big { margin: 0; }
+.vx-status p { margin: 0; }
+.vx-count { display: flex; align-items: baseline; gap: var(--vx-space-2); margin: 0 0 var(--vx-space-1); }
+.vx-count strong { font-size: 32px; line-height: 1.1; color: var(--vx-ink); font-variant-numeric: tabular-nums; }
+.vx-top3 > li { min-height: 32px; padding-block: 2px; }
+.vx-card-link {
+	display: flex; align-items: center; justify-content: space-between; gap: var(--vx-space-2);
+	min-height: var(--vx-touch); margin-block-start: var(--vx-space-2); margin-block-end: calc(-1 * var(--vx-space-2));
+	font-weight: var(--vx-weight-strong); color: var(--vx-accent-strong) !important; text-decoration: none !important;
+}
+.vx-card-link .vx-icon { inline-size: 20px; block-size: 20px; }
+.vx-pkg-line { margin: 0; }
+.vx-alert {
+	display: flex; align-items: center; flex-wrap: wrap; gap: var(--vx-space-2) var(--vx-space-3);
+	margin-block: var(--vx-space-3); padding: var(--vx-space-3) var(--vx-space-4);
+	border-radius: var(--vx-radius-small); border: 1px solid var(--vx-line); border-inline-start: 6px solid var(--vx-amber);
+	background: var(--vx-card);
+}
+.vx-alert.info { border-inline-start-color: var(--vx-accent); }
+.vx-alert .vx-alert-text { flex: 1 1 14em; min-width: 0; }
+.vx-alert .btn { padding-inline: var(--vx-space-4); }
+
+/* ---------------------------------------------------------------- Devices (10a items 7 and 9) */
+.vx-cards { display: grid; gap: var(--vx-space-3); grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.vx-cards .vx-card { margin: 0; }
+.vx-device { padding: var(--vx-space-4) !important; }
+.vx-device .vx-dev-head { display: flex; align-items: center; gap: var(--vx-space-3); }
+.vx-device .vx-dev-icon {
+	display: grid; place-items: center; flex: none; inline-size: 40px; block-size: 40px; border-radius: 50%;
+	background: var(--vx-accent-soft); color: var(--vx-accent-strong);
+}
+.vx-device .vx-dev-icon .vx-icon { inline-size: 22px; block-size: 22px; }
+.vx-device .vx-dev-title { flex: 1 1 auto; min-width: 0; }
+.vx-device h3 { margin: 0; font-size: var(--vx-size-body); overflow-wrap: anywhere; color: var(--vx-ink); }
+.vx-device .vx-dev-sub { margin: 0; color: var(--vx-muted); font-size: var(--vx-size-small); }
+.vx-device .vx-dot { display: inline-block; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--vx-muted); margin-inline-end: var(--vx-space-1); vertical-align: middle; }
+.vx-device.online .vx-dot { background: var(--vx-green); }
+.vx-device .vx-more-btn { flex: none; min-width: var(--vx-touch); padding: 0 !important; display: grid; place-items: center; }
+.vx-device .vx-row-actions .btn { flex: 1 1 0; }
+.vx-device.off { background: var(--vx-red-soft); }
+
+@media (max-width: 600px) {
+	.vx-card { padding: var(--vx-space-4); border-radius: var(--vx-radius-small); }
+	.vx-actions { flex-wrap: wrap; }
+	.vx-summary { grid-template-columns: 1fr; gap: 0 var(--vx-space-2); }
+	.vx-summary dd { margin-block-end: var(--vx-space-2); }
+	.vx-secret dd { font-size: var(--vx-size-title); }
+	.vx-grid, .vx-cards { grid-template-columns: 1fr; }
+	.vx-table thead { display: none; }
+	.vx-table tr { display: block; border-block-end: 1px solid var(--vx-line); padding-block: var(--vx-space-2); }
+	.vx-table td { display: flex; justify-content: space-between; border: 0; padding: 2px 0; }
+	.vx-table td::before { content: attr(data-label); color: var(--vx-muted); }
+	.vx-list .vx-actions { width: 100%; }
+	.vx-list .vx-actions .btn { flex: 1; }
+	body.vx-simple #maincontent { padding-inline: var(--vx-space-3); }
+}
+
+/* ---------------------------------------------------------------- Settings as a list of sections */
+.vx-settings-list { list-style: none; margin: 0; padding: 0; background: var(--vx-card); border-radius: var(--vx-radius); box-shadow: var(--vx-shadow); overflow: hidden; }
+.vx-settings-list > li + li { border-block-start: 1px solid var(--vx-line); }
+.vx-settings-list a { display: flex; align-items: center; gap: var(--vx-space-3); min-block-size: 64px; padding: var(--vx-space-3) var(--vx-space-4); color: var(--vx-ink) !important; text-decoration: none !important; }
+.vx-settings-list a:hover { background: var(--vx-accent-soft); }
+.vx-set-icon { display: grid; place-items: center; flex: none; inline-size: 40px; block-size: 40px; border-radius: 50%; background: var(--vx-accent-soft); color: var(--vx-accent); }
+.vx-set-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.vx-set-text span { color: var(--vx-muted); font-size: var(--vx-size-small); }
+.vx-set-chev { color: var(--vx-muted); inline-size: 20px; block-size: 20px; }
+.vx-back { display: inline-flex; align-items: center; gap: var(--vx-space-1); min-block-size: var(--vx-touch); font-weight: var(--vx-weight-strong); text-decoration: none !important; }
+.vx-back .vx-icon { inline-size: 20px; block-size: 20px; }
+
+/* ---------------------------------------------------------------- Argon's page and card titles (owner 2026-11-19) */
+/* page title: Argon's title bar (its h2); card title: Argon's card header (its h3) */
+.vx-page > h1 { margin: 0 0 var(--vx-space-4); padding: var(--field-gap) var(--section-inset); border: 0; border-radius: var(--radius-card);
+	background: var(--surface-raised); box-shadow: var(--vx-shadow); font-size: 1.25rem; font-weight: bold; color: var(--text-strong); }
+.vx-card > h3.vx-card-title { margin: 0 0 var(--vx-space-4); padding: 0 0 var(--vx-space-3); border: 0; border-block-end: thin solid var(--vx-line); background: none; font-size: 1.1rem; font-weight: bold; color: var(--vx-ink); }
+.vx-card h3:not(.vx-card-title), .vx-card h4 { padding: 0; margin: var(--vx-space-4) 0 var(--vx-space-2); font-size: 1rem; background: none; }
+.vx-home .vx-card > h3.vx-card-title { margin: 0 0 var(--vx-space-1); padding: 0; border: 0; font-size: var(--vx-size-body); color: var(--vx-muted); }
+.vx-tabs { margin-block-end: var(--vx-space-4); }
+.vx-tabs a { text-decoration: none !important; }
+.vx-field input, .vx-field select, .vx-field textarea { max-inline-size: 36rem; }
+
+/* ---------------------------------------------------------------- Argon 2.4.3 pieces (owner 2026-11-19)
+ * The icons of our own pages in the sidebar (drawn SVG, shown as a mask in the text colour, the
+ * size of Argon's menu glyphs); the menu button of phones is a real button. */
+.main-left .nav li a .menu-icon { display: inline-block; flex: none; inline-size: 1rem; block-size: 1rem; margin-inline-end: .75rem;
+	vertical-align: -0.15em; background-color: currentColor; -webkit-mask: var(--menu-icon) center / contain no-repeat; mask: var(--menu-icon) center / contain no-repeat; }
+.main-left .nav li a { display: flex; align-items: center; }
+button.showSide { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; min-height: 0; }
+.skip-link { position: absolute; inset-inline-start: -999px; }
+.skip-link:focus { inset-inline-start: 1rem; inset-block-start: 1rem; z-index: 1000; background: var(--surface-color); padding: .5rem 1rem; }
+.header-actions { display: flex; align-items: center; gap: .5rem; }
+/* our pages carry their own drawn icon: no Argon placeholder glyph before it */
+.main .main-left .nav > li > a.food:not([data-title])::before { display: none !important; }
+
+/* ---------------------------------------------------------------- devices as a list (owner 2026-11-19)
+ * One row per device: name and state, use, badges, actions. Phones: the row wraps into a block. */
+.vx-device-list { display: block; background: var(--vx-card); border-radius: var(--vx-radius); box-shadow: var(--vx-shadow); overflow: hidden; }
+.vx-device-list .vx-device { margin: 0; border-radius: 0; box-shadow: none; background: none; }
+.vx-device-list .vx-device + .vx-device { border-block-start: 1px solid var(--vx-line); }
+.vx-device-list .vx-device.off { background: var(--vx-red-soft); }
+.vx-device .vx-row-actions { display: flex; align-items: center; gap: var(--vx-space-2); }
+.vx-device .vx-usage { margin: 0; }
+@media (min-width: 900px) {
+	.vx-device-list .vx-device { display: grid; grid-template-columns: minmax(200px, 1fr) 190px minmax(0, 1fr) 250px; align-items: center; gap: var(--vx-space-4); padding-block: var(--vx-space-3) !important; }
+	.vx-device-list .vx-badges { margin: 0; display: flex; flex-wrap: wrap; gap: var(--vx-space-1); }
+	.vx-device-list .vx-row-actions { justify-content: flex-end; }
+	.vx-device .vx-row-actions .btn { flex: none; }
+}
+/* ---------------------------------------------------------------- "add" opens a dialog (Control) */
+.vx-add-row { margin-block-start: var(--vx-space-4); }
+.vx-add { display: inline-flex; align-items: center; gap: var(--vx-space-2); }
+.vx-add .vx-icon { inline-size: 18px; block-size: 18px; }
+.modal fieldset { border: 0; padding: 0; margin: 0; }
+.modal .button-row { display: flex; justify-content: flex-end; margin-block-start: var(--vx-space-4); }
+.modal .vx-field input, .modal .vx-field select { max-inline-size: none; inline-size: 100%; }
+.modal .button-row { gap: var(--vx-space-2); }
+
+/* B9 Y1: one access point per row */
+.vx-list > li.vx-ap { display: grid; gap: var(--vx-space-2); }
+.vx-ap .vx-inline { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); align-items: center; }
+
+/* ---------------------------------------------------------------- the message after an action: one, at the bottom */
+.vx-toast { position: fixed; inset-inline: 0; inset-block-end: 20px; margin: 0 auto; inline-size: max-content; max-inline-size: calc(100vw - 32px);
+	padding: 11px 18px; border-radius: 12px; background: #0f172a; color: #fff; font-weight: 600; z-index: 3000; opacity: 0;
+	transform: translateY(10px); transition: opacity .2s, transform .2s; pointer-events: none; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); }
+.vx-toast.show { opacity: 1; transform: none; }
+.vx-toast.bad { background: #b91c1c; }
+.vx-toast.warn { background: #92400e; }
+@media (prefers-reduced-motion: reduce) { .vx-toast { transition: none; } }
+
+/* ---------------------------------------------------------------- the language and light/dark buttons of the top bar */
+.header-actions .vx-hbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; min-width: 36px; padding: 0 12px;
+	border-radius: 10px; border: 1px solid var(--vx-line); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.header-actions .vx-hbtn:hover { background: var(--vx-accent-soft); }
+.header-actions .vx-hbtn-icon { padding: 0; inline-size: 36px; }
+.header-actions .vx-hbtn svg { inline-size: 18px; block-size: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.vx-i-sun { display: none; }
+html[data-argon-mode="dark"] .vx-i-sun { display: block; }
+html[data-argon-mode="dark"] .vx-i-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+	html[data-argon-mode="normal"] .vx-i-sun { display: block; }
+	html[data-argon-mode="normal"] .vx-i-moon { display: none; }
+}

@@ -1,0 +1,738 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Per-device usage accounting (ported from trafficmon-init.sh / trafficmon-save.sh).
+#
+#   accounting init                 create table inet homenet and its rules (fresh table:
+#                                   counter state reset, counters restart from zero)
+#   accounting rules                rebuild only the rules (WAN device changed); counters kept
+#   accounting save                 fold counters into usage (cron every 5 minutes)
+#   accounting lease <act> <mac> <ip>   DHCP lease change (dnsmasq hotplug): fold what the IP
+#                                   used so far to its previous owner, then give the IP to <mac>
+#   accounting check-day [YYYY-MM-DD]   B7.5d invariant for that day (default today): booked
+#                                   (devices + unknown + unattributed) = all WAN bytes within 2 %;
+#                                   a mismatch writes usage_mismatch to the event list
+#
+# Every WAN byte is attributed (BUILD-PLAN B7.5d). Bytes of an address that has no device yet
+# (its first packets came before any scan saw it: the "first download counted as zero" race)
+# go to unattributed.tsv, and are handed to the device as soon as the address belongs to one
+# (every save and every DHCP lease); after an hour without an owner they are booked to the
+# device id "unknown" (shown as غير معروف). The router's own WAN traffic (NTP, updates, DNS it
+# resolves for the devices, ...) never passes the forward hook; counters wan_own_up /
+# wan_own_down count it (own_in runs before the firewall, so WAN bytes it drops are counted
+# too) and it is booked to the pseudo device "router" (الراوتر نفسه), so
+# the WAN bill is complete. Named counters wan_up / wan_down count all
+# forwarded LAN <-> WAN bytes independently of the per-address sets; their daily totals are
+# the reference of the invariant.
+#
+# How an IP's traffic reaches the right device (BUILD-PLAN B7.5a):
+#  - nft counts per IPv4 address (download cannot be matched by MAC in the forward hook);
+#  - the ip -> mac map is only changed AFTER the counters were folded with the old map, and a
+#    DHCP lease change folds immediately, so an IP change, a swap or the reuse of an old IP by
+#    another device never books one device's traffic on another;
+#  - before the clock is synced, folded usage waits in pending.tsv (per device, no day) and is
+#    booked on the day of the first save after the sync (P2);
+#  - counting uses only `add @set { ip saddr counter }` (an extra lookup rule double-counts,
+#    measured on 6.12: x1.94); only LAN <-> WAN is counted, LAN <-> LAN never is.
+umask 077
+. /usr/lib/homenet/common.sh
+
+# One fixed, non-empty temp prefix per process and one cleanup. (A trap that referenced a
+# function-local variable ran `rm -f .*` in the current directory once the variable was gone.)
+TMPB="${HN_RUN:?}/acct.$$"
+trap 'rm -f "$TMPB".*' EXIT
+HN_PENDING="$HN_RUN/pending.tsv"
+HN_UNATTR="$HN_RUN/unattributed.tsv"     # day  ip  up  down  last_epoch
+HN_TOTALS="$HN_RUN/wan-totals.tsv"       # day  up  down   (named counters)
+HN_UNATTR_MAX="$(uci -q get homenet.main.unattributed_max)"; HN_UNATTR_MAX="${HN_UNATTR_MAX:-3600}"
+
+# Access point mode (owner 2026-11-20: usage is counted on an access point too, whatever the main
+# router is). The unit bridges; its own devices' internet traffic crosses the bridge between a
+# Wi-Fi port and the port to the main router, so table bridge homenet_ap counts it there: the
+# same per-address sets and named counters as in router mode, internet = the other end outside
+# the LAN subnet (the main router's subnet, from the unit's own DHCP address). With no DHCP
+# server here, which device has which address is learned from the traffic itself (set "seen":
+# address . MAC of every counted upload). The rest of this file (fold, handover, history) is the
+# same. Not seen: devices plugged into the main router itself; wired ports of this unit that the
+# switch chip bridges in hardware (Wi-Fi always passes the CPU).
+HN_AP=0; [ "$(uci -q get lg7200.state.mode)" = ap ] && HN_AP=1
+HN_TBL="inet homenet"; [ "$HN_AP" = 1 ] && HN_TBL="bridge homenet_ap"
+
+# Usage per line (B9, owner 2026-11-20: "each line counted on its own"). With two lines on, the
+# counting rule of each WAN device also adds to that line's sets lupN / ldownN (same rule, so no
+# double count). Each fold splits every device's booked bytes (already scaled to the wire) by
+# what its address carried on each line, into usage-lines.tsv. The totals stay where they were
+# (usage-history.tsv); bytes of an address that had no device yet are not split (they reach a
+# device later through unattributed.tsv, without a line).
+HN_LINES="$HN_RUN/usage-lines.tsv"       # day  id  line  up  down
+HN_LSTATE="$HN_RUN/usage-lstate.tsv"     # line  ip  up  down   (the last per-line readings)
+# "line device" of every line while two lines are on (homenet-dualwan), nothing otherwise
+line_devs() {
+	local n i d
+	[ "$HN_AP" = 1 ] && return 0
+	[ "$(uci -q get lines.main.enabled)" = 1 ] || return 0
+	for n in 1 2; do
+		i="$(uci -q get lines.line$n.iface)"; [ -n "$i" ] || continue
+		d="$(ubus call network.interface.$i status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)"
+		[ -n "$d" ] || d="$(uci -q get network.$i.device)"
+		[ -n "$d" ] && echo "$n $d"
+	done
+}
+
+ap_net() { # the LAN subnet as a.b.c.d/n, from the unit's DHCP address
+	local a; a="$(ip -4 -o addr show dev "$(hn_lan_dev)" 2>/dev/null | awk '$3 == "inet" { print $4; exit }')"
+	[ -n "$a" ] || return 1
+	( eval "$(/bin/ipcalc.sh "$a")"; echo "$NETWORK/$PREFIX" )
+}
+# names on an access point (owner 2026-11-20: devices showed as "unnamed"): the main router
+# gives the addresses and knows the names its DHCP got; most routers (OpenWrt / dnsmasq, many ISP
+# routers) answer a reverse lookup for them. Asked once per address and remembered for 6 hours
+# (a miss for 1 hour), at most 8 new questions per save; the first label only ("iPhone.lan").
+# stdin: mac <TAB> ip    stdout: mac <TAB> ip <TAB> name
+ap_names() {
+	local cache="$HN_RUN/ap-names.tsv" now gw n=0 mac ip row name t
+	now="$(date +%s)"; [ -f "$cache" ] || : > "$cache"
+	gw="$(ip -4 route show default 2>/dev/null | awk '{ print $3; exit }')"
+	while IFS="$TAB" read -r mac ip; do
+		row="$(awk -F '\t' -v ip="$ip" '$1 == ip { print $3 " " $2; exit }' "$cache")"
+		t="${row%% *}"; name="${row#* }"; [ "$name" = "$row" ] && name=""
+		case "$t" in ''|*[!0-9]*) t=0 ;; esac
+		if { [ -n "$name" ] && [ $((now - t)) -gt 21600 ]; } || { [ -z "$name" ] && [ $((now - t)) -gt 3600 ]; }; then
+			if [ -n "$gw" ] && [ "$n" -lt 8 ]; then
+				n=$((n + 1))
+				name="$(nslookup "$ip" "$gw" 2>/dev/null | sed -n 's/.*name = \([^. ]*\).*/\1/p' | head -n 1 | tr -d '\t\n' | cut -c1-40)"
+				{ awk -F '\t' -v ip="$ip" '$1 != ip' "$cache"; printf '%s\t%s\t%s\n' "$ip" "$name" "$now"; } > "$cache.new" && mv -f "$cache.new" "$cache"
+			fi
+		fi
+		printf '%s\t%s\t%s\n' "$mac" "$ip" "$name"
+	done
+}
+ap_init() {
+	if ! nft_list set bridge homenet_ap upload >/dev/null; then
+		nft -f - <<-'NFT' || return 1
+			add table bridge homenet_ap
+			add set bridge homenet_ap upload { type ipv4_addr; flags dynamic; counter; size 1024; }
+			add set bridge homenet_ap download { type ipv4_addr; flags dynamic; counter; size 1024; }
+			add set bridge homenet_ap seen { type ipv4_addr . ether_addr; flags dynamic, timeout; timeout 30m; size 1024; }
+			add counter bridge homenet_ap wan_up
+			add counter bridge homenet_ap wan_down
+			add counter bridge homenet_ap wan_own_up
+			add counter bridge homenet_ap wan_own_down
+			add chain bridge homenet_ap forward { type filter hook forward priority 0; policy accept; }
+		NFT
+		: > "$HN_STATE"
+		logger -t homenet "accounting: access point mode, new counters on the bridge"
+	fi
+	ap_rules
+}
+ap_rules() {
+	local net
+	net="$(ap_net)" || { nft flush chain bridge homenet_ap forward 2>/dev/null; return 0; }
+	# set "remote": devices another access point already counts and reports to this one (this unit
+	# leads the access points under a router that is not a Virox, apctl); such a unit plugged into
+	# one of this unit's cable ports is not counted twice. A device on this unit's own Wi-Fi is left
+	# out of the set (apctl), so it counts here. (By MAC only: the unit's kernel has no bridge port
+	# names in nftables, "meta iifname" is refused in table bridge.)
+	nft -f - <<-NFT
+		add set bridge homenet_ap remote { type ether_addr; size 1024; }
+		add set bridge homenet_ap behind_nat { type ether_addr; flags timeout; timeout 2h; size 256; }
+		flush chain bridge homenet_ap forward
+		add rule bridge homenet_ap forward ether type ip ip saddr $net ip daddr != $net ip ttl { 63, 127, 254 } update @behind_nat { ether saddr }
+		add rule bridge homenet_ap forward ether saddr @remote return
+		add rule bridge homenet_ap forward ether daddr @remote return
+		add rule bridge homenet_ap forward ether type ip ip saddr $net ip daddr != $net ip daddr != { 224.0.0.0/4, 255.255.255.255 } counter name wan_up add @upload { ip saddr counter } update @seen { ip saddr . ether saddr }
+		add rule bridge homenet_ap forward ether type ip ip daddr $net ip saddr != $net ip saddr != { 0.0.0.0, 224.0.0.0/4 } counter name wan_down add @download { ip daddr counter }
+	NFT
+}
+
+rules() {
+	local lan wan out lans ldevs n lu ld vpn
+	# the home bridge, and the guest bridge while the guest network is on (B9 Y2)
+	lans="$(hn_lan_dev)"
+	[ "$(uci -q get homenet.guest.enabled)" = 1 ] && lans="$lans br-guest"
+	# own_in counts before fw4's input chain (priority filter = 0): WAN packets fw4 drops reached
+	# the WAN and the ISP counts them. Example: a download's bytes still in flight when a block
+	# deleted its conntrack entry are no longer de-NATed, arrive for the router itself and are
+	# dropped by fw4; at priority 10 they were missed (2.4 % of a b7g run, B7.5d). A table from an
+	# older homenet has the chain at 10: it is made again here.
+	if nft_list chain inet homenet own_in | grep -q 'hook input priority filter + 10'; then
+		nft delete chain inet homenet own_in && nft add chain inet homenet own_in '{ type filter hook input priority -5; policy accept; }'
+	fi
+	out="flush chain inet homenet forward
+flush chain inet homenet own_out
+flush chain inet homenet own_in"
+	# a router plugged in as a router (not as an access point) hides its devices behind one MAC: they
+	# are counted, but as one device. Its packets come one hop further: at the forward hook (after
+	# this router's own decrement) TTL 62 / 126 / 253 instead of 63 / 127 / 254. The MAC is marked
+	# for two hours; the Devices page says so and how to change it (owner 2026-11-20).
+	# the VPN (homenet/vpn): its own packets (mark 0x20000, also on their replies through the
+	# connection mark) are not counted as the router's own traffic, because the devices' traffic
+	# through it is counted on each device (rules below)
+	out="$out
+add rule inet homenet own_out meta mark & 0x20000 == 0x20000 ct mark set ct mark | 0x20000 return
+add rule inet homenet own_in ct mark & 0x20000 == 0x20000 return"
+	vpn="$(hn_vpn_dev)"
+	if [ -n "$vpn" ]; then
+		for lan in $lans; do
+			out="$out
+add rule inet homenet forward iifname \"$lan\" oifname \"$vpn\" meta nfproto ipv4 counter name wan_up add @upload { ip saddr counter }
+add rule inet homenet forward iifname \"$vpn\" oifname \"$lan\" meta nfproto ipv4 counter name wan_down add @download { ip daddr counter }"
+		done
+	fi
+	out="$out
+add set inet homenet behind_nat { type ether_addr; flags timeout; timeout 2h; size 256; }
+add rule inet homenet forward iifname \"$(hn_lan_dev)\" meta nfproto ipv4 ip ttl { 62, 126, 253 } update @behind_nat { ether saddr }"
+	ldevs="$(line_devs)"
+	for wan in $(hn_wan_devs); do
+		# the line of this device: its own sets, counted by the same rule
+		n="$(echo "$ldevs" | awk -v d="$wan" '$2 == d { print $1; exit }')"; lu=""; ld=""
+		if [ -n "$n" ]; then
+			out="$out
+add set inet homenet lup$n { type ipv4_addr; flags dynamic; counter; size 1024; }
+add set inet homenet ldown$n { type ipv4_addr; flags dynamic; counter; size 1024; }"
+			lu=" add @lup$n { ip saddr counter }"; ld=" add @ldown$n { ip daddr counter }"
+		fi
+		for lan in $lans; do
+			out="$out
+add rule inet homenet forward iifname \"$lan\" oifname \"$wan\" meta nfproto ipv4 counter name wan_up add @upload { ip saddr counter }$lu
+add rule inet homenet forward iifname \"$wan\" oifname \"$lan\" meta nfproto ipv4 counter name wan_down add @download { ip daddr counter }$ld"
+		done
+		out="$out
+add rule inet homenet own_out oifname \"$wan\" meta nfproto ipv4 counter name wan_own_up
+add rule inet homenet own_in iifname \"$wan\" meta nfproto ipv4 counter name wan_own_down"
+	done
+	printf '%s\n' "$out" | nft -f -
+	[ "$HN_AP" = 1 ] || wire_add
+	# (a unit that became an access point after boot has no bridge table yet)
+	if [ "$HN_AP" = 1 ]; then
+		if nft list table bridge homenet_ap >/dev/null 2>&1; then ap_rules; else ap_init; fi
+	fi
+	return 0
+}
+
+init() {
+	hn_prepare || return 1
+	# check the counter set, not the table: `controls apply` may have created the table (with
+	# only its own chain) a moment before, e.g. right after a reboot
+	if ! nft_list set inet homenet upload >/dev/null || ! nft_list counter inet homenet wan_own_up >/dev/null; then
+		nft -f - <<-'NFT' || return 1
+			add table inet homenet
+			add set inet homenet upload { type ipv4_addr; flags dynamic; counter; size 1024; }
+			add set inet homenet download { type ipv4_addr; flags dynamic; counter; size 1024; }
+			add counter inet homenet wan_up
+			add counter inet homenet wan_down
+			add counter inet homenet wan_own_up
+			add counter inet homenet wan_own_down
+			add chain inet homenet forward { type filter hook forward priority 10; policy accept; }
+			add chain inet homenet own_out { type filter hook output priority 10; policy accept; }
+			add chain inet homenet own_in { type filter hook input priority -5; policy accept; }
+		NFT
+		# a new table counts from zero: forget the counters of the previous table, otherwise
+		# the first values after a reboot would look like "no change" and be lost
+		: > "$HN_STATE"; : > "$HN_LSTATE"
+		# the wire reference starts at the same moment, so the first fold after a boot is scaled
+		# to the wire too (without it that fold stayed ~3 % low; found by the B7.5d repeat)
+		wire_read > "$HN_WIRE"
+		logger -t homenet "accounting: new counters, wire reference $(tr '\n' ';' < "$HN_WIRE")"
+	fi
+	[ "$HN_AP" = 1 ] && { ap_init || return 1; }
+	rules
+}
+
+# current owners: mac ip host (DHCP leases + answering neighbours); every MAC gets a device
+scan() {
+	local lan gp=""
+	lan="$(hn_lan_dev)"
+	# dnsmasq keeps one lease file for every network: guests (B9 Y2) are not home devices
+	[ "$(uci -q get homenet.guest.enabled)" = 1 ] && gp="$(uci -q get network.guest.ipaddr | sed 's/[0-9]*$//')"
+	awk -v gp="$gp" '{ if (gp != "" && index($3, gp) == 1) next; h=$4; if (h=="*") h=""; print tolower($2) "\t" $3 "\t" h }' /tmp/dhcp.leases 2>/dev/null > "$TMPB.leases"
+	if [ "$HN_AP" = 1 ]; then
+		# access point: the devices whose internet traffic crossed this bridge ("address . MAC"
+		# learned by the counting rule), not every neighbour (the main router, the whole house)
+		nft_list set bridge homenet_ap seen 2>/dev/null | tr ',{}' '\n\n\n' | awk '
+			$2 == "." && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $3 ~ /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/ { print tolower($3) "\t" $1 }' > "$TMPB.seen"
+		ap_names < "$TMPB.seen" > "$TMPB.neigh"
+	else
+	ip -4 neigh show dev "$lan" 2>/dev/null | awk '{ mac=""; for (i=1;i<NF;i++) if ($i=="lladdr") mac=$(i+1);
+		if (mac != "" && $NF != "FAILED" && $NF != "INCOMPLETE") print tolower(mac) "\t" $1 "\t" }' > "$TMPB.neigh"
+	fi
+	# leases last: for an IP listed twice the map keeps the last owner, and a lease is newer
+	# than a stale neighbour entry left behind by the IP's previous owner
+	cat "$TMPB.neigh" "$TMPB.leases" > "$TMPB.cur"
+	while IFS="$TAB" read -r mac ip host; do
+		hn_is_mac "$mac" && hn_device_for_mac "$mac" "$host" >/dev/null
+	done < "$TMPB.cur"
+	# last_seen / hostname per MAC (date granularity)
+	awk -F '\t' -v OFS='\t' -v today="$(hn_today)" '
+		FILENAME == ARGV[1] { seen[$1] = 1; if ($3 != "") host[$1] = $3; next }
+		{ if (seen[$1]) { $4 = today; if (host[$1] != "") $5 = host[$1] } print }
+	' "$TMPB.cur" "$HN_MACS" > "$TMPB.macs"
+	cmp -s "$TMPB.macs" "$HN_MACS" || hn_write_records "$HN_MACS" < "$TMPB.macs"
+}
+
+# map: mode "new" adds IPs not mapped yet; mode "all" also moves IPs to their current owner
+map_update() {
+	awk -F '\t' -v OFS='\t' -v mode="$1" '
+		FILENAME == ARGV[1] { map[$1] = $2; next }
+		{ if (!($2 in map) || mode == "all") map[$2] = $1 }
+		END { for (ip in map) print ip, map[ip] }
+	' "$HN_IPMAP" "$TMPB.cur" | sort > "$TMPB.map"
+	cmp -s "$TMPB.map" "$HN_IPMAP" || hn_write "$HN_IPMAP" < "$TMPB.map"
+}
+
+# nft list <what>: the output, or exit 1. A dump can fail when the ruleset changes during it
+# ("Interrupted system call", e.g. `controls apply` or a block at that moment); such a reading
+# must never count as "empty" or "0": the fold would forget the counters it had and book their
+# whole totals again at the next fold (seen in the b7g repeat). Tried 3 times.
+nft_list() {
+	local out i
+	for i in 1 2 3; do
+		out="$(nft list "$@" 2>/dev/null)" && { printf '%s\n' "$out"; return 0; }
+		sleep 1
+	done
+	logger -t homenet "nft list $* failed 3 times (a fold is then skipped; the next one covers it)"
+	return 1
+}
+
+parse_set() {
+	local out
+	out="$(nft_list set $HN_TBL "$1")" || return 1
+	printf '%s\n' "$out" | awk '
+		/elements =/ { inside = 1 }
+		inside {
+			line = $0; p = index(line, "elements = "); if (p) line = substr(line, p + 11)
+			gsub(/[{},]/, " ", line); n = split(line, a, /[[:space:]]+/)
+			for (i = 1; i <= n; i++)
+				if (a[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && a[i+1] == "counter" && a[i+5] ~ /^[0-9]+$/)
+					print a[i], a[i+5]
+			if ($0 ~ /}/) inside = 0
+		}'
+}
+
+# counter_bytes / counter_pkts <name>: the number, or nothing (the caller checks)
+counter_bytes() { nft_list counter inet homenet "$1" | awk '{ for (i = 1; i < NF; i++) if ($i == "bytes") print $(i + 1) }'; }
+counter_pkts() { nft_list counter inet homenet "$1" | awk '{ for (i = 1; i < NF; i++) if ($i == "packets") print $(i + 1) }'; }
+isnum() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; }
+
+# Usage must match what the ISP counts (BUILD-PLAN B7.3e item 5). The hooks see IPv4 packets
+# after GRO merged them (one header per merged packet instead of one per wire frame: ~2.5-3.5 %
+# fewer bytes than the line carried), so every fold is scaled to the line's wire-level IP bytes:
+#  - download: rx_bytes - L2 x rx_packets of each WAN device, per wire frame (L2 = 14 on an
+#    Ethernet WAN; 0 on PPPoE, whose ppp device counts IP bytes);
+#  - upload: the counted IPv4 bytes (forwarded + the router's own) + 52 x the frames the NIC
+#    sent beyond the packets counted (GSO splits forwarded super-packets after the hooks;
+#    52 = IPv4 + TCP header with timestamps); on PPPoE the ppp tx bytes. Upload is not taken from
+#    tx_bytes: NICs pad 40-byte ACKs to the 60-byte minimum frame (measured, session 16).
+# Per direction the fold's deltas are multiplied by wire / booked of the day so far (this fold
+# included, bounded to 1.00-1.05): per fold the two kinds of counters are read a moment apart, so a
+# short fold alone is skewed, but over the day the skew cancels. Devices + router + unknown are
+# the line total (the sum of the scaled folds), within a fraction of a percent of the wire. A
+# small fold with more on the wire than booked gives the difference to "router" (ARP, the link
+# itself). The wire reference is taken when the counters start (init).
+# Rewrites $TMPB.delta ("ip up down"); wire-ratio.tsv: day wire_up wire_down booked_up booked_down.
+HN_WIRE="$HN_RUN/wire-state"
+HN_RATIO="$HN_RUN/wire-ratio.tsv"
+# the WAN devices' wire counters + the counted upload packets, one line each (wire-state format).
+# [packets]: the counted upload packets read together with the byte counters (fold); without it
+# they are read here (init); "-": no packet line (the reading before the counters, fold)
+wire_read() {
+	local d t r s="/sys/class/net" pk="$1" devs
+	devs="${WR_DEVS:-$(hn_wan_devs)}"
+	for d in $devs; do
+		[ -r "$s/$d/statistics/rx_bytes" ] || continue
+		t="$(cat "$s/$d/type" 2>/dev/null)"
+		echo "$d ${t:-1} $(cat "$s/$d/statistics/rx_bytes") $(cat "$s/$d/statistics/rx_packets") $(cat "$s/$d/statistics/tx_bytes") $(cat "$s/$d/statistics/tx_packets")"
+	done
+	if [ -z "$pk" ]; then
+		t="$(counter_pkts wan_up)"; r="$(counter_pkts wan_own_up)"
+		isnum "$t" && isnum "$r" && pk=$(( t + r ))
+	fi
+	[ "$pk" = - ] || { isnum "$pk" && echo "@pk 0 $pk 0 0 0"; }
+	return 0
+}
+
+# A WAN device that came up after the counters started (at boot the line is often not up yet when
+# init runs): its wire reference starts now, together with its counting rules (rules). Before, the
+# first fold after the line came up found a device the reference did not have and was left out of
+# the day's ratio; under a download its two readings (counters, wire) were a moment apart, that
+# skew stayed in the ratio, the next big fold came out below 1.00 and was booked unscaled: the day
+# ~2 % low (2 of 20 b7h runs, session 22). A fold that commits meanwhile simply overwrites it.
+wire_add() {
+	local d new="" keep="$WR_DEVS"
+	[ -s "$HN_WIRE" ] && grep -q '^@pk ' "$HN_WIRE" || return 0
+	for d in $(hn_wan_devs); do
+		awk -v d="$d" '$1 == d { f = 1 } END { exit !f }' "$HN_WIRE" || new="$new $d"
+	done
+	[ -n "$new" ] || return 0
+	WR_DEVS="${new# }"; wire_read - >> "$HN_WIRE"; WR_DEVS="$keep"
+	logger -t homenet "wire reference: added${new} with its counting rules"
+}
+
+wire_scale() { # <today>
+	local day="$1" r
+	# $TMPB.wst: the wire, read by fold right after the counters
+	[ -f "$HN_WIRE" ] || : > "$HN_WIRE"
+	[ -f "$HN_RATIO" ] || : > "$HN_RATIO"
+	r="$(awk '
+		function dl(a, b) { return (a + 0 >= b + 0) ? a - b : a + 0 }
+		FILENAME == ARGV[1] { p[$1] = $0; next }
+		FILENAME == ARGV[2] { n[$1] = $0; next }
+		$1 == "@total" || $1 == "@own" { bu += $2; bd += $3; next }
+		END {
+			split(n["@pk"], q, " "); split(p["@pk"], o, " "); dpk = dl(q[3], o[3]); have = ("@pk" in p)
+			for (k in n) {
+				if (k == "@pk") continue
+				if (!(k in p)) { have = 0; why = "new " k; continue }
+				split(n[k], c, " "); split(p[k], o, " ")
+				ppp = (c[2] == 512); l2 = ppp ? 0 : 14
+				wd += dl(c[3], o[3]) - l2 * dl(c[4], o[4])
+				if (ppp) { pu += dl(c[5], o[5]); nppp++ } else { tp += dl(c[6], o[6]); neth++ }
+			}
+			if (!("@pk" in p)) why = "no packet count"
+			if (have && !nppp && !neth) { have = 0; why = "no WAN device" }
+			if (!have) { print "none " (why == "" ? "?" : why); exit }
+			if (nppp && !neth) wu = pu
+			else if (neth && !nppp) { x = tp - dpk; if (x < 0) x = 0; wu = bu + 52 * x }
+			else wu = bu + pu       # mixed lines (B9): no frame correction yet
+			printf "%.0f %.0f %.0f %.0f\n", wu, wd, bu, bd
+		}' "$HN_WIRE" "$TMPB.wst" "$TMPB.delta")"
+	# wire-state and the ratio row are committed by fold together with the counter state
+	# (commit_fold): a fold that stopped half way used to leave the wire reference moved on
+	# while the counters were booked again by the next fold, so the day's booked bytes grew
+	# past the wire, the factor fell to 1.00 for the rest of the day and every later fold was
+	# ~2.5 % low (6 of 20 b7g runs, B7.5d)
+	WS_WIRE=1
+	case "$r" in
+		none*|"") logger -t homenet "wire reference restarted (${r#none }; this fold is not in the day's ratio)"; return 0 ;;
+	esac
+	set -- $r
+	# a big fold far from the usual 1.00-1.05 shows a wire reading that does not fit the counters
+	awk -v w="$2" -v b="$4" 'BEGIN { exit !(b >= 1048576 && (w < b * 0.99 || w > b * 1.08)) }' &&
+		logger -t homenet "fold off the wire: wire $2 booked $4 down (state: $(tr '\n' ';' < "$HN_WIRE") now: $(tr '\n' ';' < "$TMPB.wst"))"
+	# the day so far (raw wire and booked bytes of the earlier folds of today)
+	set -- "$@" $(awk -F '\t' -v d="$day" '$1 == d { print $2, $3, $4, $5; f = 1 } END { if (!f) print "0 0 0 0" }' "$HN_RATIO")
+	# a quiet day (under 4 MB booked so far) takes the ratio of the latest day that had 4 MB:
+	# the ratio belongs to the line and the traffic mix and hardly changes from day to day
+	set -- "$@" $(awk -F '\t' -v d="$day" '$1 != d && $4 >= 4194304 && $1 > du { du = $1; fu = $2 / $4 }
+		$1 != d && $5 >= 4194304 && $1 > dd { dd = $1; fd = $3 / $5 }
+		END { printf "%.6f %.6f\n", fu, fd }' "$HN_RATIO")
+	awk -v wu="$1" -v wd="$2" -v bu="$3" -v bd="$4" -v Wu="$5" -v Wd="$6" -v Bu="$7" -v Bd="$8" -v Fu="$9" -v Fd="${10}" '
+		# factor = (wire / booked) of the day so far, this fold included.
+		# A fold alone is no good measure: the interface counters and the per-device counters are
+		# read a moment apart, and folds also run on every DHCP lease event, so a short fold can
+		# be far off (seen: +80 % on one device with folds a second apart). Over the day the skew
+		# cancels; the line total (sum of the scaled folds) stays within a fraction of a percent
+		# of the wire. A small fold (< 64 KB
+		# booked) with more on the wire than booked gives the difference to "router" (ARP, the
+		# link itself).
+		# The factor is bounded to 1.00-1.05: the wire can never carry fewer IP bytes than were
+		# counted, and the headers GRO merges away are at most ~3.6 % (52-byte headers of 1448-byte
+		# segments; PPPoE has no GRO at all). The day ratio is trusted from 4 MB on; before that
+		# the ratio of the latest day with 4 MB is used (F), or none on the very first day.
+		function factor(w, b, W, B, F, dir,   f) {
+			if (b < 65536 && w > b && w - b <= 65536) extra[dir] = w - b
+			if (B + b < 4194304) { if (F + 0 <= 0) return 1; f = F + 0 }
+			else f = (W + w) / (B + b)
+			return f < 1 ? 1 : (f > 1.05 ? 1.05 : f)
+		}
+		BEGIN { su = factor(wu, bu, Wu, Bu, Fu, "up"); sd = factor(wd, bd, Wd, Bd, Fd, "down") }
+		{ printf "%s %.0f %.0f\n", $1, $2 * su, $3 * sd }
+		END { if (extra["up"] + extra["down"] > 0) printf "@own %.0f %.0f\n", extra["up"], extra["down"] }
+	' "$TMPB.delta" > "$TMPB.delta2" && mv -f "$TMPB.delta2" "$TMPB.delta"
+	set -- $r
+	awk -F '\t' -v OFS='\t' -v day="$day" -v wu="$1" -v wd="$2" -v bu="$3" -v bd="$4" '
+		$1 == day { f = 1; $2 += wu; $3 += wd; $4 += bu; $5 += bd; $2 = sprintf("%.0f", $2); $3 = sprintf("%.0f", $3); $4 = sprintf("%.0f", $4); $5 = sprintf("%.0f", $5) }
+		{ print }
+		END { if (!f) printf "%s\t%.0f\t%.0f\t%.0f\t%.0f\n", day, wu, wd, bu, bd }' "$HN_RATIO" > "$TMPB.ratio" && WS_RATIO=1
+}
+
+# the end of a fold that went through: counter state, wire reference and ratio row together
+commit_fold() {
+	hn_write "$HN_STATE" < "$TMPB.state"
+	[ "$WS_WIRE" = 1 ] && cp -f "$TMPB.wst" "$HN_WIRE"
+	[ "$WS_RATIO" = 1 ] && hn_write "$HN_RATIO" < "$TMPB.ratio"
+	return 0
+}
+# a fold that stops before commit_fold books nothing: the next fold covers both intervals
+fold_failed() { logger -t homenet "fold stopped ($1); nothing booked, the next fold covers it"; return 1; }
+
+# history must only grow (bytes are never taken away except by an explicit merge)
+write_history() {
+	local old new
+	old="$(awk -F '\t' '{ s += $3 + $4 } END { printf "%.0f", s }' "$HN_HISTORY")"
+	new="$(awk -F '\t' '{ s += $3 + $4 } END { printf "%.0f", s }' "$1")"
+	if [ "$new" -lt "$old" ]; then
+		logger -t homenet "refused a usage history write that would lose $((old - new)) bytes"
+		hn_event data_write_refused danger file=usage-history.tsv lost_bytes=$((old - new))
+		return 1
+	fi
+	cmp -s "$1" "$HN_HISTORY" || hn_write "$HN_HISTORY" < "$1"
+}
+
+# Split this fold's booked bytes ($TMPB.dev) per line (see HN_LINES above). A line whose sets
+# cannot be read keeps its last readings: the next fold splits both intervals. Best effort: it
+# never stops the fold (the totals are already written).
+fold_lines() { # <today> <synced>
+	local n dir
+	[ -f "$HN_LSTATE" ] || : > "$HN_LSTATE"
+	[ -f "$HN_LINES" ] || : > "$HN_LINES"
+	: > "$TMPB.lcur"
+	for n in $(line_devs | awk '{ print $1 }'); do
+		for dir in up down; do
+			nft list set inet homenet "l$dir$n" 2>/dev/null | awk -v n="$n" -v dir="$dir" '
+				/elements =/ { inside = 1 }
+				inside {
+					line = $0; p = index(line, "elements = "); if (p) line = substr(line, p + 11)
+					gsub(/[{},]/, " ", line); k = split(line, a, /[[:space:]]+/)
+					for (i = 1; i <= k; i++)
+						if (a[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && a[i+1] == "counter" && a[i+5] ~ /^[0-9]+$/)
+							print n, dir, a[i], a[i+5]
+					if ($0 ~ /}/) inside = 0
+				}' >> "$TMPB.lcur" || true
+		done
+	done
+	[ -s "$TMPB.lcur" ] || return 0
+	awk -v OFS='\t' -v today="$1" -v synced="$2" -v sf="$TMPB.lst" -v bf="$TMPB.lbook" '
+		FILENAME == ARGV[1] { split($0, f, "\t"); mac[f[1]] = f[2]; next }
+		FILENAME == ARGV[2] { split($0, f, "\t"); dev[f[1]] = f[2]; next }
+		FILENAME == ARGV[3] { split($0, f, "\t"); bu[f[1]] = f[2]; bd[f[1]] = f[3]; next }
+		FILENAME == ARGV[4] { split($0, f, "\t"); pu[f[1] SUBSEP f[2]] = f[3]; pd[f[1] SUBSEP f[2]] = f[4]; keep[f[1] SUBSEP f[2]] = $0; next }
+		{
+			k = $1 SUBSEP $3; read[$1] = 1
+			if ($2 == "up") cu[k] = $4; else cd[k] = $4
+			ips[k] = 1
+		}
+		END {
+			# lines not read this time keep their readings
+			for (k in keep) { split(k, p, SUBSEP); if (!(p[1] in read)) print keep[k] > sf }
+			for (k in ips) {
+				split(k, p, SUBSEP); n = p[1]; ip = p[2]
+				u = cu[k] + 0; d = cd[k] + 0
+				printf "%s\t%s\t%.0f\t%.0f\n", n, ip, u, d > sf
+				du = (u >= pu[k] ? u - pu[k] : u); dd = (d >= pd[k] ? d - pd[k] : d)
+				id = dev[mac[ip]]
+				if (id == "" || du + dd == 0) continue
+				ru[id SUBSEP n] += du; rd[id SUBSEP n] += dd; su[id] += du; sd[id] += dd
+			}
+			if (synced != 1) exit
+			for (k in ru) {
+				split(k, p, SUBSEP); id = p[1]
+				u = (su[id] > 0 ? bu[id] * ru[k] / su[id] : 0); d = (sd[id] > 0 ? bd[id] * rd[k] / sd[id] : 0)
+				if (u + d >= 1) printf "%s\t%s\t%s\t%.0f\t%.0f\n", today, id, p[2], u, d > bf
+			}
+		}' "$HN_IPMAP" "$HN_MACS" "$TMPB.dev" "$HN_LSTATE" "$TMPB.lcur" || return 0
+	if [ -s "$TMPB.lbook" ]; then
+		awk -F '\t' -v OFS='\t' '
+			{ k = $1 SUBSEP $2 SUBSEP $3; u[k] += $4; d[k] += $5 }
+			END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%s\t%.0f\t%.0f\n", p[1], p[2], p[3], u[k], d[k] } }
+		' "$HN_LINES" "$TMPB.lbook" | sort > "$TMPB.lines" && hn_write "$HN_LINES" < "$TMPB.lines"
+	fi
+	sort "$TMPB.lst" 2>/dev/null > "$TMPB.lst2"; hn_write "$HN_LSTATE" < "$TMPB.lst2"
+	return 0
+}
+
+# fold the counter deltas since the last fold, using the CURRENT ip -> mac map
+fold() {
+	local synced=0 today now
+	WS_WIRE=0; WS_RATIO=0
+	hn_synced && synced=1
+	today="$(hn_today)"; now="$(date +%s)"
+	[ -f "$HN_UNATTR" ] || : > "$HN_UNATTR"
+	[ -f "$HN_TOTALS" ] || : > "$HN_TOTALS"
+	parse_set upload > "$TMPB.up" || return 1
+	parse_set download > "$TMPB.down" || return 1
+	# the named counters ride along as the pseudo address "@total"; a reading that failed
+	# skips the whole fold (nothing written: the next fold books both intervals)
+	# The four named counters in one listing, and the wire right after it: the day's ratio
+	# compares the two, so they must be one moment. Read one by one, a second could pass between
+	# them under load; a fold whose wire part is left out of the ratio (a new WAN device, e.g.
+	# after a boot) then kept that second of a download as counted-but-not-on-the-wire for the
+	# rest of the day, and the factor fell to 1.00 (5 of 20 b7g runs, B7.5d).
+	local tu td ou od
+	WR_DEVS="$(hn_wan_devs)"     # before the listing: the lookup itself takes a moment
+	[ "$HN_AP" = 1 ] && WR_DEVS="none"   # an access point has no WAN line to scale to
+	# the wire before and after the listing, and their middle: the listing itself takes up to half a
+	# second under load, so one reading after it was still that much later than the counters (1 of
+	# 20 b7g runs after the change above)
+	wire_read - > "$TMPB.wst0"
+	nft_list counters table $HN_TBL > "$TMPB.cntraw" || return 1
+	awk '$1 == "counter" { n = $2 } $1 == "packets" { print n, $2, $4 }' "$TMPB.cntraw" > "$TMPB.cnt"
+	wire_read "$(awk '$1 == "wan_up" || $1 == "wan_own_up" { s += $2; c++ } END { if (c == 2) print s }' "$TMPB.cnt")" > "$TMPB.wst1"
+	awk 'FILENAME == ARGV[1] { a[$1] = $0; next }
+		$1 != "@pk" && ($1 in a) { split(a[$1], o, " "); printf "%s %s %.0f %.0f %.0f %.0f\n", $1, $2, ($3 + o[3]) / 2, ($4 + o[4]) / 2, ($5 + o[5]) / 2, ($6 + o[6]) / 2; next }
+		{ print }' "$TMPB.wst0" "$TMPB.wst1" > "$TMPB.wst"
+	tu="$(awk '$1 == "wan_up" { print $3 }' "$TMPB.cnt")"; td="$(awk '$1 == "wan_down" { print $3 }' "$TMPB.cnt")"
+	ou="$(awk '$1 == "wan_own_up" { print $3 }' "$TMPB.cnt")"; od="$(awk '$1 == "wan_own_down" { print $3 }' "$TMPB.cnt")"
+	isnum "$tu" && isnum "$td" && isnum "$ou" && isnum "$od" || return 1
+	echo "@total $tu" >> "$TMPB.up"
+	echo "@total $td" >> "$TMPB.down"
+	echo "@own $ou" >> "$TMPB.up"
+	echo "@own $od" >> "$TMPB.down"
+	: > "$TMPB.state"; : > "$TMPB.delta"
+	awk -v sf="$TMPB.state" -v df="$TMPB.delta" '
+		FILENAME == ARGV[1] { up[$1] = $2 + 0; ips[$1] = 1; next }
+		FILENAME == ARGV[2] { down[$1] = $2 + 0; ips[$1] = 1; next }
+		FILENAME == ARGV[3] { pu[$1] = $2 + 0; pd[$1] = $3 + 0; next }
+		END {
+			for (ip in ips) {
+				cu = up[ip] + 0; cd = down[ip] + 0
+				du = (cu >= pu[ip] ? cu - pu[ip] : cu); dd = (cd >= pd[ip] ? cd - pd[ip] : cd)
+				printf "%s %.0f %.0f\n", ip, cu, cd >> sf
+				if (du + dd > 0) printf "%s %.0f %.0f\n", ip, du, dd >> df
+			}
+		}' "$TMPB.up" "$TMPB.down" "$HN_STATE" || fold_failed deltas || return 1
+	# to the line's wire-level IP bytes (B7.3e item 5)
+	[ "$HN_AP" = 1 ] || wire_scale "$today"
+	# delta per device; an address without a device stays an address ("ip:<addr>"), the
+	# named counters stay "@total"
+	awk -v OFS='\t' '
+		FILENAME == ARGV[1] { split($0, f, "\t"); mac[f[1]] = f[2]; next }
+		FILENAME == ARGV[2] { split($0, f, "\t"); dev[f[1]] = f[2]; next }
+		{ id = ($1 == "@total" ? "@total" : ($1 == "@own" ? "router" : dev[mac[$1]])); if (id == "") id = "ip:" $1; u[id] += $2; d[id] += $3 }
+		END { for (id in u) printf "%s\t%.0f\t%.0f\n", id, u[id], d[id] }
+	' "$HN_IPMAP" "$HN_MACS" "$TMPB.delta" > "$TMPB.dev" || { fold_failed devices; return 1; }
+	if [ "$synced" = 1 ]; then
+		# devices: history (pending from before the clock sync included); addresses:
+		# unattributed; @total: the day's WAN total
+		cat "$HN_PENDING" "$TMPB.dev" > "$TMPB.all"
+		awk -F '\t' -v OFS='\t' -v today="$today" '
+			FILENAME == ARGV[1] { key = $1 SUBSEP $2; u[key] += $3; d[key] += $4; next }
+			$1 ~ /^(ip:|@total)/ { next }
+			{ key = today SUBSEP $1; u[key] += $2; d[key] += $3 }
+			END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+		' "$HN_HISTORY" "$TMPB.all" > "$TMPB.h" || { fold_failed history_sum; return 1; }
+		sort "$TMPB.h" > "$TMPB.hist"
+		write_history "$TMPB.hist" || { fold_failed history_write; return 1; }
+		awk -F '\t' -v OFS='\t' -v today="$today" -v now="$now" '
+			FILENAME == ARGV[1] { key = $1 SUBSEP $2; u[key] += $3; d[key] += $4; t[key] = $5; next }
+			$1 ~ /^ip:/ { key = today SUBSEP substr($1, 4); u[key] += $2; d[key] += $3; t[key] = now }
+			END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\t%s\n", p[1], p[2], u[k], d[k], t[k] } }
+		' "$HN_UNATTR" "$TMPB.all" | sort > "$TMPB.un"
+		hn_write "$HN_UNATTR" < "$TMPB.un"
+		awk -F '\t' -v OFS='\t' -v today="$today" '
+			FILENAME == ARGV[1] { u[$1] += $2; d[$1] += $3; next }
+			$1 == "@total" || $1 == "router" { u[today] += $2; d[today] += $3 }
+			END { for (k in u) printf "%s\t%.0f\t%.0f\n", k, u[k], d[k] }
+		' "$HN_TOTALS" "$TMPB.all" | sort > "$TMPB.tot"
+		hn_write "$HN_TOTALS" < "$TMPB.tot"
+		: > "$HN_PENDING"
+	else
+		awk -F '\t' -v OFS='\t' '
+			{ u[$1] += $2; d[$1] += $3 }
+			END { for (id in u) printf "%s\t%.0f\t%.0f\n", id, u[id], d[id] }
+		' "$HN_PENDING" "$TMPB.dev" > "$TMPB.p" || { fold_failed pending; return 1; }
+		sort "$TMPB.p" > "$TMPB.pend"
+		hn_write "$HN_PENDING" < "$TMPB.pend"
+	fi
+	commit_fold
+	fold_lines "$today" "$synced"
+}
+
+# unattributed bytes go to the device that now has the address; after HN_UNATTR_MAX seconds
+# without an owner they are booked to "unknown"; addresses of the guest network go to "guest" at once
+handover() {
+	local now gp=""
+	[ -s "$HN_UNATTR" ] || return 0
+	now="$(date +%s)"
+	[ "$(uci -q get homenet.guest.enabled)" = 1 ] && gp="$(uci -q get network.guest.ipaddr | sed 's/[0-9]*$//')"
+	awk -F '\t' -v OFS='\t' -v now="$now" -v max="$HN_UNATTR_MAX" -v keep="$TMPB.keep" -v moved="$TMPB.moved" -v gp="$gp" '
+		FILENAME == ARGV[1] { mac[$1] = $2; next }
+		FILENAME == ARGV[2] { dev[$1] = $2; next }
+		FILENAME == ARGV[3] { key = $1 SUBSEP $2; u[key] += $3; d[key] += $4; next }
+		{
+			id = dev[mac[$2]]
+			if (id == "" && gp != "" && index($2, gp) == 1) id = "guest"      # B9 Y2: guests
+			if (id == "" && now - $5 >= max) id = "unknown"
+			if (id == "") { print > keep; next }
+			key = $1 SUBSEP id; u[key] += $3; d[key] += $4
+			printf "%s %s %s %.0f\n", $2, id, $1, $3 + $4 > moved
+		}
+		END { for (k in u) { split(k, p, SUBSEP); printf "%s\t%s\t%.0f\t%.0f\n", p[1], p[2], u[k], d[k] } }
+	' "$HN_IPMAP" "$HN_MACS" "$HN_HISTORY" "$HN_UNATTR" > "$TMPB.h2" || return 1
+	[ -s "$TMPB.moved" ] || return 0
+	sort "$TMPB.h2" > "$TMPB.hist2"
+	write_history "$TMPB.hist2" || return 1
+	if [ -f "$TMPB.keep" ]; then hn_write "$HN_UNATTR" < "$TMPB.keep"; else : > "$HN_UNATTR"; fi
+	while read -r ip id day bytes; do
+		logger -t homenet "unattributed usage of $ip on $day ($bytes bytes) booked to $id"
+	done < "$TMPB.moved"
+}
+
+# B7.5d invariant for one day: booked = devices + unknown + unattributed; reference = the
+# named counters. Prints "booked total"; exit 1 + event on a mismatch over 2 % (days with
+# less than 1 MB are not judged).
+check_day() {
+	local day="${1:-$(hn_today)}" b t
+	b="$(awk -F '\t' -v day="$day" '
+		FILENAME == ARGV[1] { if ($1 == day) s += $3 + $4; next }
+		{ if ($1 == day) s += $3 + $4 }
+		END { printf "%.0f", s }' "$HN_HISTORY" "$HN_UNATTR")"
+	t="$(awk -F '\t' -v day="$day" '$1 == day { s += $2 + $3 } END { printf "%.0f", s }' "$HN_TOTALS")"
+	echo "$b $t"
+	awk -v b="$b" -v t="$t" 'BEGIN { d = b - t; if (d < 0) d = -d; exit !(t >= 1048576 && d > t * 0.02) }' || return 0
+	logger -t homenet "usage mismatch on $day: booked $b, WAN $t"
+	hn_event usage_mismatch warn day="$day" booked="$b" wan="$t"
+	return 1
+}
+
+# wait: block until free (lease events). short: up to 10 s, then give up (a 5-minute save must
+# not be skipped just because the 1-minute `controls apply` holds the lock for a moment, but
+# cron jobs must never pile up behind a stuck holder). BusyBox flock has no timeout option.
+lock() {
+	local i
+	exec 9>"$HN_RUN.save.lock"
+	[ "$1" = wait ] && { flock 9; return; }
+	for i in 1 2 3 4 5 6 7 8 9 10; do       # BusyBox sleep takes whole seconds only
+		flock -n 9 && return 0
+		sleep 1
+	done
+	logger -t homenet "save skipped: lock busy for 10 s"
+	return 1
+}
+
+save() {
+	hn_prepare || return 1
+	lock short || return 0
+	[ -f "$HN_PENDING" ] || : > "$HN_PENDING"
+	scan
+	map_update new          # new IPs get their owner before the fold
+	fold || return 1
+	map_update all          # IPs that changed owner move only after the fold
+	handover
+}
+
+lease() { # <add|update|remove> <mac> <ip>
+	local act="$1" mac ip="$3"
+	mac="$(echo "$2" | tr 'A-F' 'a-f')"
+	hn_prepare || return 1
+	lock wait
+	[ -f "$HN_PENDING" ] || : > "$HN_PENDING"
+	nft list table inet homenet >/dev/null 2>&1 || return 0
+	fold || return 1        # what this IP used so far belongs to its previous owner
+	case "$act" in
+		add|update)
+			hn_is_mac "$mac" || return 0
+			hn_device_for_mac "$mac" >/dev/null
+			awk -F '\t' -v OFS='\t' -v ip="$ip" -v mac="$mac" '
+				$1 != ip { print } END { print ip, mac }' "$HN_IPMAP" | sort > "$TMPB.map"
+			hn_write "$HN_IPMAP" < "$TMPB.map"
+			handover        # what this address used before it had an owner is the device's
+			# a blocked or paused device that got a new address: controls follow it now
+			# (in the background: it waits for this lock)
+			[ -s "$HN_DATA/controls.tsv" ] && /usr/libexec/homenet/controls apply >/dev/null 2>&1 &
+			;;
+		# remove: keep the mapping; the IP's next owner is set by its own lease event
+	esac
+}
+
+case "$1" in
+	init) init ;;
+	rules) rules ;;
+	save) save ;;
+	lease) shift; lease "$@" ;;
+	discover) hn_prepare && scan && map_update all ;;
+	check-day)
+		day="$2"
+		[ "$day" = yesterday ] && day="$(date -d "@$(( $(date +%s) - 86400 ))" +%F)"
+		hn_prepare && check_day "$day" ;;
+	*) echo "usage: $0 init|rules|save|lease <act> <mac> <ip>|check-day [day]" >&2; exit 1 ;;
+esac

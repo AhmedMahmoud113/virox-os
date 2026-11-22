@@ -1,0 +1,189 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Virox updater (BUILD-PLAN B8.1, section 12.5, PLAN 9.3). Manual install only.
+#
+#   lg7200-update check      fetch latest.json and latest.json.sig from the update server, verify the
+#                            signature with a key shipped in the image, keep the result
+#   lg7200-update download   fetch the image named in the verified latest.json; check size + sha256
+#   lg7200-update install    check + download, then `sysupgrade -T`, then `sysupgrade` (settings kept;
+#                            the router restarts). LG7200_UPDATE_DRYRUN=1: stop after -T (tests)
+#   lg7200-update daily      cron: once a day, after the clock is synced, `check` (the banner)
+#   lg7200-update status     the state as key=value lines
+#   lg7200-update serve      (main router, update all) offer the verified latest.json, its signature
+#                            and the downloaded image to the access points on the LAN, under
+#                            http://<this router>/virox-update/ (RAM only, bind mount)
+#   lg7200-update unserve    stop offering them
+# LG7200_UPDATE_URL=<url> replaces the update server for one call: an access point updated by the
+# main router fetches from it (signature and sha256 are still checked here, with this unit's own
+# keys, so the main router cannot hand over anything Virox did not sign).
+# Output "OK [...]" or "ERR <code>" (exit 2).
+#
+# latest.json (written by tools/release.sh, signed with usign):
+#   { "product": "Virox", "version": "26.01.1", "boards": [ "mercury,gapm7200" ],
+#     "image": { "file": "26.01.1/<name>-sysupgrade.bin", "sha256": "...", "size": 123 },
+#     "changelog": { "ar": "...", "en": "..." } }
+# Rules: nothing is installed without a valid signature by a key in /etc/lg7200/update-keys and a
+# matching sha256; HTTPS certificates are always checked, so before the clock is synced (a router
+# has no battery clock) the updater refuses with clock_not_synced instead of skipping a check;
+# the request carries nothing about the user (a plain HTTP GET).
+umask 077
+. /lib/functions/lg7200.sh 2>/dev/null
+
+DIR="${LG7200_UPDATE_DIR:-/tmp/lg7200-update}"     # (another folder: tests only)
+KEYS=/etc/lg7200/update-keys
+STATUS="$DIR/status"
+mkdir -p "$DIR"
+
+err() { echo "ERR $1"; st error "$1"; exit 2; }
+st() { # key value
+	[ -f "$STATUS" ] || : > "$STATUS"
+	{ grep -v "^$1=" "$STATUS"; echo "$1=$2"; } > "$STATUS.new"; mv -f "$STATUS.new" "$STATUS"
+}
+
+base_url() {
+	local u
+	if [ -n "${LG7200_UPDATE_URL:-}" ]; then u="$LG7200_UPDATE_URL"; else u="$(uci -q get lg7200.update.url)"; fi
+	echo "${u%/}"
+}
+# img <file|sha256|size>: the image in the verified latest.json (one public image for every unit,
+# BUILD-PLAN 15.8 item 1)
+img() { jsonfilter -i "$DIR/latest.json" -e "@.image.$1" 2>/dev/null; }
+board() { cat /tmp/sysinfo/board_name 2>/dev/null; }
+current() { . /etc/lg7200-release 2>/dev/null; echo "${PRODUCT_VERSION:-0}"; }
+
+synced() {
+	command -v lg7200_time_synced >/dev/null 2>&1 || return 0
+	lg7200_time_synced
+}
+
+# fetch <url> <file>: HTTPS with certificate checks, 60 s
+fetch() { rm -f "$2"; uclient-fetch -q -T 60 -O "$2" "$1" 2>/dev/null && [ -s "$2" ]; }
+
+# version compare: newer <a> <b> -> exit 0 when a > b. "26.01.1" style numbers; "-rcN" is older
+# than the release of the same number.
+newer() {
+	awk -v a="$1" -v b="$2" '
+		function split_v(v, p,   r, n, i) { r = 99999; if (match(v, /-rc[0-9]+$/)) { r = substr(v, RSTART + 3) + 0; v = substr(v, 1, RSTART - 1) }
+			n = split(v, p, "."); for (i = n + 1; i <= 4; i++) p[i] = 0; p[5] = r; return n }
+		BEGIN { split_v(a, x); split_v(b, y); for (i = 1; i <= 5; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 } exit 1 }'
+}
+
+check() {
+	local u
+	synced || err clock_not_synced
+	u="$(base_url)"
+	[ -n "$u" ] || err no_update_server
+	st checked "$(date +%s)"
+	fetch "$u/latest.json" "$DIR/latest.json.new" || err download_failed
+	fetch "$u/latest.json.sig" "$DIR/latest.json.new.sig" || err download_failed
+	# usign looks the key up by the fingerprint written in the signature
+	usign -V -q -P "$KEYS" -m "$DIR/latest.json.new" -x "$DIR/latest.json.new.sig" 2>/dev/null || {
+		rm -f "$DIR/latest.json.new" "$DIR/latest.json.new.sig"
+		logger -t lg7200-update "latest.json: bad or unknown signature, ignored"
+		err bad_signature
+	}
+	mv -f "$DIR/latest.json.new" "$DIR/latest.json"; mv -f "$DIR/latest.json.new.sig" "$DIR/latest.json.sig"
+	v="$(jsonfilter -i "$DIR/latest.json" -e '@.version' 2>/dev/null)"
+	[ -n "$v" ] || err bad_latest
+	if [ -n "$(board)" ] && ! jsonfilter -i "$DIR/latest.json" -e '@.boards[*]' 2>/dev/null | grep -qxF "$(board)"; then
+		st available ""; st latest "$v"; st error wrong_board; echo "ERR wrong_board"; exit 2
+	fi
+	st latest "$v"; st error ""
+	if newer "$v" "$(current)"; then st available "$v"; echo "OK $v"; else st available ""; echo "OK none"; fi
+}
+
+download() {
+	local f sum size got
+	[ -s "$DIR/latest.json" ] || err not_checked
+	# the stored latest.json is verified again: a file left in /tmp is never trusted by itself
+	usign -V -q -P "$KEYS" -m "$DIR/latest.json" -x "$DIR/latest.json.sig" 2>/dev/null || err bad_signature
+	f="$(img file)"; sum="$(img sha256)"; size="$(img size)"
+	[ -n "$f" ] || err no_image
+	case "$f" in /*|*..*) err bad_latest ;; esac
+	echo "$sum" | grep -Eq '^[0-9a-f]{64}$' || err bad_latest
+	synced || err clock_not_synced
+	# enough room in RAM for the image (+ 16 MB to spare)
+	[ "$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)" -gt $(( ${size:-0} / 1024 + 16384 )) ] || err no_space
+	st downloading "$(date +%s)"
+	fetch "$(base_url)/$f" "$DIR/image.bin" || { st downloading ""; err download_failed; }
+	st downloading ""
+	got="$(wc -c < "$DIR/image.bin")"
+	[ -z "$size" ] || [ "$got" = "$size" ] || { rm -f "$DIR/image.bin"; err bad_image; }
+	[ "$(sha256sum "$DIR/image.bin" | cut -d' ' -f1)" = "$sum" ] || { rm -f "$DIR/image.bin"; logger -t lg7200-update "image sha256 mismatch, deleted"; err bad_image; }
+	echo "$f" > "$DIR/image.name"
+	echo OK
+}
+
+# main router, update all: the access points fetch the update from here (one download for the house)
+WWW=/www/virox-update
+serve() {
+	local f
+	[ -s "$DIR/image.bin" ] && [ -s "$DIR/image.name" ] || err not_downloaded
+	f="$(cat "$DIR/image.name")"
+	unserve >/dev/null 2>&1
+	rm -rf "$DIR/pub"; mkdir -p "$DIR/pub/$(dirname "$f")"
+	ln -f "$DIR/latest.json" "$DIR/pub/latest.json"; ln -f "$DIR/latest.json.sig" "$DIR/pub/latest.json.sig"
+	ln -f "$DIR/image.bin" "$DIR/pub/$f"
+	chmod 755 "$DIR" "$DIR/pub" "$DIR/pub/$(dirname "$f")"
+	chmod 644 "$DIR/pub/latest.json" "$DIR/pub/latest.json.sig" "$DIR/pub/$f"
+	mkdir -p "$WWW"
+	mount --bind "$DIR/pub" "$WWW" || err serve_failed
+	echo OK
+}
+unserve() {
+	grep -q " $WWW " /proc/mounts && umount "$WWW"
+	rm -rf "$DIR/pub"
+	echo OK
+}
+
+install() {
+	local out
+	# (the reason of a failed step is printed; "OK ..." of the steps is not)
+	out="$(check)" || { echo "$out"; exit 2; }
+	[ -n "$(sed -n 's/^available=//p' "$STATUS")" ] || err no_update
+	out="$(download)" || { echo "$out"; exit 2; }
+	if ! out="$(sysupgrade -T "$DIR/image.bin" 2>&1)"; then
+		logger -t lg7200-update "sysupgrade -T refused the image: $out"
+		err image_refused
+	fi
+	if [ "${LG7200_UPDATE_DRYRUN:-0}" = 1 ]; then echo "OK dryrun"; return 0; fi
+	lg7200_event_add system update_installing info version="$(sed -n 's/^available=//p' "$STATUS")" >/dev/null 2>&1
+	st installing "$(date +%s)"
+	echo "OK installing"
+	# settings are kept (no -n); -P makes the protected storage (the provisioning volume, BUILD-PLAN
+	# B6 item 1) on its first use, so the unit's name, Wi-Fi password and MAC survive a factory
+	# reset from then on; the router restarts when the image is written
+	( sleep 2; sysupgrade -P "$DIR/image.bin" ) >/dev/null 2>&1 &
+}
+
+daily() {
+	local today last
+	synced || exit 0
+	today="$(date +%F)"; last="$(sed -n 's/^checked_day=//p' "$STATUS" 2>/dev/null)"
+	[ "$last" = "$today" ] && exit 0
+	st checked_day "$today"
+	check >/dev/null 2>&1
+	v="$(sed -n 's/^available=//p' "$STATUS")"
+	if [ -n "$v" ] && [ "$(sed -n 's/^announced=//p' "$STATUS")" != "$v" ]; then
+		st announced "$v"
+		lg7200_event_add system update_available info version="$v" >/dev/null 2>&1
+	fi
+	exit 0
+}
+
+exec 9>"$DIR.lock"
+case "$1" in
+	daily) flock -n 9 || exit 0 ;;
+	*) flock -n 9 || err busy ;;
+esac
+case "$1" in
+	check) check ;;
+	download) download ;;
+	install) install ;;
+	daily) daily ;;
+	status) cat "$STATUS" 2>/dev/null; echo "current=$(current)" ;;
+	serve) serve ;;
+	unserve) unserve ;;
+	newer) newer "$2" "$3" ;;          # for tests
+	*) echo "usage: $0 check|download|install|daily|status|serve|unserve" >&2; exit 1 ;;
+esac

@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Settings survive future versions (BUILD-PLAN 12.6). /etc/config/lg7200 carries a schema version;
+# every release ships numbered migration scripts in /usr/libexec/lg7200/migrate.d/NNN-name.sh.
+# On every install or upgrade (uci-defaults run again), each script whose number is higher than
+# the stored version runs once, in order, then the version is raised to it. A failing script
+# stops the chain (later scripts would build on it) and is retried on the next boot.
+
+CUR="$(uci -q get lg7200.schema.version)"
+if [ -z "$CUR" ]; then
+	uci -q get lg7200.schema >/dev/null || uci set lg7200.schema=schema
+	CUR=1
+	uci set lg7200.schema.version=1
+	uci commit lg7200
+fi
+
+for s in /usr/libexec/lg7200/migrate.d/[0-9][0-9][0-9]-*.sh; do
+	[ -f "$s" ] || continue
+	n="$(basename "$s" | cut -c1-3 | sed 's/^0*//')"
+	n="${n:-0}"
+	[ "$n" -gt "$CUR" ] || continue
+	if sh "$s"; then
+		uci set lg7200.schema.version="$n"
+		uci commit lg7200
+		CUR="$n"
+		logger -t lg7200 "settings migrated to schema $n ($(basename "$s"))"
+	else
+		logger -t lg7200 "settings migration $(basename "$s") failed; will retry on next boot"
+		exit 1
+	fi
+done
+exit 0

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Register the Virox theme and make it the default; Arabic is the default language.
+# Runs once per configuration: never overrides a theme or language the user chose later.
+uci -q get luci.themes.Virox >/dev/null && exit 0
+uci set luci.themes.Virox=/luci-static/virox
+uci set luci.main.mediaurlbase=/luci-static/virox
+# Arabic first (BUILD-PLAN 10.2). Set even if the Arabic language entry is registered later
+# by luci-i18n-base-ar (its uci-defaults run after this one); LuCI falls back to English.
+uci set luci.main.lang=ar
+uci commit luci
+exit 0
