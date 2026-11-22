@@ -9,7 +9,10 @@
 #   backup restore <file>       put it back (on this or another Virox unit) and restart
 #   backup nightly              cron 03:30: to a USB stick if one is plugged in, last 14 kept (P7);
 #                               a paired access point as destination comes with B9 (Y1)
-#   backup list                 nightly backups found: "<path> <bytes> <date>"
+#   backup preupdate <from> <to>  a copy kept on the router itself before an update is installed
+#                               (owner 2026-11-22): /etc/lg7200/pre-update, kept by sysupgrade
+#                               (keep.d), the last 2; lg7200-update install calls it
+#   backup list                 backups found: "<path> <bytes> <date> <usb|update> [from-version]"
 #
 # What a backup holds: /etc/config/{network,wireless,dhcp,firewall,system,homenet,rpcd,luci,
 # uhttpd,dropbear,upnpd,sqm,usteer}, lg7200's own choices (mode, language, notices), the data of
@@ -151,11 +154,27 @@ nightly() {
 	exit 0
 }
 
+PRE=/etc/lg7200/pre-update
+preupdate() {
+	local from to f
+	from="$(echo "${1:-0}" | tr -cd 'A-Za-z0-9.-')"; to="$(echo "${2:-0}" | tr -cd 'A-Za-z0-9.-')"
+	mkdir -p "$PRE" || err no_space
+	f="$PRE/virox-pre-update-$(date +%Y%m%d-%H%M)-$from-to-$to.tar.gz"
+	create "$f" || return 2
+	# the last 2 only (each is a few hundred KB of flash)
+	ls -1t "$PRE"/virox-pre-update-*.tar.gz 2>/dev/null | tail -n +3 | while read -r f; do rm -f "$f"; done
+}
+
 list() {
-	local d f
+	local d f v
+	for f in "$PRE"/virox-pre-update-*.tar.gz; do
+		[ -f "$f" ] || continue
+		v="${f##*/virox-pre-update-}"; v="${v#*-*-}"; v="${v%%-to-*}"
+		echo "$f $(wc -c < "$f") $(date -r "$f" +%F) update $v"
+	done
 	d="$(usb_dir)" || exit 0
 	for f in "$d"/virox-backup-*.tar.gz; do
-		[ -f "$f" ] && echo "$f $(wc -c < "$f") $(date -r "$f" +%F)"
+		[ -f "$f" ] && echo "$f $(wc -c < "$f") $(date -r "$f" +%F) usb"
 	done
 }
 
@@ -164,6 +183,7 @@ case "$1" in
 	check) check "$2" ;;
 	restore) restore "$2" ;;
 	nightly) nightly ;;
+	preupdate) preupdate "$2" "$3" ;;
 	list) list ;;
-	*) echo "usage: $0 create [file]|check <file>|restore <file>|nightly|list" >&2; exit 1 ;;
+	*) echo "usage: $0 create [file]|check <file>|restore <file>|nightly|preupdate <from> <to>|list" >&2; exit 1 ;;
 esac

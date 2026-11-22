@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# The upload half of "Is it the Wi-Fi or the internet?" (homenet/wifitest, owner 2026-11-22): the
+# page sends up to 64 MB here and times it; the data is thrown away. It answers only during the
+# 3 minutes after a test was opened through virox.homenet wifi_test (which needs a login), so it
+# is not an open door. The firewall keeps it to the home network anyway.
+o="$(cat /tmp/virox-speed.open 2>/dev/null)"
+case "$o" in ''|*[!0-9]*) o=0 ;; esac
+n="${CONTENT_LENGTH:-0}"
+case "$n" in ''|*[!0-9]*) n=0 ;; esac
+if [ $(( $(date +%s) - o )) -gt 185 ]; then r='{"result":false,"error":"closed"}'
+elif [ "$n" -gt 67108864 ]; then r='{"result":false,"error":"too_big"}'
+else
+	head -c "$n" > /dev/null
+	r="{\"result\":true,\"bytes\":$n}"
+fi
+printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n%s\n' "$r"

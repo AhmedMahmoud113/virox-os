@@ -364,7 +364,8 @@ const gaming = {
 // Read with `iw` in a child process: the iwinfo ubus object lives in rpcd itself.
 function signal_label(dbm) {
 	if (dbm >= -60) return 'excellent';
-	if (dbm >= -70) return 'good';
+	// -80 dBm is still two bars and a working link (owner 2026-11-22: a phone at -77 was "weak")
+	if (dbm >= -80) return 'good';
 	return 'weak';
 }
 
@@ -427,7 +428,7 @@ function wifi_status() {
 
 const wifi = {
 	status: { call: function() { const c = cursor(); return { radios: wifi_status(), split: c.get('lg7200', 'wifi', 'split') == '1', hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
-	                                                   power_high: c.get('lg7200', 'wifi', 'power') == 'high' }; } },
+	                                                   power_high: true /* always (owner 2026-11-22) */ }; } },
 	// hide the home network name of one band (2g / 5g) or of both (one name for both bands is one
 	// network: the page sends "both"), not the guest network (it has its own switch, virox.homenet
 	// guest_hidden; owner 2026-11-21: one checkbox per network). Devices that know it still

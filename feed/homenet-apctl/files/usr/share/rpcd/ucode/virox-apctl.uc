@@ -143,7 +143,7 @@ function wifi_config(c) {
 	return {
 		ssid: base ?? '', ssid5: b5 ?? base ?? '', key: key ?? '', encryption: enc ?? 'sae-mixed', keys: keys, hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
 		roaming: c.get('apctl', 'main', 'roaming') == '1', mobility_domain: sprintf('%04x', mdid),
-		power_high: c.get('lg7200', 'wifi', 'power') == 'high'
+		power_high: true	// always: old access points (rc2) still read it (owner 2026-11-22)
 	};
 }
 

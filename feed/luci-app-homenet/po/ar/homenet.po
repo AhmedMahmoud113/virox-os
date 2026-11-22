@@ -1743,7 +1743,7 @@ msgid "Fast roaming"
 msgstr "التنقل السريع"
 
 msgid "Phones move between access points without dropping calls (802.11r)"
-msgstr "تنتقل الهواتف بين نقاط الوصول دون قطع المكالمات (802.11r)"
+msgstr "تنتقل الهواتف بين نقاط الوصول دون قطع المكالمات"
 
 msgid "Some old devices cannot join a network with fast roaming. Turn it off if a device stops connecting."
 msgstr "بعض الأجهزة القديمة لا تتصل بشبكة فيها التنقل السريع. أوقفه إذا توقف جهاز عن الاتصال."
@@ -3564,3 +3564,144 @@ msgstr "المواقع التي فُتحت"
 
 msgid "Names of the sites and apps this kids device opened, kept for 7 days. Only names, never what was seen."
 msgstr "أسماء المواقع والتطبيقات التي فتحها جهاز الطفل هذا، تُحفظ لمدة أسبوع. الأسماء فقط، وليس ما شوهد فيها."
+
+msgid "This router is an access point: the internet line belongs to the main router, so measuring the line and the priority for games and calls are done there."
+msgstr "هذا الراوتر نقطة وصول: خط الإنترنت تابع للراوتر الرئيسي، لذلك يتم قياس الخط وضبط أولوية الألعاب والمكالمات من الراوتر الرئيسي."
+
+msgid "This router is an access point: the internet lines, the package and the open ports are set on the main router."
+msgstr "هذا الراوتر نقطة وصول: خطوط الإنترنت والباقة وفتح المنافذ تُضبط من الراوتر الرئيسي."
+
+msgid "Wi-Fi, lights and restart times"
+msgstr "مواعيد الواي فاي والأضواء وإعادة التشغيل"
+
+msgid "This router is an access point under a router that is not a Virox. Kids mode, site locks and the house filter work only when the main router is a Virox; times, pausing and blocking a device work here."
+msgstr "هذا الراوتر نقطة وصول تحت راوتر ليس Virox. وضع الأطفال وحظر المواقع وفلتر المنزل تعمل فقط عندما يكون الراوتر الرئيسي Virox؛ أما المواعيد والإيقاف المؤقت وحظر الجهاز فتعمل هنا."
+
+msgid "%s device"
+msgstr "جهاز %s"
+
+msgid "Phone or tablet (private address)"
+msgstr "هاتف أو تابلت (عنوان خاص)"
+
+msgid "Copies made before an update (on the router):"
+msgstr "نسخ حُفظت قبل التحديث (على الراوتر):"
+
+msgid "The settings of version %s"
+msgstr "إعدادات الإصدار %s"
+
+msgid "Report for the internet company"
+msgstr "تقرير لشركة الإنترنت"
+
+msgid "The modem was on, the internet did not get through"
+msgstr "المودم كان يعمل لكن الإنترنت لم يصل"
+
+msgid "The modem did not answer"
+msgstr "المودم لم يستجب"
+
+msgid "The line was down"
+msgstr "الخط كان مقطوعًا"
+
+msgid "Month"
+msgstr "الشهر"
+
+msgid "%s outages in %s, %s in total"
+msgstr "%s انقطاعات في %s، ومجموعها %s"
+
+msgid "Internet outages"
+msgstr "انقطاعات الإنترنت"
+
+msgid "Duration"
+msgstr "المدة"
+
+msgid "What happened"
+msgstr "ما حدث"
+
+msgid "No outages in this month."
+msgstr "لا توجد انقطاعات في هذا الشهر."
+
+msgid "An outage counts when the line stays down for two checks in a row (about two minutes); short drops are not listed."
+msgstr "يُحسب الانقطاع عندما يبقى الخط مقطوعًا في فحصين متتاليين (حوالي دقيقتين)؛ الانقطاعات القصيرة جدًا لا تظهر."
+
+msgid "Copy as text"
+msgstr "نسخ كنص"
+
+msgid "Copied. Paste it into a message to the company."
+msgstr "تم النسخ. الصقه في رسالة إلى الشركة."
+
+msgid "Internet at night"
+msgstr "الإنترنت ليلًا"
+
+msgid "The minutes the internet was used between midnight and 6 in the morning, for the last 14 days. A minute counts only when something was really used, not a phone lying idle."
+msgstr "الدقائق التي استُخدم فيها الإنترنت بين منتصف الليل والسادسة صباحًا، لآخر 14 يومًا. تُحسب الدقيقة فقط عند استخدام فعلي، وليس لهاتف متروك دون استخدام."
+
+msgid "Not used at night in the last 14 days."
+msgstr "لم يُستخدم ليلًا في آخر 14 يومًا."
+
+msgid "%s: %s"
+msgstr "%s: %s"
+
+msgid "Wi-Fi or internet?"
+msgstr "الواي فاي أم الإنترنت؟"
+
+msgid "Is it the Wi-Fi or the internet?"
+msgstr "العيب في الواي فاي أم في الإنترنت؟"
+
+msgid "This device measures its own Wi-Fi to the router, without the internet in the way, and compares it with the internet line. Run it where the internet feels slow. It uses no internet."
+msgstr "يقيس هذا الجهاز سرعة الواي فاي بينه وبين الراوتر فقط، دون الإنترنت، ثم يقارنها بسرعة خط الإنترنت. شغّله في المكان الذي تشعر فيه ببطء الإنترنت. لا يستهلك شيئًا من الباقة."
+
+msgid "Measure now"
+msgstr "قِس الآن"
+
+msgid "Measuring the Wi-Fi of this device… about 20 seconds."
+msgstr "جارٍ قياس الواي فاي لهذا الجهاز… حوالي 20 ثانية."
+
+msgid "Wi-Fi download here"
+msgstr "تحميل الواي فاي هنا"
+
+msgid "Wi-Fi upload here"
+msgstr "رفع الواي فاي هنا"
+
+msgid "Speed of the internet line"
+msgstr "سرعة خط الإنترنت"
+
+msgid "Measured with \"Measure and adjust\"."
+msgstr "مقيسة بزر «قياس وضبط»."
+
+msgid "The test did not finish. Try again, closer to the router."
+msgstr "لم يكتمل القياس. حاول مرة أخرى بالقرب من الراوتر."
+
+msgid "The Wi-Fi here is weak. Move closer to the router or an access point, or use the 5 GHz network if this device has it."
+msgstr "الواي فاي هنا ضعيف. اقترب من الراوتر أو من نقطة وصول، أو استخدم شبكة 5 جيجاهرتز إن كان الجهاز يدعمها."
+
+msgid "The Wi-Fi here is fine: it is faster than the internet line. If the internet feels slow, the reason is the line or the internet company, not the Wi-Fi."
+msgstr "الواي فاي هنا جيد: أسرع من خط الإنترنت. إذا كان الإنترنت بطيئًا فالسبب الخط أو شركة الإنترنت، وليس الواي فاي."
+
+msgid "The Wi-Fi here is slower than the internet line, so the Wi-Fi is what holds you back. Move closer to the router or an access point, or use 5 GHz."
+msgstr "الواي فاي هنا أبطأ من خط الإنترنت، لذلك الواي فاي هو سبب البطء. اقترب من الراوتر أو من نقطة وصول، أو استخدم 5 جيجاهرتز."
+
+msgid "The Wi-Fi here and the internet line are about the same speed."
+msgstr "سرعة الواي فاي هنا وسرعة خط الإنترنت متقاربتان."
+
+msgid "The Wi-Fi here is fine. To compare it with the internet line, measure the line once in \"Ping and games\"."
+msgstr "الواي فاي هنا جيد. لمقارنته بخط الإنترنت، قِس الخط مرة واحدة من «البنج والألعاب»."
+
+msgid "Priority"
+msgstr "أولوية"
+
+msgid "All devices of this person go before the other devices when the line is full, for example for work or for a game console. Games and calls of every device still go first. At most 3."
+msgstr "كل أجهزة هذا الشخص تسبق باقي الأجهزة عندما يمتلئ الخط، مثلًا للعمل أو لجهاز ألعاب. تبقى الألعاب والمكالمات في كل الأجهزة هي الأولى دائمًا. ثلاثة على الأكثر."
+
+msgid "This device goes before the other devices when the line is full, for example a work laptop or a game console. Games and calls of every device still go first. At most 3."
+msgstr "هذا الجهاز يسبق باقي الأجهزة عندما يمتلئ الخط، مثل لابتوب العمل أو جهاز الألعاب. تبقى الألعاب والمكالمات في كل الأجهزة هي الأولى دائمًا. ثلاثة على الأكثر."
+
+msgid "It works after the line is measured once: Internet, Ping and games, \"Measure and adjust\"."
+msgstr "تعمل بعد قياس الخط مرة واحدة: الإنترنت، «البنج والألعاب»، «قياس وضبط»."
+
+msgid "Priority is on."
+msgstr "تم تشغيل الأولوية."
+
+msgid "Priority is off."
+msgstr "تم إيقاف الأولوية."
+
+msgid "At most 3 devices or people can have priority. Turn it off for one first."
+msgstr "يمكن أن تكون الأولوية لثلاثة أجهزة أو أشخاص على الأكثر. أوقفها لواحد منهم أولًا."

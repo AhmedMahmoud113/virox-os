@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# "Is it the Wi-Fi or the internet?" (owner 2026-11-22): the phone or computer measures its own
+# Wi-Fi (or cable) to THIS unit, without the internet line in the way.
+#
+#   wifitest open    a 32 MB file of zeros in RAM, served at http://<unit>/virox-speed/test.bin
+#                    (bind mount of /tmp/virox-speed, like /virox-update), and the upload address
+#                    /cgi-bin/virox-upload accepts data, both for 3 minutes; prints
+#                    "OK <download path> <bytes> <upload path>" or "ERR no_memory | serve_failed"
+#   wifitest close   ends it (run by itself 3 minutes after the last open)
+# Used by virox.homenet wifi_test (admin and family logins, and the phone app later). Nothing goes
+# out to the internet; the file lives in RAM only and needs 32 MB of it (refused below 80 MB free).
+D=/tmp/virox-speed
+W=/www/virox-speed
+OPEN=/tmp/virox-speed.open
+SIZE=33554432
+
+case "$1" in
+open)
+	avail="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
+	if [ ! -s "$D/test.bin" ] && [ "${avail:-0}" -lt 81920 ]; then echo "ERR no_memory"; exit 0; fi
+	mkdir -p "$D" "$W" || { echo "ERR serve_failed"; exit 0; }
+	[ "$(wc -c < "$D/test.bin" 2>/dev/null)" = "$SIZE" ] || dd if=/dev/zero of="$D/test.bin" bs=1048576 count=32 2>/dev/null
+	chmod 755 "$D"; chmod 644 "$D/test.bin"
+	grep -q " $W " /proc/mounts || mount --bind "$D" "$W" || { echo "ERR serve_failed"; exit 0; }
+	date +%s > "$OPEN"
+	( sleep 185; "$0" close ) >/dev/null 2>&1 </dev/null &
+	echo "OK /virox-speed/test.bin $SIZE /cgi-bin/virox-upload" ;;
+close)
+	# a newer open keeps it up (its own close comes later)
+	o="$(cat "$OPEN" 2>/dev/null)"
+	case "$o" in ''|*[!0-9]*) o=0 ;; esac
+	[ $(( $(date +%s) - o )) -ge 180 ] || exit 0
+	grep -q " $W " /proc/mounts && umount "$W"
+	rm -rf "$D" "$OPEN"
+	echo OK ;;
+*) echo "usage: $0 open|close" >&2; exit 2 ;;
+esac

@@ -40,10 +40,12 @@ define Package/homenet/install
 	$(INSTALL_BIN) ./files/usr/libexec/homenet/watch $(1)/usr/libexec/homenet/
 	$(INSTALL_BIN) ./files/usr/libexec/homenet/live $(1)/usr/libexec/homenet/
 	$(INSTALL_BIN) ./files/usr/libexec/homenet/quality $(1)/usr/libexec/homenet/
+	$(INSTALL_BIN) ./files/usr/libexec/homenet/wifitest $(1)/usr/libexec/homenet/
 	$(INSTALL_BIN) ./files/usr/libexec/homenet/kidsites $(1)/usr/libexec/homenet/
 	$(INSTALL_BIN) ./files/etc/init.d/homenet-dns $(1)/etc/init.d/
 	$(INSTALL_DATA) ./files/usr/share/homenet/site-catalog.tsv $(1)/usr/share/homenet/
 	$(INSTALL_DATA) ./files/usr/share/homenet/doh-servers.txt $(1)/usr/share/homenet/
+	$(INSTALL_DATA) ./files/usr/share/homenet/makers.tsv $(1)/usr/share/homenet/
 	$(INSTALL_DATA) ./files/usr/share/homenet/doh-names.txt $(1)/usr/share/homenet/
 	$(INSTALL_DATA) ./files/usr/lib/homenet/common.sh $(1)/usr/lib/homenet/
 	$(INSTALL_BIN) ./files/usr/libexec/homenet/accounting $(1)/usr/libexec/homenet/

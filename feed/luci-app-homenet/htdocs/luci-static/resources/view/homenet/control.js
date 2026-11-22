@@ -38,7 +38,8 @@ return view.extend({
 	load() {
 		return Promise.all([
 			hn.api.devices(), hn.api.people(), hn.api.schedules(), hn.api.timelimits(), hn.api.settings(),
-			hn.api.speedLimits(), hn.api.limits(), hn.api.kids(), hn.api.siteLocks(), hn.api.filter()
+			hn.api.speedLimits(), hn.api.limits(), hn.api.kids(), hn.api.siteLocks(), hn.api.filter(),
+			hn.api.aps().catch(() => null)
 		]).catch(() => null);
 	},
 
@@ -259,6 +260,12 @@ return view.extend({
 		this.root.replaceChildren(
 			E('h1', {}, [ _('Control') ]),
 			E('p', { 'class': 'vx-sub' }, [ _('Internet time and sites: off schedules, daily time, limits, sites and kids mode, and what happens to new devices.') ]),
+			// an access point under a router that is not a Virox cannot catch the name lookups of the
+			// devices (owner 2026-11-22: the page did not say so): kids mode, site locks and the house
+			// filter need a Virox main router; times, pause and blocking work here
+			hn.isAccessPoint(this.data[10]) && this.data[10].main_kind != 'virox'
+				? E('div', { 'class': 'vx-alert info', 'role': 'status' }, [ _('This router is an access point under a router that is not a Virox. Kids mode, site locks and the house filter work only when the main router is a Virox; times, pausing and blocking a device work here.') ])
+				: '',
 			E('ul', { 'class': 'cbi-tabmenu vx-tabs', 'role': 'tablist' }, GROUPS.map(x => E('li', { 'class': x == g ? 'cbi-tab' : 'cbi-tab-disabled' }, [
 				E('a', { 'href': '#' + x[0], 'role': 'tab', 'aria-selected': String(x == g),
 					'click': ev => { ev.preventDefault(); this.section = x[0]; history.replaceState(null, '', '#' + x[0]); this.draw(); } }, [ titles[x[0]] ]) ]))),

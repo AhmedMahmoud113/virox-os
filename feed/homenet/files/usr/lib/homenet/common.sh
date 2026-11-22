@@ -15,7 +15,7 @@
 
 : "${HN_DATA:=/etc/homenet/data}"
 : "${HN_RUN:=/tmp/homenet}"
-HN_HOT='usage-state.tsv usage-history.tsv usage-lines.tsv ap-usage.tsv ipmap.tsv device-macs.tsv unattributed.tsv wan-totals.tsv screentime.tsv wire-ratio.tsv kidsites.tsv'
+HN_HOT='usage-state.tsv usage-history.tsv usage-lines.tsv ap-usage.tsv ipmap.tsv device-macs.tsv unattributed.tsv wan-totals.tsv screentime.tsv wire-ratio.tsv kidsites.tsv night.tsv'
 HN_DEVICES="$HN_DATA/devices.tsv"
 HN_PEOPLE="$HN_DATA/people.tsv"
 HN_MACS="$HN_RUN/device-macs.tsv"       # hot: last_seen changes often

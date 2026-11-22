@@ -55,7 +55,11 @@
 			const s = stat(d + '/' + n);
 			if (s && s.mtime > res_mtime) res_mtime = s.mtime;
 		}
-	const res_version = sprintf('%s-%d', version.luciversion, res_mtime);
+	// the build gives every file the same fixed date (reproducible builds), so between two
+	// versions the change time alone stays the same: the product version is part of the tag too
+	// (found before 0.9.0-rc3, 2026-11-22)
+	const pv = match(readfile('/etc/lg7200-release') ?? '', /PRODUCT_VERSION='?([A-Za-z0-9.-]+)/);
+	const res_version = sprintf('%s-%s-%d', version.luciversion, pv ? pv[1] : '0', res_mtime);
 -%}
 <!DOCTYPE html>
 <html lang="{{ dispatcher.lang }}" dir="{{ rtl ? 'rtl' : 'ltr' }}" data-argon-mode="{{ mode }}">

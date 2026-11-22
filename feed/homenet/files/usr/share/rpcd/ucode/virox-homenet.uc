@@ -293,6 +293,13 @@ function package_mb(c) {
 }
 
 // speed limits (B7 feature 5): target -> { down_kbit, up_kbit } (0 = no limit that way)
+// devices and people whose internet goes first (owner 2026-11-22, controls prio_apply)
+function priority_set() {
+	let m = {};
+	for (let f in tsv('priority.tsv', false)) m[f[0]] = true;
+	return m;
+}
+
 function speed_map() {
 	let m = {};
 	for (let f in tsv('speed.tsv', false)) m[f[0]] = { down_kbit: +f[1], up_kbit: +f[2] };
@@ -394,6 +401,24 @@ function with_session_user(req, done) {
 }
 
 // devices with their MACs, person, online state and usage (today, current billing cycle)
+// the maker of a device from the first three bytes of its MAC (owner 2026-11-22: a name next to
+// a device without one): /usr/share/homenet/makers.tsv (tools/makers-table.py, about 11 000
+// prefixes of makers found in a house), read once per rpcd start. A MAC with the "locally
+// administered" bit (the second hex digit 2, 6, a or e) is a private address a phone or tablet made
+// up for this network: no maker can be known, the page says "private address".
+let MAKERS = null;
+function maker_of(mac) {
+	if (MAKERS == null) {
+		MAKERS = {};
+		for (let l in split(readfile('/usr/share/homenet/makers.tsv') ?? '', '\n')) {
+			const t = index(l, '	');
+			if (t == 6) MAKERS[substr(l, 0, 6)] = substr(l, 7);
+		}
+	}
+	return MAKERS[replace(substr(lc(mac ?? ''), 0, 8), /:/g, '')] ?? null;
+}
+function private_mac(mac) { return !!match(lc(mac ?? ''), /^.[26ae]:/); }
+
 function devices_list() {
 	const today = sh_out('date +%F'), cyc = cycle(), on = online_macs(), cs = controls_state();
 	let pname = {};
@@ -411,6 +436,7 @@ function devices_list() {
 	for (let f in tsv('device-macs.tsv', true)) {
 		if (!macs[f[1]]) macs[f[1]] = [];
 		push(macs[f[1]], { mac: f[0], first_seen: f[2] ?? '', last_seen: f[3] ?? '', hostname: f[4] ?? '',
+		                   maker: private_mac(f[0]) ? null : maker_of(f[0]), private: private_mac(f[0]),
 		                   online: !!on[f[0]], ip: on[f[0]] ? on[f[0]].ip : '',
 		                   link: on[f[0]] ? on[f[0]].link : '' });
 	}
@@ -437,7 +463,7 @@ function devices_list() {
 	const router = use['router'] ?? { today_up: 0, today_down: 0, cycle_up: 0, cycle_down: 0 };
 	// the guest network (B9 Y2): one row «الضيوف»
 	const guest = use['guest'] ?? { today_up: 0, today_down: 0, cycle_up: 0, cycle_down: 0 };
-	const sp = speed_map(), lm = limits_map(), kd = kids_set(), locks = site_locks();
+	const sp = speed_map(), lm = limits_map(), kd = kids_set(), locks = site_locks(), pr = priority_set();
 	// MACs that are a router in router mode (accounting: set behind_nat, by the TTL of its packets)
 	const nat = {};
 	for (let m in match(sh_out('nft list set inet homenet behind_nat 2>/dev/null; nft list set bridge homenet_ap behind_nat 2>/dev/null'), /([0-9a-f]{2}:){5}[0-9a-f]{2}/g) ?? [])
@@ -451,6 +477,7 @@ function devices_list() {
 			speed: own(sp, f[0]), person_speed: via(sp, f[2]),
 			limit: own(lm, f[0]), person_limit: via(lm, f[2]),
 			kids: !!(kd[f[0]] || (f[2] && kd[f[2]])), kids_via_person: !kd[f[0]] && !!(f[2] && kd[f[2]]),
+			priority: !!(pr[f[0]] || (f[2] && pr[f[2]])), priority_via_person: !pr[f[0]] && !!(f[2] && pr[f[2]]),
 			site_locks: map(filter(locks, l => l.target == f[0] || (f[2] && l.target == f[2])), l => l.id),
 			blocked: ctl(f[0], f[2] ?? '', 'block'), paused_until: ctl(f[0], f[2] ?? '', 'pause'),
 			scheduled_off: length(filter(cs.schedules, x => x.active && (x.target == f[0] || (f[2] && x.target == f[2])))) > 0,
@@ -459,6 +486,8 @@ function devices_list() {
 			behind_router: length(filter(macs[f[0]] ?? [], m => nat[lc(m.mac)])) > 0,
 			id: f[0], name: f[1] ?? '', person: f[2] ?? '', person_name: pname[f[2]] ?? '',
 			created: f[5] ?? '', macs: macs[f[0]] ?? [],
+			maker: (filter(macs[f[0]] ?? [], m => m.maker)[0] ?? {}).maker ?? null,
+			private_mac: length(macs[f[0]] ?? []) > 0 && length(filter(macs[f[0]] ?? [], m => !m.private)) == 0,
 			online: length(filter(macs[f[0]] ?? [], m => m.online)) > 0,
 			where: (function() { let w = null; for (let m in macs[f[0]] ?? []) if (where[m.mac] && (!w || where[m.mac].signal > w.signal)) w = where[m.mac]; return w; })(),
 			usage: use[f[0]] ?? { today_up: 0, today_down: 0, cycle_up: 0, cycle_down: 0 }
@@ -860,6 +889,15 @@ const homenet = {
 			return { speed_limits: map(keys(m), t => ({ target: t, ...m[t] })) };
 		}
 	},
+	// priority for a device or a person (owner 2026-11-22): at most 3 (error too_many); games and
+	// calls of every device still go first. Works while a line is shaped (Ping and games).
+	priority_set: {
+		args: { target: '', on: false },
+		call: function(req) {
+			return plain(controls_cmd('priority', req.args.target ?? '', req.args.on ? '1' : '0'));
+		}
+	},
+
 	// down_kbit / up_kbit: 0 (none) or 100-1000000 kbit/s; both 0 removes the limit
 	speed_limit_set: {
 		args: { target: '', down_kbit: 0, up_kbit: 0 },
@@ -1155,6 +1193,28 @@ const homenet = {
 		}
 	},
 
+	// the outages of one month for the internet company (owner 2026-11-22): month = YYYY-MM (default
+	// this month); rows from homenet/watch's outages.tsv: start, end, seconds, line, reason (no_internet:
+	// the modem answered, the internet did not; no_modem; wan_down). months = the months that have rows.
+	outages: {
+		args: { month: '' },
+		call: function(req) {
+			const month = req.args.month || sh_out('date +%Y-%m');
+			if (!match(month, /^[0-9]{4}-[0-9]{2}$/)) return { result: false, error: 'invalid_month' };
+			let rows = [], months = {}, total = 0;
+			for (let l in split(readfile(`${DATA}/outages.tsv`) ?? '', '\n')) {
+				const f = split(l, '\t');
+				if (length(f) < 5 || !(+f[0] > 0)) continue;
+				const lt = localtime(int(+f[0])), m = sprintf('%04d-%02d', lt.year, lt.mon);
+				months[m] = true;
+				if (m != month) continue;
+				push(rows, { start: +f[0], end: +f[1], seconds: +f[2], line: f[3], reason: f[4] });
+				total += +f[2];
+			}
+			return { month, outages: rows, count: length(rows), seconds: total, months: sort(keys(months)) };
+		}
+	},
+
 	// ------------------------------------------------ network watch (B7 feature 11)
 	// per WAN line: up | no_internet | no_modem | wan_down, since when; recent outages from the
 	// event list (internet_down / internet_up)
@@ -1274,7 +1334,7 @@ const homenet = {
 	// line quality over the last 24 hours (owner 2026-11-22), from homenet/quality: per line, in
 	// buckets of `minutes` (5-240, default 30): ping average and worst (ms), jitter (ms), loss (%)
 	// and how busy the line was (download / upload kbit/s); null where nothing was measured. now =
-	// the last minute. down_kbit / up_kbit = the measured speed of the line, when it was measured.
+	// the last minute. down_kbit / up_kbit = the measured speed of the line, null when not measured.
 	quality: {
 		args: { minutes: 0 },
 		call: function(req) {
@@ -1296,13 +1356,55 @@ const homenet = {
 			}
 			let lines = [];
 			for (let n in sort(keys(per))) {
-				const sp = k => { const v = c.get('lines', `line${n}`, k); return v != null && +v > 0 ? +v : null; };
+				// only a measured speed ("Measure and adjust"; before 2026-11-22 a value other than the
+				// 30000 default): the shipped default made the page judge "house busy" on a guess
+				const measured = c.get('lines', `line${n}`, 'measured') == '1' || (c.get('lines', `line${n}`, 'down_kbit') ?? '30000') != '30000';
+				const sp = k => { const v = c.get('lines', `line${n}`, k); return measured && v != null && +v > 0 ? +v : null; };
 				push(lines, { line: +n, now: now[n], down_kbit: sp('down_kbit'), up_kbit: sp('up_kbit'),
 					buckets: map(sort(values(per[n]), (a, b) => a.t - b.t), b => ({
 						time: b.t, ping_ms: b.ok ? rnd(b.avg / b.ok) : null, worst_ms: b.max, jitter_ms: b.ok ? rnd(b.jit / b.ok) : null,
 						loss_pct: rnd(b.loss / b.n), down_kbit: b.rxn ? rnd(b.rx / b.rxn) : null, up_kbit: b.rxn ? rnd(b.tx / b.rxn) : null })) });
 			}
 			return { minutes: m, lines };
+		}
+	},
+
+	// "Is it the Wi-Fi or the internet?" (owner 2026-11-22, homenet/wifitest): opens a 3-minute test
+	// on this unit; the page (or the phone app) then downloads `download` and posts to `upload` and
+	// times both itself. Admin and family logins.
+	wifi_test: {
+		call: function() {
+			const f = split(sh_out('/usr/libexec/homenet/wifitest open 2>/dev/null'), ' ');
+			if (f[0] != 'OK') return { result: false, error: f[1] ?? 'failed' };
+			return { result: true, download: f[1], size: +f[2], upload: f[3], seconds: 180 };
+		}
+	},
+
+	// night use (owner 2026-11-22, homenet/controls nightuse): the minutes a device, or all the
+	// devices of a person, used the internet between 00:00 and 06:00, per hour, for the last 14
+	// mornings, newest first: { days: [ { date, minutes, hours: [ { hour, minutes } ] } ] }
+	night_use: {
+		args: { target: '' },
+		call: function(req) {
+			const t = req.args.target ?? '';
+			if (!match(t, /^[dp][0-9]+$/)) return { result: false, error: 'unknown_target' };
+			let mine = {}; mine[t] = true;
+			if (substr(t, 0, 1) == 'p') for (let f in tsv('devices.tsv', false)) if (f[2] == t) mine[f[0]] = true;
+			let by = {};
+			for (let l in split(readfile(`${RUN}/night.tsv`) ?? readfile(`${DATA}/night.tsv`) ?? '', '\n')) {
+				const f = split(l, '\t');
+				if (length(f) < 4 || !mine[f[1]]) continue;
+				if (!by[f[0]]) by[f[0]] = {};
+				// a person: the minutes of its devices are added, at most 60 per hour
+				by[f[0]][f[2]] = min(60, (by[f[0]][f[2]] ?? 0) + +f[3]);
+			}
+			let days = [];
+			for (let d in reverse(sort(keys(by)))) {
+				let hours = [], total = 0;
+				for (let h in sort(keys(by[d]), (a, b) => +a - +b)) { push(hours, { hour: +h, minutes: by[d][h] }); total += by[d][h]; }
+				push(days, { date: d, minutes: total, hours });
+			}
+			return { target: t, days };
 		}
 	},
 

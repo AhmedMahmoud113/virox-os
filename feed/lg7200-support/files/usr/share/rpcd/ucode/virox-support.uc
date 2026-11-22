@@ -5,7 +5,8 @@
 //                  backup_create              write /tmp/virox-backup.tar.gz (cgi-download)  (admin)
 //                  backup_check {path}        version and date of a backup file              (admin)
 //                  backup_restore {path}      restore and restart                            (admin)
-//                  backup_list                nightly backups on a USB stick (P7)           (admin)
+//                  backup_list                nightly backups on a USB stick (P7) and the    (admin)
+//                                             copies made before an update (kind usb|update)
 // The scripts in /usr/libexec/lg7200 never call a virox.* object (rpcd cannot answer itself).
 'use strict';
 
@@ -32,9 +33,11 @@ function kv(text) {
 	for (let l in split(text ?? '', '\n')) { const i = index(l, '='); if (i > 0) o[substr(l, 0, i)] = substr(l, i + 1); }
 	return o;
 }
-// a restore reads only the uploaded file or a nightly backup on a USB stick
+// a restore reads only the uploaded file, a nightly backup on a USB stick, or the copy made on the
+// router before an update (owner 2026-11-22)
 function allowed_path(p) {
 	if (p == RESTORE_UPLOAD) return true;
+	if (type(p) == 'string' && match(p, /^\/etc\/lg7200\/pre-update\/virox-pre-update-[0-9]{8}-[0-9]{4}-[A-Za-z0-9.-]+-to-[A-Za-z0-9.-]+\.tar\.gz$/) != null) return true;
 	return type(p) == 'string' && match(p, /^\/mnt\/[A-Za-z0-9._-]+\/virox-backups\/virox-backup-[0-9-]+\.tar\.gz$/) != null;
 }
 
@@ -79,7 +82,8 @@ const support = {
 			let out = [];
 			for (let l in split(run(`${LIB}/backup list`), '\n')) {
 				const p = split(l, ' ');
-				if (length(p) >= 3) push(out, { path: p[0], size: +p[1], date: p[2] });
+				// kind: usb (nightly) or update (made before an update; from = the version it was made on)
+				if (length(p) >= 3) push(out, { path: p[0], size: +p[1], date: p[2], kind: p[3] ?? 'usb', from: p[4] ?? null });
 			}
 			return { backups: out };
 		}

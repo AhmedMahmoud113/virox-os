@@ -60,4 +60,6 @@ if [ "$changed" = 1 ]; then
 	uci commit wireless
 	[ "${1:-}" = reload ] && wifi reload
 fi
+# the power rules (25 dBm base, owner 2026-11-22) at every boot, so the radios always follow them
+[ -x /usr/libexec/lg7200/wifi-power ] && /usr/libexec/lg7200/wifi-power apply "${1:-}"
 exit 0

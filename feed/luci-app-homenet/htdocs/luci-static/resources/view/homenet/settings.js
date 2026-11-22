@@ -17,27 +17,35 @@
 const SIGNAL = { excellent: () => _('Excellent'), good: () => _('Good'), weak: () => _('Weak', 'Virox') };
 
 return view.extend({
+	// each of the three pages asks only for what it shows (owner 2026-11-22: the pages were slow,
+	// every page asked the router 22 questions); a part not asked for gets its empty value, the
+	// same as when the router does not answer. I = Internet, W = Wi-Fi, S = Settings.
 	load() {
+		const page = this.page();
+		const ask = (pages, call, empty) => pages.indexOf(page[0]) >= 0 ? call().catch(() => empty) : Promise.resolve(empty);
 		return Promise.all([
-			hn.api.settings(), hn.api.wifi().catch(() => null), hn.api.gaming().catch(() => null),
-			hn.api.users().catch(() => ({ users: [] })), hn.api.people().catch(() => ({ people: [] })),
-			hn.api.devices().catch(() => ({ devices: [] })),
-			hn.api.updateStatus().catch(() => null),
-			hn.api.backupList().catch(() => null),
-			hn.api.provisionInfo().catch(() => null),
-			hn.api.theme().catch(() => null),
-			hn.api.lines().catch(() => null),
-			hn.api.wifikeys().catch(() => null),
-			hn.api.guest().catch(() => null),
-			hn.api.aps().catch(() => null),
-			hn.api.vpn().catch(() => null),
-			hn.api.apUpdateStatus().catch(() => null),
-			hn.api.ports().catch(() => null),
-			hn.api.schedule().catch(() => null),
-			hn.api.usb().catch(() => null),
-			hn.api.wifiCards().catch(() => null),
-			hn.api.addresses().catch(() => null),
-			hn.api.quality(30).catch(() => null)
+			hn.api.settings(),
+			ask('w', () => hn.api.wifi(), null),
+			ask('i', () => hn.api.gaming(), null),
+			ask('s', () => hn.api.users(), { users: [] }),
+			ask('iws', () => hn.api.people(), { people: [] }),
+			ask('iw', () => hn.api.devices(), { devices: [] }),
+			ask('ws', () => hn.api.updateStatus(), null),
+			ask('s', () => hn.api.backupList(), null),
+			ask('s', () => hn.api.provisionInfo(), null),
+			ask('s', () => hn.api.theme(), null),
+			ask('iw', () => hn.api.lines(), null),
+			ask('w', () => hn.api.wifikeys(), null),
+			ask('w', () => hn.api.guest(), null),
+			ask('iws', () => hn.api.aps(), null),
+			ask('i', () => hn.api.vpn(), null),
+			ask('w', () => hn.api.apUpdateStatus(), null),
+			ask('i', () => hn.api.ports(), null),
+			ask('w', () => hn.api.schedule(), null),
+			ask('s', () => hn.api.usb(), null),
+			ask('w', () => hn.api.wifiCards(), null),
+			ask('s', () => hn.api.addresses(), null),
+			ask('i', () => hn.api.quality(30), null)
 		]).catch(() => null);
 	},
 
@@ -122,9 +130,20 @@ return view.extend({
 			: hn.section(_('Ping of the internet line'), '', [ E('p', { 'class': 'vx-hint' }, [ _('Measuring; the first figures come within a few minutes.') ]) ]);
 	},
 
-	pingCard(ls, gm, qa) {
+	pingCard(ls, gm, qa, ap) {
 		const out = E('p', { 'class': 'vx-hint', 'role': 'status' });
 		const lines = !ls ? [] : (ls.enabled ? ls.lines : ls.lines.slice(0, 1));
+		// an access point has no internet line of its own: its traffic goes out through the main
+		// router, so measuring a line and shaping it can only be done there (owner 2026-11-22: the
+		// button failed with "Something went wrong" on an access point)
+		// (a lead access point reports mode "router" for the access-point list: it has no line either)
+		if (hn.isAccessPoint(ap))
+			return E('div', {}, [
+				this.qualityPart(qa, ls),
+				hn.section(_('Low ping for games and calls'), '', [
+					E('p', { 'class': 'vx-hint' }, [ _('This router is an access point: the internet line belongs to the main router, so measuring the line and the priority for games and calls are done there.') ])
+				])
+			]);
 		return E('div', {}, [
 			this.qualityPart(qa, ls),
 			hn.section(_('Low ping for games and calls'), _('Games, voice and video calls go before downloads and uploads. For that the router has to know the speed of the line: measure it once.'), [
@@ -138,6 +157,56 @@ return view.extend({
 			]),
 			gm && gm.installed ? this.gamingCard(gm) : ''
 		]);
+	},
+
+	// "Is it the Wi-Fi or the internet?" (owner 2026-11-22): this phone or computer measures its own
+	// connection to this unit (homenet/wifitest: a file in the router's RAM, nothing from the
+	// internet), then compares it with the measured speed of the line
+	wifiTestCard(ls, ap) {
+		const out = E('div', { 'role': 'status' });
+		const lines = !ls ? [] : (ls.enabled ? ls.lines : ls.lines.slice(0, 1));
+		// a line is shaped at 90 % of its measured speed ("Measure and adjust")
+		const lineKbit = hn.isAccessPoint(ap) ? null : (lines.filter(l => l.shaping).map(l => Math.round(l.down_kbit / 0.9))[0] || null);
+		const down = (url, ms) => {
+			const ctl = new AbortController(), t0 = performance.now();
+			let bytes = 0;
+			const stop = setTimeout(() => ctl.abort(), ms);
+			return fetch(url + '?t=' + Date.now(), { 'cache': 'no-store', 'signal': ctl.signal }).then(res => {
+				const rd = res.body.getReader();
+				const pump = () => rd.read().then(c => { if (c.done) return; bytes += c.value.length; return pump(); });
+				return pump();
+			}).catch(() => {}).then(() => { clearTimeout(stop); const s = (performance.now() - t0) / 1000; return bytes > 1048576 ? Math.round(bytes * 8 / s / 1000) : null; });
+		};
+		const up = (url, size, ms) => {
+			const ctl = new AbortController(), t0 = performance.now();
+			const stop = setTimeout(() => ctl.abort(), ms);
+			return fetch(url, { 'method': 'POST', 'cache': 'no-store', 'body': new Blob([ new Uint8Array(size) ]), 'signal': ctl.signal })
+				.then(res => res.json()).then(r => { clearTimeout(stop); return r && r.result ? Math.round(size * 8 / ((performance.now() - t0) / 1000) / 1000) : null; })
+				.catch(() => { clearTimeout(stop); return null; });
+		};
+		const verdict = (d, u) => {
+			const sp = k => fmt.speed(k);
+			const res = [ hn.row(_('Wi-Fi download here'), '', E('b', {}, [ d ? sp(d) : '—' ])), hn.row(_('Wi-Fi upload here'), '', E('b', {}, [ u ? sp(u) : '—' ])) ];
+			if (lineKbit) res.push(hn.row(_('Speed of the internet line'), _('Measured with "Measure and adjust".'), E('b', {}, [ sp(lineKbit) ])));
+			let say;
+			if (!d) say = _('The test did not finish. Try again, closer to the router.');
+			else if (d < 20000) say = _('The Wi-Fi here is weak. Move closer to the router or an access point, or use the 5 GHz network if this device has it.');
+			else if (lineKbit && d >= lineKbit * 1.3) say = _('The Wi-Fi here is fine: it is faster than the internet line. If the internet feels slow, the reason is the line or the internet company, not the Wi-Fi.');
+			else if (lineKbit && d < lineKbit) say = _('The Wi-Fi here is slower than the internet line, so the Wi-Fi is what holds you back. Move closer to the router or an access point, or use 5 GHz.');
+			else if (lineKbit) say = _('The Wi-Fi here and the internet line are about the same speed.');
+			else say = _('The Wi-Fi here is fine. To compare it with the internet line, measure the line once in "Ping and games".');
+			return res.concat([ E('p', { 'class': 'vx-big' }, [ say ]) ]);
+		};
+		const btn = E('button', { 'class': 'btn cbi-button-positive', 'click': () => {
+			btn.disabled = true;
+			out.replaceChildren(E('p', { 'class': 'spinning' }, [ _('Measuring the Wi-Fi of this device… about 20 seconds.') ]));
+			hn.api.wifiTest().then(r => {
+				if (!r || r.result === false) throw r;
+				return down(r.download, 8000).then(d => up(r.upload, 16777216, 10000).then(u => out.replaceChildren(...verdict(d, u))));
+			}).catch(r => out.replaceChildren(E('p', { 'class': 'vx-warn-text' }, [ hn.errorText(r && r.error) ])))
+			  .then(() => { btn.disabled = false; });
+		} }, [ _('Measure now') ]);
+		return hn.section(_('Is it the Wi-Fi or the internet?'), _('This device measures its own Wi-Fi to the router, without the internet in the way, and compares it with the internet line. Run it where the internet feels slow. It uses no internet.'), [ btn, out ]);
 	},
 
 	// B9: everything about the lines (docs/dualwan-spec.md; R1-R8, O2-O3, X2, spec 4.4)
@@ -356,15 +425,16 @@ return view.extend({
 		const band = E('select', { 'id': 'vx-g-band' }, [ [ '2g', _('2.4 GHz (reaches further)') ], [ '5g', _('5 GHz (faster, nearer)') ], [ 'both', _('Both') ] ]
 			.map(o => E('option', { 'value': o[0], 'selected': (gu.band || '2g') == o[0] ? '' : null }, [ o[1] ])));
 		// QR code made in the browser by LuCI's uqr library (shared helper, 15.9 item 2); nothing leaves the router
-		const qr = (gu.enabled && gu.ssid && gu.key) ? hn.wifiQr(gu.ssid, gu.key, false, false, _('QR code of the guest network')) : '';
+		const qr = (gu.enabled && gu.ssid && gu.key) ? hn.wifiQr(gu.ssid, gu.key, false, !!gu.hidden, _('QR code of the guest network')) : '';
 		const prints = (gu.enabled && gu.ssid && gu.key) ? E('div', { 'class': 'vx-actions' }, [
-			E('button', { 'class': 'btn cbi-button', 'click': () => hn.printWifiCard(_('Guest network'), gu.ssid, gu.key, false, false, 'a4') }, [ _('Print') ]),
-			E('button', { 'class': 'btn cbi-button', 'click': () => hn.printWifiCard(_('Guest network'), gu.ssid, gu.key, false, false, 'small') }, [ _('Print a small card') ]) ]) : '';
+			E('button', { 'class': 'btn cbi-button', 'click': () => hn.printWifiCard(_('Guest network'), gu.ssid, gu.key, false, !!gu.hidden, 'a4') }, [ _('Print') ]),
+			E('button', { 'class': 'btn cbi-button', 'click': () => hn.printWifiCard(_('Guest network'), gu.ssid, gu.key, false, !!gu.hidden, 'small') }, [ _('Print a small card') ]) ]) : '';
 		const save = on => hn.act(hn.api.guestSet(on, ssid.value.trim(), key.value.trim(), line ? +line.value : 0, band.value),
 			on ? _('Saved. Wi-Fi restarts for a few seconds.') : _('The guest network is off.')).then(done);
 		return hn.card(_('Guest network'), [
 			E('p', { 'class': 'vx-hint' }, [ _('Visitors get internet only: they cannot open the router pages, see the home devices or each other.') ]),
 			hn.field('vx-g-ssid', _('Network name'), ssid),
+			gu.enabled ? this.hideBox(gu.ssid || '', !!gu.hidden, on => hn.api.guestHidden(on)) : '',
 			hn.field('vx-g-key', _('Password'), key),
 			E('button', { 'class': 'btn cbi-button', 'click': () => { key.value = gen(); } }, [ _('New password') ]),
 			hn.field('vx-g-band', _('Band'), band),
@@ -626,19 +696,20 @@ return view.extend({
 		if (!radios.length)
 			return hn.card(_('Wi-Fi'), [ hn.empty(_('No Wi-Fi radio found.')), change ], { 'id': 'vx-wifi' });
 		return hn.card(_('Wi-Fi'), [
+			// hide: a box at the edge of each network, beside its name (owner 2026-11-22: beside every
+			// network, where the checkbox was, not in a list of its own); each band on its own
 			...radios.map(r => E('div', { 'class': 'vx-radio' }, [
-				E('h3', {}, [ r.band == '5g' ? _('5 GHz (fast, shorter reach)') : _('2.4 GHz (reaches further, slower)') ]),
+				E('div', { 'style': 'display:flex;align-items:center;justify-content:space-between;gap:12px' }, [
+					E('h3', { 'style': 'margin:0;flex:1 1 auto' }, [ r.band == '5g' ? _('5 GHz (fast, shorter reach)') : _('2.4 GHz (reaches further, slower)') ]),
+					this.hideBox(r.ssid || '-', !!(wf && wf['hidden_' + r.band]), on => hn.api.wifiHidden(r.band, on))
+				]),
 				E('dl', { 'class': 'vx-usage' }, [
 					E('dt', {}, [ _('Network name:') ]), E('dd', {}, [ fmt.name(r.ssid || '—') ]),
 					E('dt', {}, [ _('Channel') ]), E('dd', {}, [ fmt.ltr(String(r.channel || '—')) ]),
 					E('dt', {}, [ _('busy') ]), E('dd', {}, [ fmt.percent(r.busy_percent || 0) ]),
 					E('dt', {}, [ _('Connected now') ]), E('dd', {}, [ fmt.ltr(String(r.client_count || 0)) ])
-				]),
-				(r.clients || []).length ? E('ul', { 'class': 'vx-list' }, r.clients.map(c => E('li', {}, [
-					E('span', { 'class': 'vx-name' }, [ this.nameOfMac(c.mac) ]),
-					hn.badge(c.label == 'weak' ? 'warn' : 'ok', (SIGNAL[c.label] || SIGNAL.good)()),
-					E('span', { 'class': 'vx-num' }, [ fmt.speed((c.tx_mbit || 0) * 1000) ])
-				]))) : ''
+				])
+				// the devices and their signal: Devices page (owner 2026-11-22: no second list here)
 			])),
 			// 13.1: one name for both bands (default) or separate names
 			E('h3', {}, [ _('Network names') ]),
@@ -646,19 +717,8 @@ return view.extend({
 				E('button', { 'class': 'btn cbi-button', 'aria-pressed': String(!!(wf && wf.split) == x[0]),
 					'click': () => hn.act(hn.api.wifiSplit(x[0]), _('Saved. Wi-Fi restarts for a few seconds.')).then(r => r && r.result !== false && setTimeout(() => location.reload(), 4000)) }, [ x[1] ]))),
 			E('p', { 'class': 'vx-hint' }, [ _('With one name, phones that can use 5 GHz are moved to it by themselves. Separate names add "-5G" to the name of the 5 GHz network.') ]),
-			// hide the network name: one checkbox per network of the house (owner 2026-11-21); one name
-			// for both bands is one network, separate names are two, the guest network its own
-			E('h3', {}, [ _('Hide the network') ]),
-			E('ul', { 'class': 'vx-list', 'id': 'vx-hide-list' }, this.hideRows(wf, gu, radios)),
 			E('p', { 'class': 'vx-hint' }, [ _('A hidden network does not show in the list of networks on phones. Devices that are already connected stay connected; a new device types the name by hand or uses the QR code.') ]),
-			// stronger 2.4 GHz signal (owner 2026-11-20: as the old system)
-			E('h3', {}, [ _('Signal strength') ]),
-			E('label', { 'class': 'vx-switch' }, [
-				E('input', { 'type': 'checkbox', 'checked': wf && wf.power_high ? '' : null, 'change': ev =>
-					hn.act(hn.api.wifiPower(ev.target.checked), _('Saved. Wi-Fi restarts for a few seconds.')) }), ' ',
-				E('span', {}, [ _('Stronger 2.4 GHz signal (25 dBm, as the old system)') ])
-			]),
-			E('p', { 'class': 'vx-hint' }, [ _('The 2.4 GHz network reaches further. This is above the legal limit in Egypt (20 dBm). The 5 GHz network stays the same. Access points follow by themselves.') ]),
+			// no signal strength switch: 25 dBm on 2.4 GHz is always on (owner 2026-11-22, wifi-power)
 			E('div', { 'class': 'vx-actions' }, [
 				change,
 				E('button', { 'class': 'btn cbi-button', 'click': () => hn.askConfirm(_('Choose the best channel now?'), _('Wi-Fi stops for about a minute while the router listens to the neighbours; devices reconnect by themselves.'), _('Choose now'))
@@ -667,27 +727,13 @@ return view.extend({
 		], { 'id': 'vx-wifi' });
 	},
 
-	// [label, checked, call] for each network of the house: the home network (one row with one name,
-	// one row per band with separate names) and the guest network when it is on
-	hideRows(wf, gu, radios) {
-		const saved = _('Saved. Wi-Fi restarts for a few seconds.');
-		const bands = radios.map(r => r.band).filter((b, i, a) => a.indexOf(b) == i);
-		const ssidOf = b => (radios.filter(r => r.band == b)[0] || {}).ssid || '—';
-		const nets = [];
-		if (wf && wf.split)
-			bands.forEach(b => nets.push([ ssidOf(b), b == '5g' ? _('Home Wi-Fi, 5 GHz') : _('Home Wi-Fi, 2.4 GHz'), !!wf['hidden_' + b], on => hn.api.wifiHidden(b, on) ]));
-		else if (bands.length)
-			nets.push([ ssidOf(bands[0]), _('Home Wi-Fi'), bands.every(b => wf && wf['hidden_' + b]), on => hn.api.wifiHidden(bands.length > 1 ? 'both' : bands[0], on) ]);
-		if (gu && gu.enabled && gu.ssid)
-			nets.push([ gu.ssid, _('Guest network'), !!gu.hidden, on => hn.api.guestHidden(on) ]);
-		return nets.map(n => {
-			const box = E('input', { 'type': 'checkbox', 'checked': n[2] ? '' : null, 'aria-label': _('Hide %s').format(n[0]),
-				'change': ev => hn.act(n[3](ev.target.checked), saved) });
-			return E('li', {}, [
-				E('span', { 'class': 'vx-name vx-rows' }, [ E('strong', {}, [ fmt.name(n[0]) ]), E('span', { 'class': 'vx-row-line' }, [ n[1] ]) ]),
-				E('label', { 'class': 'vx-switch' }, [ box, ' ', E('span', {}, [ _('Hide') ]) ])
-			]);
-		});
+	// the hide box beside one network (owner 2026-11-22)
+	hideBox(name, checked, call) {
+		return E('label', { 'class': 'vx-switch', 'style': 'flex:0 0 auto;margin:0' }, [
+			E('input', { 'type': 'checkbox', 'checked': checked ? '' : null, 'aria-label': _('Hide %s').format(name),
+				'change': ev => hn.act(call(ev.target.checked), _('Saved. Wi-Fi restarts for a few seconds.')) }), ' ',
+			E('span', {}, [ _('Hide') ])
+		]);
 	},
 
 	nameOfMac(mac) {
@@ -822,7 +868,7 @@ return view.extend({
 		// a list of names: separated by the comma of the page language
 		const joinEls = els => E('span', {}, els.reduce((o, e, i) => (i ? o.concat([ document.documentElement.lang == 'ar' ? '، ' : ', ', e ]) : [ e ]), []));
 		if (sc.managed)
-			return hn.section(_('Schedules'), _('The main router manages this access point: set the schedules there; this one follows them.'), []);
+			return hn.section(_('Wi-Fi, lights and restart times'), _('The main router manages this access point: set the schedules there; this one follows them.'), []);
 		const DAYS = [ [ 6, _('Sat', 'Virox day') ], [ 0, _('Sun', 'Virox day') ], [ 1, _('Mon', 'Virox day') ], [ 2, _('Tue', 'Virox day') ],
 			[ 3, _('Wed', 'Virox day') ], [ 4, _('Thu', 'Virox day') ], [ 5, _('Fri', 'Virox day') ] ];
 		const TARGETS = [ [ 'all', _('The whole Wi-Fi') ], [ '2g', _('2.4 GHz only') ], [ '5g', _('5 GHz only') ], [ 'guest', _('The guest network') ] ];
@@ -1085,7 +1131,14 @@ return view.extend({
 			E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.backupCreate(), null).then(r => r && r.result !== false && download(r.path, r.name)) }, [ _('Save my settings') ]),
 			E('button', { 'class': 'btn cbi-button', 'click': () => ui.uploadFile('/tmp/virox-restore.tar.gz').then(() => restoreFrom('/tmp/virox-restore.tar.gz')).catch(() => {}) }, [ _('Restore from a file') ])
 		];
-		const nightly = (bl && bl.backups) || [];
+		// the copies the router made itself before an update (owner 2026-11-22), newest first
+		const pre = ((bl && bl.backups) || []).filter(b => b.kind == 'update');
+		if (pre.length)
+			body.push(E('p', {}, [ _('Copies made before an update (on the router):') ]), E('ul', { 'class': 'vx-list' }, pre.slice().reverse().map(b => E('li', {}, [
+				E('span', { 'class': 'vx-name vx-rows' }, [ E('strong', {}, [ fmt.ltr(b.date) ]),
+					E('span', { 'class': 'vx-row-line' }, [ b.from ? fmt.sentence(_('The settings of version %s'), [ fmt.ltr(b.from) ]) : fmt.bytes(b.size) ]) ]),
+				E('button', { 'class': 'btn cbi-button', 'click': () => restoreFrom(b.path) }, [ _('Restore', 'Virox') ]) ]))));
+		const nightly = ((bl && bl.backups) || []).filter(b => b.kind != 'update');
 		if (nightly.length)
 			body.push(E('p', {}, [ _('Nightly copies on the USB stick:') ]), E('ul', { 'class': 'vx-list' }, nightly.slice().reverse().map(b => E('li', {}, [
 				E('span', { 'class': 'vx-name vx-rows' }, [ E('strong', {}, [ fmt.ltr(b.date) ]), E('span', { 'class': 'vx-row-line' }, [ fmt.bytes(b.size) ]) ]),
@@ -1178,22 +1231,27 @@ return view.extend({
 			addresses: 'M4 6h16M4 12h16M4 18h10M18 16v4M16 18h4'
 		};
 		const list = [
-			[ 'lines', ls && ls.enabled ? _('Lines and packages') : _('Package'), '', () => ls ? this.linesCard(ls) : E('div', { 'id': 'vx-package' }, [ this.packageCard(set) ]), 'internet' ],
-			[ 'ping', _('Ping and games'), '', () => this.pingCard(ls, gm, qa), 'internet' ],
-			po && po.router ? [ 'ports', _('Open ports'), '', () => this.portsCard(po, dv, ls), 'internet' ] : null,
+			hn.isAccessPoint(ap)
+				? [ 'lines', _('Lines and packages'), '', () => E('div', { 'id': 'vx-package' }, [ hn.section(_('Lines and packages'), '', [
+					E('p', { 'class': 'vx-hint' }, [ _('This router is an access point: the internet lines, the package and the open ports are set on the main router.') ]) ]) ]), 'internet' ]
+				: [ 'lines', ls && ls.enabled ? _('Lines and packages') : _('Package'), '', () => ls ? this.linesCard(ls) : E('div', { 'id': 'vx-package' }, [ this.packageCard(set) ]), 'internet' ],
+			[ 'ping', _('Ping and games'), '', () => this.pingCard(ls, gm, qa, ap), 'internet' ],
+			[ 'wifitest', _('Wi-Fi or internet?'), '', () => this.wifiTestCard(ls, ap), 'internet' ],
+			po && po.router && !hn.isAccessPoint(ap) ? [ 'ports', _('Open ports'), '', () => this.portsCard(po, dv, ls), 'internet' ] : null,
 			vp && !vp.ap ? [ 'vpn', _('VPN'), vp.enabled ? (vp.connected ? _('Connected') : _('Not connected')) : _('Off'), () => this.vpnCard(vp, dv, pp), 'internet' ] : null,
 			[ 'wifi', _('Wi-Fi'), _('Name and password, channels, network names'), () => this.wifiCard(wf, gu), 'wifi' ],
 			gu ? [ 'guest', _('Guest network'), '', () => this.guestCard(gu, ls), 'wifi' ] : null,
 			ap ? [ 'aps', _('Access points'), '', () => this.apsCard(ap), 'wifi' ] : null,
 			wk ? [ 'identity', _('Personal passwords'), '', () => this.identityCard(wk, pp, dv), 'wifi' ] : null,
 			qc ? [ 'qr', _('QR codes and printing'), '', () => this.qrCard(qc), 'wifi' ] : null,
-			sc ? [ 'schedule', _('Schedules'), '', () => this.scheduleCard(sc), 'wifi' ] : null,
+			// one place for the times of the router itself (owner 2026-11-22: "Schedules" was the name
+			// of three places): Wi-Fi off, lights and the scheduled restart; the device times stay in Control
+			sc ? [ 'schedule', _('Wi-Fi, lights and restart times'), '', () => E('div', {}, [ this.scheduleCard(sc), sc.managed ? '' : this.restartCard(sc) ]), 'wifi' ] : null,
 			[ 'family', _('Family logins'), _('Logins that see only their own devices'), () => this.usersCard(us, pp), 'settings' ],
 			[ 'update', _('Update'), up && up.available ? _('A new version is available') : _('Router version and updates'), () => this.updateCard(up), 'settings' ],
 			[ 'backup', _('Help and backup'), _('Help report, save and restore settings'), () => this.helpCard(bl), 'settings' ],
 			ad ? [ 'addresses', _('Addresses'), _('The addresses of the Virox units and of the devices'), () => this.addressesCard(ad), 'settings' ] : null,
 			ub ? [ 'usb', _('USB disk and printer'), (ub.disks || []).length ? _('A disk is plugged in') : _('Share a flash disk or a printer'), () => this.usbCard(ub), 'settings' ] : null,
-			sc && !sc.managed ? [ 'restart', _('Scheduled restart'), sc.restart && sc.restart.enabled ? _('On', 'Virox') : _('Off', 'Virox'), () => this.restartCard(sc), 'settings' ] : null,
 			[ 'display', _('Display and language'), _('Language, look, light or dark, colour'), () => this.accountCard(pv, th, 'display'), 'settings' ],
 			[ 'router', _('Router and sign-out'), _('Quick setup, complete menu, sign out'), () => this.accountCard(pv, th, 'router'), 'settings' ]
 		].filter(x => x);

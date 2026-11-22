@@ -214,7 +214,10 @@ ln_shaper() {
 		tc qdisc replace dev "$dev" root cake bandwidth "${up}kbit" diffserv4 nat $ack $oh 2>/dev/null
 		ip link add "$ifb" type ifb 2>/dev/null && ip link set "$ifb" up &&
 		tc qdisc add dev "$dev" handle ffff: ingress 2>/dev/null &&
-		tc filter add dev "$dev" parent ffff: protocol all prio 10 u32 match u32 0 0 action mirred egress redirect dev "$ifb" 2>/dev/null &&
+		{ # the download of a priority device (homenet/controls prio_apply) gets its tin from the
+		  # connection mark (act_ctinfo, kmod-sched-ctinfo); without the module: as before
+		  tc filter add dev "$dev" parent ffff: protocol all prio 10 u32 match u32 0 0 action ctinfo dscp 0xfc000000 0x01000000 action mirred egress redirect dev "$ifb" 2>/dev/null ||
+		  tc filter add dev "$dev" parent ffff: protocol all prio 10 u32 match u32 0 0 action mirred egress redirect dev "$ifb" 2>/dev/null; } &&
 		tc qdisc replace dev "$ifb" root cake bandwidth "${down}kbit" diffserv4 nat wash ingress $oh 2>/dev/null
 		devs="$devs${devs:+, }\"$dev\""
 	done
@@ -520,6 +523,8 @@ case "$1" in
 		# an upload that could not be measured keeps the value set before
 		u=""; [ "${2:-0}" -ge 300 ] && u=$(( $2 * 9 / 10 )) && uci set "lines.line$n.up_kbit=$u"
 		uci set "lines.line$n.shaper=1"
+		# the speed is a measured one now (the ping page judges "house busy" only on a measured speed)
+		uci set "lines.line$n.measured=1"
 		[ "$n" = 1 ] && uci set lines.line1.shaper_single=1
 		uci commit lines; ln_shaper
 		echo "OK $k $(uci -q get "lines.line$n.up_kbit")" > "$f" ;;

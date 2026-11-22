@@ -18,6 +18,10 @@ const api = {
 	devices: call('devices'),
 	live: call('live'),
 	quality: call('quality', [ 'minutes' ]),
+	outages: call('outages', [ 'month' ]),
+	nightUse: call('night_use', [ 'target' ]),
+	wifiTest: call('wifi_test'),
+	prioritySet: call('priority_set', [ 'target', 'on' ]),
 	kidSites: call('kid_sites', [ 'target', 'day' ]),
 	kidsLogSet: call('kids_log_set', [ 'on' ]),
 	people: call('people'),
@@ -501,10 +505,20 @@ function targetName(id, devices, people) {
 	return d ? deviceName(d) : id;
 }
 
+// this unit has no internet line of its own (an access point). virox.apctl list says "router" for
+// a lead access point (it manages the others), so the lead counts too (2.230, 2026-11-22)
+function isAccessPoint(ap) {
+	return !!(ap && (ap.mode == 'ap' || ap.lead));
+}
+
 function deviceName(d) {
 	if (d.name) return d.name;
 	const h = (d.macs || []).map(m => m.hostname).filter(x => x)[0];
-	return h || _('Unnamed device');
+	if (h) return h;
+	// no name at all: the maker from the MAC, or "a phone with a private address" (owner 2026-11-22)
+	if (d.maker) return _('%s device').format(d.maker);
+	if (d.private_mac) return _('Phone or tablet (private address)');
+	return _('Unnamed device');
 }
 
 // <select> of devices and people (people first: a control on a person covers all its devices)
@@ -581,6 +595,6 @@ const DAY_NAMES = () => [ _('Sun'), _('Mon'), _('Tue'), _('Wed'), _('Thu'), _('F
 
 return baseclass.extend({
 	api, MB, GB, errorText, updateErrorText, wifiQrText, wifiQr, printWifiCard, ltr, bytes, lineName, lineState, gbFromMb, mbFromGb, speed, minutesText, timeText, card,
-	loading, empty, failed, badge, notify, act, askConfirm, targetName, deviceName, targetSelect,
+	loading, empty, failed, badge, notify, act, askConfirm, targetName, deviceName, targetSelect, isAccessPoint,
 	field, row, section, seg, tabs, poll, DAY_NAMES
 });

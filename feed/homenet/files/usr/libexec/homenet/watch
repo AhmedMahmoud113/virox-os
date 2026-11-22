@@ -16,6 +16,9 @@
 # State: $HN_RUN/watch.tsv  iface  state  since  reason_detail  gateway  checked  (for the API);
 #        $HN_DATA/watch.state  iface  state  since   (flash, written only when a state changes,
 #        so an outage that spans a reboot is still measured from its start)
+#        $HN_DATA/outages.tsv  start  end  seconds  iface  reason   one row per finished outage, the
+#        last 1000 (owner 2026-11-22: a report for the internet company; the event list keeps only
+#        200 events of every kind, so a month of outages could fall out of it)
 umask 077
 . /usr/lib/homenet/common.sh
 T="${HN_RUN:?}/watch.$$"
@@ -85,6 +88,8 @@ for i in $lines; do
 			# again with the new reason)
 			if [ "$res" = up ]; then
 				hn_event internet_up info line="$i" seconds=$(( now - since )) was="$cur" >/dev/null 2>&1
+				{ tail -n 999 "$HN_DATA/outages.tsv" 2>/dev/null; printf '%s\t%s\t%s\t%s\t%s\n' "$since" "$now" $(( now - since )) "$i" "$cur"; } > "$T.out" &&
+					mv -f "$T.out" "$HN_DATA/outages.tsv"
 			else
 				hn_event internet_down warn line="$i" reason="$res" >/dev/null 2>&1
 			fi

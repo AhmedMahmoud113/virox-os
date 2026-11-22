@@ -147,6 +147,12 @@ install() {
 		err image_refused
 	fi
 	if [ "${LG7200_UPDATE_DRYRUN:-0}" = 1 ]; then echo "OK dryrun"; return 0; fi
+	# a copy of the settings on the router itself first (owner 2026-11-22): if the new version
+	# misbehaves, Settings, Help and backup puts them back. A failed copy is logged, not fatal.
+	if [ -x /usr/libexec/lg7200/backup ]; then
+		out="$(/usr/libexec/lg7200/backup preupdate "$(current)" "$(sed -n 's/^available=//p' "$STATUS")" 2>&1)" ||
+			logger -t lg7200-update "the settings copy before the update failed: $out"
+	fi
 	lg7200_event_add system update_installing info version="$(sed -n 's/^available=//p' "$STATUS")" >/dev/null 2>&1
 	st installing "$(date +%s)"
 	echo "OK installing"

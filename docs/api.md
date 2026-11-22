@@ -247,8 +247,11 @@ migrations from the backup's schema version up, writes `system/settings_restored
 or `../` names, links, devices).
 
 ### `backup_list` — admin
-`{ backups: [ { path, size, date } ] }`: the nightly copies (03:30, P7) on a plugged-in USB stick,
-the last 14 kept. (A paired access point as the destination comes with B9 / Y1.)
+`{ backups: [ { path, size, date, kind, from } ] }`: the nightly copies (03:30, P7) on a plugged-in
+USB stick, the last 14 kept (`kind: "usb"`), and the copies made on the router itself before an
+update (`kind: "update"`, `from` = the version they were made on; owner 2026-11-22):
+`lg7200-update install` runs `backup preupdate <from> <to>` first, into `/etc/lg7200/pre-update`
+(kept by sysupgrade, the last 2). Both can be given to `backup_check` / `backup_restore`.
 
 ### Remote help — removed
 Remote control and remote help were removed by the owner (BUILD-PLAN 15.9 item 1); updates fix
@@ -295,6 +298,43 @@ in RAM. `minutes` = bucket size, 5-240 (default 30); `ping_ms` null = no answer 
 `up_kbit` of the line = its measured speed (`lines.lineN`), null when never measured. Internet, Ping
 and games: the chart of the day, the times the ping was high (≥ 100 ms, jitter ≥ 30 ms or loss ≥ 3 %)
 and why: the house filled the line (≥ 70 % of its speed) or the line itself was weak.
+
+### `outages { month }` — admin (owner 2026-11-22: a report for the internet company)
+→ `{ month, outages: [ { start, end, seconds, line, reason } ], count, seconds, months }`. `month` =
+YYYY-MM (default this month). Rows from `homenet/watch` (`/etc/homenet/data/outages.tsv`, one row per
+finished outage, the last 1000): `reason` = what the line was during the outage (`no_internet`: the
+modem answered, the internet did not; `no_modem`; `wan_down`). `months` = the months that have rows.
+Home, Internet connection: "Report for the internet company" (print, or copy as text). Error:
+`invalid_month`.
+
+### `night_use { target }` — admin (owner 2026-11-22: was the kid online at night?)
+→ `{ target, days: [ { date, minutes, hours: [ { hour, minutes } ] } ] }`, newest first, the last 14
+mornings. `homenet/controls` (every minute, 00:00-05:59) gives a device one minute in that hour when
+it moved more than `homenet.main.active_kb` KB in it (the "active minute" of the daily time). A person
+(`pN`) adds up its devices, at most 60 minutes per hour. Device sheet: "Internet at night". Error:
+`unknown_target`.
+
+### `wifi_test` — admin and family logins (owner 2026-11-22: is it the Wi-Fi or the internet?)
+→ `{ result, download, size, upload, seconds }`: opens a test on this unit for 3 minutes
+(`homenet/wifitest open`): `download` = a 32 MB file of zeros in RAM (`/virox-speed/test.bin`),
+`upload` = `/cgi-bin/virox-upload`, which takes up to 64 MB by POST and throws it away (it answers only
+while a test is open). The client times both itself (the page: 8 s down, 16 MB up) and compares the
+result with the measured line speed. Nothing goes to the internet. Errors: `no_memory` (under 80 MB
+free), `serve_failed`. Internet page, tab "Wi-Fi or internet?"; the phone app later.
+
+### `priority_set { target, on }` — admin (owner 2026-11-22: one device or person first)
+`controls priority <target> 0|1` (`/etc/homenet/data/priority.tsv`, at most 3: error `too_many`). On the
+main router, `controls apply` keeps table `inet homenet_prio`: connections a chosen MAC opens from the LAN
+get ct mark bits 31-26 = AF41 and bit 24; their upload leaves with DSCP AF41 (cake diffserv4 Video tin),
+their download gets the same tin from the mark (`homenet/lines`: tc `action ctinfo dscp 0xfc000000
+0x01000000` before the ifb, kmod-sched-ctinfo; without it the download is as before). Small UDP packets of
+games and calls of every device still get EF (Voice tin, homenet_qos, later hook). Needs a shaped line.
+`devices` gives `priority` and `priority_via_person`.
+
+`devices` also gives, per device, `maker` (from the first three bytes of a MAC,
+`/usr/share/homenet/makers.tsv`, tools/makers-table.py) and `private_mac` (every MAC of the device
+is a "locally administered" private address a phone made up), and per MAC `maker` and `private`.
+A device without a name shows "<maker> device" or "Phone or tablet (private address)".
 
 ### `people` — admin
 `{ people: [ { id, name, devices: [ device ids ] } ] }`.

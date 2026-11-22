@@ -35,7 +35,8 @@ return view.extend({
 			hn.api.devices(), hn.api.people().catch(() => ({ people: [] })),
 			hn.api.siteCatalog().catch(() => ({ sites: [] })), hn.api.siteLocks().catch(() => ({ site_locks: [] })),
 			hn.api.reservations().catch(() => ({ reservations: [] })),
-			hn.api.lines().catch(() => null)
+			hn.api.lines().catch(() => null),
+			hn.api.aps().catch(() => null)
 		]).catch(() => null);
 	},
 
@@ -58,6 +59,7 @@ return view.extend({
 		if (d.kids) b.push(hn.badge('info', _('Kids mode')));
 		if ((d.site_locks || []).length) b.push(hn.badge('info', _('Sites locked')));
 		if (d.speed || d.person_speed) b.push(hn.badge('info', _('Speed limited')));
+		if (d.priority) b.push(hn.badge('ok', _('Priority')));
 		return b;
 	},
 
@@ -103,8 +105,8 @@ return view.extend({
 					// B9 Y3: where the device is, to find weak spots in the house
 					d.online && d.where ? E('p', { 'class': 'vx-dev-sub' }, [
 						d.where.ap == 'main' ? _('On this router') : fmt.sentence(_('On %s'), [ fmt.name(d.where.name || d.where.ap) ]), ' ',
-						hn.badge(d.where.signal >= -60 ? 'ok' : (d.where.signal >= -72 ? 'warn' : 'bad'),
-							d.where.signal >= -60 ? _('Strong signal') : (d.where.signal >= -72 ? _('Fair signal') : _('Weak signal'))) ]) : ''
+						hn.badge(d.where.signal >= -60 ? 'ok' : (d.where.signal >= -80 ? 'warn' : 'bad'),
+							d.where.signal >= -60 ? _('Strong signal') : (d.where.signal >= -80 ? _('Fair signal') : _('Weak signal'))) ]) : ''
 				]),
 				toggle
 			]),
@@ -135,7 +137,7 @@ return view.extend({
 
 	// ------------------------------------------------------------- "More": one device or person
 	moreDialog(target, isPerson) {
-		const [ dv, pp, cat, locks, rs, ls ] = this.data;
+		const [ dv, pp, cat, locks, rs, ls, ap ] = this.data;
 		const devices = dv.devices, people = pp.people || [];
 		const d = isPerson ? null : devices.filter(x => x.id == target)[0];
 		const p = isPerson ? people.filter(x => x.id == target)[0] : null;
@@ -238,6 +240,27 @@ return view.extend({
 			]));
 		}
 
+		// priority (owner 2026-11-22): this device (or all of the person's) goes before the other
+		// devices when the line is full; games and calls of every device still go first. On the main
+		// router only (an access point has no line of its own).
+		// a person has it when its devices have it through the person
+		const pri = isPerson ? dv.devices.some(x => x.person == target && x.priority_via_person) : !!(d && d.priority && !d.priority_via_person);
+		if (!hn.isAccessPoint(ap))
+			add('net', E('fieldset', {}, [
+				E('legend', {}, [ _('Priority') ]),
+				E('p', { 'class': 'vx-hint' }, [ isPerson ? _('All devices of this person go before the other devices when the line is full, for example for work or for a game console. Games and calls of every device still go first. At most 3.')
+					: _('This device goes before the other devices when the line is full, for example a work laptop or a game console. Games and calls of every device still go first. At most 3.') ]),
+				!((ls && ls.lines) || []).some(l => l.shaping) ? E('p', { 'class': 'vx-warn-text' }, [ _('It works after the line is measured once: Internet, Ping and games, "Measure and adjust".') ]) : '',
+				d && d.priority_via_person ? E('p', {}, [ _('On through the person.') ]) : E('button', {
+					'class': 'btn ' + (pri ? 'cbi-button' : 'cbi-button-positive'),
+					'click': () => hn.api.prioritySet(target, !pri).then(r => {
+						if (r && r.result === false)
+							return hn.notify(r.error == 'too_many' ? _('At most 3 devices or people can have priority. Turn it off for one first.') : hn.errorText(r.error), 'warning');
+						hn.notify(pri ? _('Priority is off.') : _('Priority is on.'), 'success');
+						done(r);
+					}).catch(() => hn.notify(_('The router did not answer.'), 'danger')) }, [ pri ? _('Turn off') : _('Turn on') ])
+			]));
+
 		// speed limit (Mbit/s on the page, kbit/s in the API)
 		const sd = E('input', { 'id': 'vx-m-sdown', 'type': 'number', 'lang': 'en', 'inputmode': 'decimal', 'min': '0', 'max': '1000', 'step': '0.1', 'dir': 'ltr', 'value': sp ? sp.down_kbit / 1000 : '' });
 		const su = E('input', { 'id': 'vx-m-sup', 'type': 'number', 'lang': 'en', 'inputmode': 'decimal', 'min': '0', 'max': '1000', 'step': '0.1', 'dir': 'ltr', 'value': sp ? sp.up_kbit / 1000 : '' });
@@ -310,6 +333,25 @@ return view.extend({
 			]));
 			show('');
 		}
+
+		// internet at night (owner 2026-11-22): every device and person, loaded when the sheet opens
+		const nbox = E('div', {}, [ E('p', { 'class': 'vx-hint' }, [ _('Checking…') ]) ]);
+		hn.api.nightUse(target).then(r => {
+			const days = (r && r.days) || [];
+			if (!r || r.result === false) return nbox.replaceChildren(E('p', { 'class': 'vx-hint' }, [ _('The list could not be read.') ]));
+			nbox.replaceChildren(days.length ? E('ul', { 'class': 'vx-list' }, days.map(x => E('li', {}, [
+				E('span', { 'class': 'vx-name vx-rows' }, [
+					E('strong', {}, [ fmt.date(x.date) ]),
+					E('span', { 'class': 'vx-row-line' }, x.hours.map((h, i) => E('span', {}, [ i ? ' · ' : '', fmt.sentence(_('%s: %s'), [ fmt.ltr('%02d:00'.format(h.hour)), fmt.minutes(h.minutes) ]) ])))
+				]),
+				hn.badge(x.minutes >= 60 ? 'warn' : 'info', fmt.minutes(x.minutes))
+			]))) : hn.empty(_('Not used at night in the last 14 days.')));
+		}).catch(() => nbox.replaceChildren(E('p', { 'class': 'vx-hint' }, [ _('The list could not be read.') ])));
+		add('protect', E('fieldset', {}, [
+			E('legend', {}, [ _('Internet at night') ]),
+			E('p', { 'class': 'vx-hint' }, [ _('The minutes the internet was used between midnight and 6 in the morning, for the last 14 days. A minute counts only when something was really used, not a phone lying idle.') ]),
+			nbox
+		]));
 
 		// site lock
 		const groups = {};

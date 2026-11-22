@@ -7,6 +7,7 @@
 'use strict';
 'require view';
 'require dom';
+'require ui';
 'require homenet.ui as hn';
 'require virox.fmt as fmt';
 
@@ -98,7 +99,8 @@ return view.extend({
 			hn.api.usage().catch(() => null),
 			hn.api.events(5, true).catch(() => null),
 			hn.api.updateStatus().catch(() => null),
-			hn.api.lines().catch(() => null)
+			hn.api.lines().catch(() => null),
+			hn.api.aps().catch(() => null)
 		]);
 	},
 
@@ -236,7 +238,7 @@ return view.extend({
 		const back = ev.filter(e => e.kind == 'up' && e.time >= week);
 		const total = back.reduce((s, e) => s + (e.seconds || 0), 0);
 		return E('section', { 'class': 'vx-card', 'id': 'vx-outages' }, [
-			cardHead(_('Internet connection')),
+			cardHead(_('Internet connection'), E('button', { 'class': 'btn cbi-button small', 'click': () => this.outageReport('') }, [ _('Report for the internet company') ])),
 			E('p', { 'class': 'vx-hint' }, [ back.length
 				? fmt.sentence(_('%s outages in the last 7 days, %s in total'), [ fmt.ltr(String(back.length)), fmt.minutes(Math.round(total / 60)) ])
 				: _('No outages in the last 7 days.') ]),
@@ -249,6 +251,61 @@ return view.extend({
 				E('span', { 'class': 'vx-hint' }, [ fmt.date(e.time), ' ', fmt.time(e.time) ])
 			]))) : ''
 		]);
+	},
+
+	// the outages of a month for the internet company (owner 2026-11-22): a list to print or to copy
+	// into a message; every finished outage of every line, with the totals
+	outageReport(month) {
+		const REASON = { no_internet: _('The modem was on, the internet did not get through'), no_modem: _('The modem did not answer'), wan_down: _('The line was down') };
+		hn.api.outages(month).then(r => {
+			if (!r || r.result === false) return hn.notify(_('The list could not be read.'), 'danger');
+			const rows = r.outages || [];
+			// plain text (fmt.date / fmt.time give page elements): 2026-11-22 14:05
+			const when = t => { const d = new Date(t * 1000); return '%04d-%02d-%02d %02d:%02d'.format(d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()); };
+			const mins = sec => fmt.minutesText(Math.max(1, Math.round(sec / 60)));
+			const sel = E('select', { 'aria-label': _('Month'), 'change': ev => { ui.hideModal(); this.outageReport(ev.target.value); } },
+				(r.months.indexOf(r.month) >= 0 ? r.months : r.months.concat([ r.month ])).slice().reverse().map(m => E('option', { 'value': m, 'selected': m == r.month ? '' : null }, [ m ])));
+			const summary = fmt.sentence(_('%s outages in %s, %s in total'), [ fmt.ltr(String(r.count)), fmt.ltr(r.month), fmt.minutes(Math.round(r.seconds / 60)) ]);
+			// plain text for a message to the company (WhatsApp, e-mail)
+			const text = () => [ _('Internet outages') + ' ' + r.month, summary.textContent, '' ]
+				.concat(rows.map(o => '%s → %s (%s)%s'.format(when(o.start), when(o.end), mins(o.seconds), REASON[o.reason] ? ' - ' + REASON[o.reason] : ''))).join('\n');
+			const table = rows.length ? E('table', { 'class': 'table vx-outage-table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [ _('From'), _('To'), _('Duration'), _('What happened') ].map(h => E('th', { 'class': 'th' }, [ h ]))) ]
+				.concat(rows.map(o => E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td' }, [ fmt.ltr(when(o.start)) ]), E('td', { 'class': 'td' }, [ fmt.ltr(when(o.end)) ]),
+					E('td', { 'class': 'td' }, [ mins(o.seconds) ]), E('td', { 'class': 'td' }, [ (REASON[o.reason] || '') + (o.line && o.line != 'wan' ? ' (' + o.line + ')' : '') ]) ]))))
+				: hn.empty(_('No outages in this month.'));
+			ui.showModal(_('Report for the internet company'), [
+				E('p', {}, [ sel ]),
+				E('p', { 'class': 'vx-big' }, [ summary ]),
+				table,
+				E('p', { 'class': 'vx-hint' }, [ _('An outage counts when the line stays down for two checks in a row (about two minutes); short drops are not listed.') ]),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn cbi-button', 'click': () => {
+						const t = text();
+						(navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => hn.notify(_('Copied. Paste it into a message to the company.'), 'info'))
+							.catch(() => { const a = E('a', { 'href': URL.createObjectURL(new Blob([ t ], { 'type': 'text/plain' })), 'download': 'outages-' + r.month + '.txt' }); document.body.appendChild(a); a.click(); a.remove(); });
+					} }, [ _('Copy as text') ]),
+					' ',
+					E('button', { 'class': 'btn cbi-button', 'click': () => {
+						const w = window.open('', '_blank');
+						if (!w) return;
+						const d = w.document, root = document.documentElement;
+						d.documentElement.lang = root.lang; d.documentElement.dir = root.dir;
+						d.title = _('Internet outages') + ' ' + r.month;
+						const st = d.createElement('style');
+						st.textContent = 'body{font-family:sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:6px;text-align:start}';
+						d.head.appendChild(st);
+						const h = d.createElement('h1'); h.textContent = d.title; d.body.appendChild(h);
+						const p = d.createElement('p'); p.textContent = summary.textContent; d.body.appendChild(p);
+						if (rows.length) d.body.appendChild(d.importNode(table, true));
+						w.focus(); w.print();
+					} }, [ _('Print') ]),
+					' ',
+					E('button', { 'class': 'btn cbi-button-positive', 'click': ui.hideModal }, [ _('Close', 'Virox') ])
+				])
+			]);
+		}).catch(() => hn.notify(_('The router did not answer.'), 'danger'));
 	},
 
 	// B9: with the second line on, the package card shows both lines: state, use, what is left,
@@ -346,10 +403,13 @@ return view.extend({
 	},
 
 	render(data) {
-		const [ net, dv, us, ev, up, ls ] = data;
+		const [ net, dv, us, ev, up, ls, ap ] = data;
 		if (!net && !dv && !us) return hn.failed();
 		this.dv = dv;
-		const pkg = (u, l) => (l && l.enabled) ? this.linesCard(l) : this.packageCard(u);
+		// an access point has no package of its own: it is counted on the main router (owner 2026-11-22:
+		// the card sent to "set the package size" on a page that says "set on the main router")
+		const onAP = hn.isAccessPoint(ap);
+		const pkg = (u, l) => onAP ? '' : ((l && l.enabled) ? this.linesCard(l) : this.packageCard(u));
 		this.speed(net);
 		const alert = this.alertLine(dv, up, ev);
 		const root = E('div', { 'class': 'vx-page vx-home' }, [

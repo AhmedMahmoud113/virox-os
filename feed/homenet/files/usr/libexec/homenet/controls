@@ -55,8 +55,11 @@
 #       schedules.tsv id  target  days  start  end  enabled  label
 #       timelimits.tsv  target  minutes;  screentime.tsv (RAM, persisted)  date  target  minutes
 #       timeextra.tsv  date  target  minutes   (extra time given for that day; older days dropped)
+#       night.tsv (RAM, persisted)  date  device_id  hour  minutes   use between 00:00 and 06:00
+#                     (owner 2026-11-22: "was the kid online at night?"), the last 14 days
 #       held.tsv      device_id  date  mac      (new devices waiting for approval)
 #       speed.tsv     target  down_kbit  up_kbit
+#       priority.tsv  target   (devices / people whose internet goes first, at most 3; owner 2026-11-22)
 #       limits.tsv    target  bytes  warn_percent
 #       limit-alerted.tsv  cycle_start  key  level   (one alert per cycle; key @package = package)
 #       $HN_RUN/quota.tsv  target  used_bytes  limit_bytes  warn  up(0|1)   (for the API)
@@ -77,6 +80,8 @@ case "$ST_KB" in ''|*[!0-9]*) ST_KB=40 ;; esac
 ST_THRESHOLD=$(( ST_KB * 1000 ))
 LAST="$HN_RUN/ctl-blocked-ips"
 SPD="$HN_DATA/speed.tsv"
+PRIO="$HN_DATA/priority.tsv"
+PRIO_APPLIED="$HN_RUN/priority.applied"
 SPD_APPLIED="$HN_RUN/speed.applied"
 LIM="$HN_DATA/limits.tsv"
 LIM_ALERTED="$HN_DATA/limit-alerted.tsv"
@@ -165,6 +170,85 @@ timelimits() {
 		hn_event time_limit_reached info target="$t"
 	done < "$TMPB.tlup"
 	cat "$TMPB.tlup"
+}
+
+# Night use (owner 2026-11-22): between 00:00 and 05:59, once per minute, every device that moved
+# more than ST_THRESHOLD bytes in that minute (the same "active minute" as the daily time) gets
+# one minute in its hour. Rows: date (of that morning)  device_id  hour  minutes. RAM, persisted
+# every 10 minutes like the screen time; days older than 14 are dropped at the first tick of a night.
+NIGHT="$HN_RUN/night.tsv"
+NIGHT_LAST="$HN_RUN/night.last"
+nightuse() {
+	local hour nowmin lastmin today old
+	hn_synced || return 0
+	hour="$(date +%H)"; hour="${hour#0}"
+	[ "${hour:-0}" -lt 6 ] || { rm -f "$NIGHT_LAST"; return 0; }
+	today="$(hn_today)"; nowmin=$(( $(date +%s) / 60 ))
+	local tbl="inet homenet"; [ "$(uci -q get lg7200.state.mode)" = ap ] && tbl="bridge homenet_ap"
+	{ nft list set $tbl upload 2>/dev/null; nft list set $tbl download 2>/dev/null; } | awk '
+		{ line = $0; gsub(/[{},]/, " ", line); n = split(line, a, /[[:space:]]+/)
+		  for (i = 1; i <= n; i++) if (a[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && a[i+1] == "counter" && a[i+5] ~ /^[0-9]+$/) b[a[i]] += a[i+5] }
+		END { for (ip in b) print ip "\t" b[ip] }' > "$TMPB.nnow"
+	lastmin="$(head -n 1 "$NIGHT_LAST" 2>/dev/null)"
+	if [ -n "$lastmin" ] && [ "$nowmin" -gt "$lastmin" ]; then
+		[ -f "$NIGHT" ] || : > "$NIGHT"
+		old="$(date -d "@$(( $(date +%s) - 14 * 86400 ))" +%F 2>/dev/null)"
+		tail -n +2 "$NIGHT_LAST" > "$TMPB.nlast"
+		awk -F '\t' -v OFS='\t' -v d="$today" -v h="${hour:-0}" -v th="$ST_THRESHOLD" -v old="$old" '
+			FILENAME == ARGV[1] { mac[$1] = $2; next }
+			FILENAME == ARGV[2] { dev[$1] = $2; next }
+			FILENAME == ARGV[3] { prev[$1] = $2; next }
+			FILENAME == ARGV[4] { delta = $2 - prev[$1]; if (delta < 0) delta = $2; id = dev[mac[$1]]; if (id != "") act[id] += delta; next }
+			{ if (old != "" && $1 < old) next; if ($1 == d && $3 == h && (($2) in act)) { if (act[$2] > th) $4++; seen[$2] = 1 } print }
+			END { for (id in act) if (!(id in seen) && act[id] > th) print d, id, h, 1 }
+		' "$HN_IPMAP" "$HN_MACS" "$TMPB.nlast" "$TMPB.nnow" "$NIGHT" > "$TMPB.night"
+		cmp -s "$TMPB.night" "$NIGHT" || cp -f "$TMPB.night" "$NIGHT"
+	fi
+	if [ -z "$lastmin" ] || [ "$nowmin" -gt "$lastmin" ]; then
+		{ echo "$nowmin"; cat "$TMPB.nnow"; } > "$NIGHT_LAST"
+	fi
+}
+
+# Priority for chosen devices (owner 2026-11-22: "my work laptop / the game console first"), on the
+# main router only (an access point has no line; its devices are seen on the main router by their
+# MAC). Every connection a priority device opens from the home network is marked in the connection
+# (ct mark bits 31-26 = DSCP AF41, bit 24 = "set"): the upload carries AF41 (cake diffserv4 "Video"
+# tin) out of the line, and the download gets the same tin from the mark (homenet/lines: tc action
+# ctinfo on the line before cake). Games and calls of every device stay above it: their small UDP
+# packets get EF ("Voice") after this mark (homenet_qos runs later: priority mangle vs mangle - 1).
+# Only does something while a line is shaped (Ping and games, "Measure and adjust").
+# Table inet homenet_prio, rewritten only when the MACs change.
+prio_apply() {
+	local lan="$1" macs
+	[ -f "$PRIO" ] || : > "$PRIO"
+	if [ "$(uci -q get lg7200.state.mode)" = ap ] || [ ! -s "$PRIO" ]; then
+		[ -f "$PRIO_APPLIED" ] && { nft delete table inet homenet_prio 2>/dev/null; rm -f "$PRIO_APPLIED"; }
+		return 0
+	fi
+	# the MACs of the chosen devices, and of every device of a chosen person
+	macs="$(awk -F '\t' '
+		FILENAME == ARGV[1] { t[$1] = 1; next }
+		FILENAME == ARGV[2] { if (($1 in t) || ($3 != "" && ($3 in t))) d[$1] = 1; next }
+		($2 in d) && $1 ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/ { print $1 }' "$PRIO" "$HN_DEVICES" "$HN_MACS" | sort -u | tr '\n' ',' | sed 's/,$//')"
+	[ "$macs" = "$(cat "$PRIO_APPLIED" 2>/dev/null)" ] && nft list table inet homenet_prio >/dev/null 2>&1 && return 0
+	nft delete table inet homenet_prio 2>/dev/null
+	if [ -n "$macs" ]; then
+		nft -f - <<-EOF || { logger -t homenet "controls: priority rules failed"; return 1; }
+			table inet homenet_prio {
+				set macs { type ether_addr; elements = { $macs } }
+				chain prio_fwd {
+					type filter hook forward priority mangle - 1; policy accept;
+					iifname "$lan" ether saddr @macs ct mark set ct mark and 0x00ffffff or 0x89000000
+				}
+				chain prio_post {
+					type filter hook postrouting priority mangle - 1; policy accept;
+					ct mark and 0x01000000 == 0x01000000 ip dscp set af41
+					ct mark and 0x01000000 == 0x01000000 ip6 dscp set af41
+				}
+			}
+		EOF
+	fi
+	echo "$macs" > "$PRIO_APPLIED"
 }
 
 # Usage limits per billing cycle (B7 feature 6) and the package (homenet.main.package_mb).
@@ -411,6 +495,7 @@ apply() {
 	fi
 	cmp -s "$TMPB.sact" "$SCH_ACTIVE" 2>/dev/null || cp -f "$TMPB.sact" "$SCH_ACTIVE"
 	timelimits > "$TMPB.ttargets"
+	nightuse
 	quotas > "$TMPB.qtargets"
 	cut -f1 "$CTL" | cat - "$TMPB.stargets" "$TMPB.ttargets" "$TMPB.qtargets" | sort -u > "$TMPB.targets"
 	# devices to cut: targets (a person expands to its devices) + held devices
@@ -453,6 +538,7 @@ apply() {
 	nft -f "$TMPB.nft" || { logger -t homenet "controls: nft failed"; return 1; }
 	if [ "$(uci -q get lg7200.state.mode)" = ap ]; then ap_controls "$policy"; ap_speed
 	else speed "$lan"; fi
+	prio_apply "$lan"
 	guest_limits
 	# cut the open connections of addresses that were not cut before
 	[ -f "$LAST" ] || : > "$LAST"
@@ -484,6 +570,16 @@ sched_check() { # <target> <days> <start> <end> <label>: sets S_DAYS S_LABEL or 
 sched_exists() { awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$SCH"; }
 
 case "$1" in
+	priority)
+		target_ok "$2" || err unknown_target
+		case "$3" in 0|1) ;; *) err invalid_value ;; esac
+		[ -f "$PRIO" ] || : > "$PRIO"
+		if [ "$3" = 1 ] && ! grep -qx "$2" "$PRIO"; then
+			# more than 3 and nobody goes first any more
+			[ "$(grep -c . "$PRIO")" -lt 3 ] || err too_many
+		fi
+		{ grep -vx "$2" "$PRIO"; [ "$3" = 1 ] && echo "$2"; } > "$TMPB.pr"
+		hn_write "$PRIO" < "$TMPB.pr"; apply; echo OK ;;
 	speed)
 		target_ok "$2" || err unknown_target
 		int_in "$3" 100 1000000 zero_ok || err invalid_speed      # 0, or 0.1-1000 Mbit/s
