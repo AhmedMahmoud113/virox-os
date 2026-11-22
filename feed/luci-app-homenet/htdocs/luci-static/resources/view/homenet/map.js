@@ -79,7 +79,8 @@ function kindOf(d) {
 }
 function signalOf(dbm) {
 	if (dbm == null) return null;
-	return dbm >= -60 ? [ 'ok', _('Strong signal') ] : (dbm >= -72 ? [ 'warn', _('Fair signal') ] : [ 'bad', _('Weak signal') ]);
+	// the same levels as the Devices page (owner 2026-11-22: a phone at -77 with two bars is fair)
+	return dbm >= -60 ? [ 'ok', _('Strong signal') ] : (dbm >= -80 ? [ 'warn', _('Fair signal') ] : [ 'bad', _('Weak signal') ]);
 }
 
 const MAX_DEVICES = 15;     // per box; the rest is one "N more" item that opens the Devices page

@@ -28,6 +28,8 @@ JOIN_NET=10.73.73.1
 MESH_COST=200
 
 band_radio() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.band='$1'$/\1/p" | head -n 1; }
+# the phy of a band (phy0 / phy1): the one that has its first channel
+band_phy() { iw phy 2>/dev/null | awk -v f="$([ "$1" = 5g ] && echo 5180 || echo 2412)" '/^Wiphy/ { p = $2 } index($0, "* " f ".0 MHz") || index($0, "* " f " MHz") { if (p != "") { print p; exit } }'; }
 lan_brdev() { echo "br-lan"; }
 lan_dev_sec() { uci -q show network | sed -n "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p" | head -n 1; }
 mesh_ifname() { ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.*.interfaces[@.section=\"$MESH_SEC\"].ifname" 2>/dev/null | head -n 1; }
@@ -246,6 +248,60 @@ a_uplink() {
 	ip -4 route show default | grep -q . && echo cable || echo none
 }
 
+# ------------------------------------------------------------------ internet from Wi-Fi (router)
+# Owner 2026-11-22: a Virox router can take its internet from another router's Wi-Fi (the band the
+# admin picks: that radio becomes a client too, its home network, if any, follows the other
+# router's channel). The link is network "wan3" (dhcp, firewall zone wan, metric 20 so a cable on
+# the WAN port stays first): homenet counts every network named wan, wan2, wan3... as a line, so
+# usage, outages and the internet state include it.
+#   wifiwan <2g|5g> <ssid> <key>   wifiwan-off   wifiwan-status: "ssid band up|down ip signal clash"
+a_wifiwan() {
+	local band="$1" ssid="$2" key="$3" r z
+	[ "$(my_mode)" = router ] || { echo "ERR not_router"; return 0; }
+	r="$(band_radio "$band")"; [ -n "$r" ] || { echo "ERR no_wifi"; return 0; }
+	uci -q delete wireless.vx_wifiwan
+	uci -q batch <<-EOF
+		set wireless.$r.disabled=0
+		set wireless.vx_wifiwan=wifi-iface
+		set wireless.vx_wifiwan.device=$r
+		set wireless.vx_wifiwan.mode=sta
+		set wireless.vx_wifiwan.network=wan3
+		set network.wan3=interface
+		set network.wan3.proto=dhcp
+		set network.wan3.metric=20
+	EOF
+	uci set wireless.vx_wifiwan.ssid="$ssid"
+	if [ -n "$key" ]; then uci set wireless.vx_wifiwan.encryption=sae-mixed; uci set wireless.vx_wifiwan.key="$key"
+	else uci set wireless.vx_wifiwan.encryption=none; fi
+	z="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
+	[ -n "$z" ] && ! uci -q get "firewall.$z.network" | grep -qw wan3 && uci add_list "firewall.$z.network=wan3"
+	uci commit wireless; uci commit network; uci commit firewall
+	/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1; wifi reload >/dev/null 2>&1
+	echo OK
+}
+a_wifiwan_off() {
+	local z
+	uci -q delete wireless.vx_wifiwan; uci -q delete network.wan3
+	z="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
+	[ -n "$z" ] && uci -q del_list "firewall.$z.network=wan3"
+	uci commit wireless; uci commit network; uci commit firewall
+	/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1; wifi reload >/dev/null 2>&1
+	echo OK
+}
+# ssid band up|down ip signal clash(1 = the other router gives addresses of this router's own range)
+a_wifiwan_status() {
+	local ssid band st ip ifc sig lan clash=0
+	[ "$(uci -q get wireless.vx_wifiwan)" = wifi-iface ] || { echo "none"; return 0; }
+	ssid="$(uci -q get wireless.vx_wifiwan.ssid)"; band="$(uci -q get "wireless.$(uci -q get wireless.vx_wifiwan.device).band")"
+	st="$(ubus call network.interface.wan3 status 2>/dev/null)"
+	ip="$(echo "$st" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)"
+	ifc="$(ubus call network.wireless status 2>/dev/null | jsonfilter -e '@.*.interfaces[@.section="vx_wifiwan"].ifname' 2>/dev/null | head -n 1)"
+	sig="$([ -n "$ifc" ] && iw dev "$ifc" link 2>/dev/null | awk '/signal:/ { print int($2) }')"
+	lan="$(uci -q get network.lan.ipaddr)"
+	[ -n "$ip" ] && [ -n "$lan" ] && [ "${ip%.*}" = "${lan%.*}" ] && clash=1
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ssid" "$band" "$([ "$(echo "$st" | jsonfilter -e '@.up' 2>/dev/null)" = true ] && [ -n "$ip" ] && echo up || echo down)" "${ip:--}" "${sig:--}" "$clash"
+}
+
 # ------------------------------------------------------------------ repeater (not a Virox above)
 # repeat <band> <ssid> <key>: join that router's Wi-Fi as a client and repeat it
 a_repeat() {
@@ -305,15 +361,29 @@ a_repeat_check() {
 }
 # the networks in reach, for the repeater page: band signal ssid (one per line, strongest first)
 a_scan() {
-	local r ifc band
+	local r ifc band ph
 	for band in 2g 5g; do
 		r="$(band_radio $band)"; [ -n "$r" ] || continue
 		ifc="$(ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.$r.interfaces[0].ifname" 2>/dev/null)"
-		[ -n "$ifc" ] || continue
+		if [ -n "$ifc" ]; then
 		iw dev "$ifc" scan ap-force 2>/dev/null | awk -v b=$band '
 			$1 == "BSS" { if (s != "") print b, sig, s; s = ""; sig = 0 }
 			$1 == "signal:" { sig = int($2) }
 			$1 == "SSID:" { s = substr($0, index($0, "SSID:") + 6) }
 			END { if (s != "") print b, sig, s }'
+		else
+			# no network runs on that radio (switched off or deleted, owner 2026-11-22): a short-lived
+			# client interface on that radio scans (iwinfo found nothing there; tried on 2.230)
+			ph="$(band_phy $band)"
+			if [ -n "$ph" ] && iw phy "$ph" interface add vxscan0 type managed 2>/dev/null; then
+				ip link set vxscan0 up 2>/dev/null; sleep 1
+				iw dev vxscan0 scan 2>/dev/null | awk -v b=$band '
+					$1 == "BSS" { if (s != "") print b, sig, s; s = ""; sig = 0 }
+					$1 == "signal:" { sig = int($2) }
+					$1 == "SSID:" { s = substr($0, index($0, "SSID:") + 6) }
+					END { if (s != "") print b, sig, s }'
+				iw dev vxscan0 del 2>/dev/null
+			fi
+		fi
 	done | awk '$3 != "" && $3 != "Virox-Join" && $3 != "Virox-Setup"' | sort -k2 -n -r | awk '!seen[$1 " " substr($0, index($0, $3))]++' | head -n 30
 }

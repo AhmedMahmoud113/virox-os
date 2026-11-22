@@ -3705,3 +3705,84 @@ msgstr "تم إيقاف الأولوية."
 
 msgid "At most 3 devices or people can have priority. Turn it off for one first."
 msgstr "يمكن أن تكون الأولوية لثلاثة أجهزة أو أشخاص على الأكثر. أوقفها لواحد منهم أولًا."
+
+msgid "Wi-Fi bands"
+msgstr "نطاقات الواي فاي"
+
+msgid "2.4 GHz Wi-Fi"
+msgstr "واي فاي 2.4 جيجاهرتز"
+
+msgid "5 GHz Wi-Fi"
+msgstr "واي فاي 5 جيجاهرتز"
+
+msgid "Switch off the %s?"
+msgstr "إيقاف %s؟"
+
+msgid "Devices on it move to the other band if they can, or lose the Wi-Fi. Devices on a cable are not affected. You can switch it on again here."
+msgstr "الأجهزة المتصلة به تنتقل إلى النطاق الآخر إن استطاعت، أو ينقطع عنها الواي فاي. الأجهزة المتصلة بكابل لا تتأثر. يمكنك تشغيله مرة أخرى من هنا."
+
+msgid "At least one band has to stay on, or no device could reach the router by Wi-Fi."
+msgstr "يجب أن يبقى نطاق واحد على الأقل يعمل، وإلا فلن يصل أي جهاز إلى الراوتر عبر الواي فاي."
+
+msgid "Switching a band off stops the home and guest networks on it, here and on the access points. A Wi-Fi link to another router on that band keeps working."
+msgstr "إيقاف نطاق يوقف شبكة المنزل وشبكة الضيوف عليه، هنا وعلى نقاط الوصول. أما الاتصال بالواي فاي براوتر آخر على هذا النطاق فيبقى يعمل."
+
+msgid "Internet from Wi-Fi"
+msgstr "الإنترنت من واي فاي"
+
+msgid "This router takes its internet from the Wi-Fi of another router."
+msgstr "هذا الراوتر يأخذ الإنترنت من شبكة واي فاي لراوتر آخر."
+
+msgid "Signal"
+msgstr "الإشارة"
+
+msgid "The other router gives addresses in the same range as this router, so the internet cannot work. Give this router another address range in Quick setup (for example 192.168.3.1)."
+msgstr "الراوتر الآخر يعطي عناوين من نفس نطاق هذا الراوتر، لذلك لا يمكن أن يعمل الإنترنت. اختر لهذا الراوتر نطاق عناوين آخر من الإعداد السريع (مثل 192.168.3.1)."
+
+msgid "Connecting takes up to a minute. If it stays like this, check the password and that the other router is in reach."
+msgstr "الاتصال يستغرق حتى دقيقة. إذا بقي هكذا، تأكد من كلمة المرور ومن أن الراوتر الآخر في المدى."
+
+msgid "Stop taking the internet from this Wi-Fi?"
+msgstr "إيقاف أخذ الإنترنت من هذا الواي فاي؟"
+
+msgid "The internet comes from the cable on the WAN port again, if one is plugged in."
+msgstr "يعود الإنترنت من الكابل الموصل بمنفذ WAN، إن كان موصلًا."
+
+msgid "Take the internet from this Wi-Fi?"
+msgstr "أخذ الإنترنت من هذا الواي فاي؟"
+
+msgid "That band of this router follows the channel of the other router. Use an address range different from the other router."
+msgstr "هذا النطاق في الراوتر سيتبع قناة الراوتر الآخر. استخدم نطاق عناوين مختلفًا عن الراوتر الآخر."
+
+msgid "Connect"
+msgstr "اتصال"
+
+msgid "Connecting… this takes up to a minute."
+msgstr "جارٍ الاتصال… يستغرق حتى دقيقة."
+
+msgid "No cable from the modem? This router can take its internet from the Wi-Fi of another router (for example a neighbour's or a mobile hotspot). 5 GHz is usually faster, 2.4 GHz reaches further."
+msgstr "لا يوجد كابل من المودم؟ يمكن لهذا الراوتر أن يأخذ الإنترنت من شبكة واي فاي لراوتر آخر (مثل راوتر الجيران أو نقطة اتصال من هاتف). شبكة 5 جيجاهرتز أسرع عادةً، و2.4 جيجاهرتز تصل لمسافة أبعد."
+
+msgid "2.4 GHz"
+msgstr "2.4 جيجاهرتز"
+
+msgid "5 GHz"
+msgstr "5 جيجاهرتز"
+
+msgid "Stop"
+msgstr "إيقاف"
+
+msgid "My 5 GHz"
+msgstr "الـ 5 جيجاهرتز عندي"
+
+msgid "My 2.4 GHz"
+msgstr "الـ 2.4 جيجاهرتز عندي"
+
+msgid "Catch with"
+msgstr "ألتقط بـ"
+
+msgid "5 GHz catches only 5 GHz networks and 2.4 GHz only 2.4 GHz ones. Catching with 2.4 GHz leaves your 5 GHz free and fast for your devices."
+msgstr "نطاق 5 جيجاهرتز يلتقط شبكات 5 جيجاهرتز فقط، و2.4 جيجاهرتز يلتقط شبكات 2.4 فقط. الالتقاط بـ 2.4 يترك الـ 5 جيجاهرتز عندك حرة وسريعة لأجهزتك."
+
+msgid "No network of this band found."
+msgstr "لم يتم العثور على شبكة على هذا النطاق."

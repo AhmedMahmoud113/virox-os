@@ -426,9 +426,89 @@ function wifi_status() {
 	return radios;
 }
 
+// the bands of this unit and whether the home Wi-Fi is on there (owner 2026-11-22: "where is the
+// switch to turn 5 GHz off?"): { "2g": { on }, "5g": { on } }, only the bands that have a radio
+function wifi_bands(c) {
+	let out = {};
+	c.foreach('wireless', 'wifi-device', (d) => {
+		if (!(d.band in [ '2g', '5g' ])) return;
+		let on = false;
+		c.foreach('wireless', 'wifi-iface', (v) => {
+			if (v.device == d['.name'] && v.mode == 'ap' && v.network == 'lan' && v.disabled != '1' && d.disabled != '1') on = true;
+		});
+		out[d.band] = { on };
+	});
+	return out;
+}
+
 const wifi = {
 	status: { call: function() { const c = cursor(); return { radios: wifi_status(), split: c.get('lg7200', 'wifi', 'split') == '1', hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
-	                                                   power_high: true /* always (owner 2026-11-22) */ }; } },
+	                                                   power_high: true /* always (owner 2026-11-22) */, bands: wifi_bands(c) }; } },
+	// switch the home Wi-Fi of one band off or on again (owner 2026-11-22). Off: the home and guest
+	// networks of that band are switched off; a Wi-Fi client on that radio (internet from another
+	// router's Wi-Fi) keeps working. The last band that is on cannot be switched off (error
+	// last_band: nobody could reach the router by Wi-Fi any more). On: the radio and the home network
+	// come back; when the home network of that band was deleted (OpenWrt pages), it is made again
+	// with the name and password of the other band (-5G with separate names). The guest network
+	// comes back only when it is switched on. Access points follow at their next contact.
+	band: {
+		args: { band: '', on: false },
+		call: function(req) {
+			const uci = cursor(), on = !!req.args.on, band = req.args.band;
+			if (!(band in [ '2g', '5g' ])) return { result: false, error: 'invalid_band' };
+			let radio = null;
+			uci.foreach('wireless', 'wifi-device', (d) => { if (d.band == band && radio == null) radio = d['.name']; });
+			if (radio == null) return { result: false, error: 'no_wifi' };
+			const bandof = dev => uci.get('wireless', dev, 'band');
+			if (!on) {
+				let other = 0;
+				uci.foreach('wireless', 'wifi-iface', (v) => {
+					if (v.mode == 'ap' && v.network == 'lan' && v.disabled != '1' && bandof(v.device) != band && uci.get('wireless', v.device, 'disabled') != '1') other++;
+				});
+				if (!other) return { result: false, error: 'last_band' };
+				uci.foreach('wireless', 'wifi-iface', (v) => {
+					if (v.mode == 'ap' && bandof(v.device) == band && (v.network == 'lan' || v.network == 'guest')) {
+						uci.set('wireless', v['.name'], 'disabled', '1');
+						// off for good: the Wi-Fi schedule must not bring the guest network back at its on-time
+						uci.delete('wireless', v['.name'], 'lg7200_sched_off');
+					}
+				});
+			}
+			else {
+				uci.set('wireless', radio, 'disabled', '0');
+				let home = null, model = null;
+				uci.foreach('wireless', 'wifi-iface', (v) => {
+					if (v.mode != 'ap' || (v.network != 'lan' && v.network != 'guest')) return;
+					if (bandof(v.device) == band) {
+						if (v.network == 'lan') { home = v['.name']; uci.delete('wireless', v['.name'], 'disabled'); }
+						else if (cursor().get('homenet', 'guest', 'enabled') == '1') uci.delete('wireless', v['.name'], 'disabled');
+					}
+					else if (v.network == 'lan' && model == null) model = v;
+				});
+				if (home == null) {
+					if (model == null) return { result: false, error: 'no_wifi' };
+					const s = `vx_home_${band}`;
+					const split = uci.get('lg7200', 'wifi', 'split') == '1';
+					const base = replace(model.ssid ?? '', /-5G$/, '');
+					uci.set('wireless', s, 'wifi-iface');
+					uci.set('wireless', s, 'device', radio);
+					uci.set('wireless', s, 'mode', 'ap');
+					uci.set('wireless', s, 'network', 'lan');
+					uci.set('wireless', s, 'ssid', (band == '5g' && split) ? base + '-5G' : base);
+					for (let k in [ 'encryption', 'key', 'ieee80211k', 'bss_transition', 'wps_pushbutton', 'wpa_psk_file' ])
+						if (model[k] != null) uci.set('wireless', s, k, model[k]);
+					// hidden: the setting of this band, not of the other one
+					if (uci.get('lg7200', 'wifi', `hidden_${band}`) == '1') uci.set('wireless', s, 'hidden', '1');
+				}
+			}
+			uci.commit('wireless');
+			if (uci.get('lg7200', 'wifi') == null) uci.set('lg7200', 'wifi', 'wifi');
+			uci.set('lg7200', 'wifi', `off_${band}`, on ? '0' : '1');
+			uci.commit('lg7200');
+			system('(sleep 1; wifi reload) >/dev/null 2>&1 &');
+			return { result: true };
+		}
+	},
 	// hide the home network name of one band (2g / 5g) or of both (one name for both bands is one
 	// network: the page sends "both"), not the guest network (it has its own switch, virox.homenet
 	// guest_hidden; owner 2026-11-21: one checkbox per network). Devices that know it still

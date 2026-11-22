@@ -64,7 +64,8 @@
 					"rescan",
 					"split",
 					"power",
-					"hidden"
+					"hidden",
+					"band"
 				],
 				"virox.schedule": [
 					"set_wifi",

@@ -105,6 +105,7 @@ const api = {
 	wifiRescan: rpc.declare({ object: 'virox.wifi', method: 'rescan' }),
 	wifiSplit: rpc.declare({ object: 'virox.wifi', method: 'split', params: [ 'on' ] }),
 	wifiHidden: rpc.declare({ object: 'virox.wifi', method: 'hidden', params: [ 'band', 'on' ] }),
+	wifiBand: rpc.declare({ object: 'virox.wifi', method: 'band', params: [ 'band', 'on' ] }),
 	wifiPower: rpc.declare({ object: 'virox.wifi', method: 'power', params: [ 'high' ] }),
 	// VPN client (owner 2026-11-20)
 	vpn: rpc.declare({ object: 'virox.vpn', method: 'status' }),
@@ -164,6 +165,9 @@ const api = {
 	apRepeat: rpc.declare({ object: 'virox.apctl', method: 'repeat', params: [ 'band', 'ssid', 'key' ] }),
 	apRepeatOff: rpc.declare({ object: 'virox.apctl', method: 'repeat_off' }),
 	apScan: rpc.declare({ object: 'virox.apctl', method: 'scan' }),
+	wifiWan: rpc.declare({ object: 'virox.apctl', method: 'wifi_wan', params: [ 'band', 'ssid', 'key' ] }),
+	wifiWanOff: rpc.declare({ object: 'virox.apctl', method: 'wifi_wan_off' }),
+	wifiWanStatus: rpc.declare({ object: 'virox.apctl', method: 'wifi_wan_status' }),
 	ports: rpc.declare({ object: 'virox.ports', method: 'list' }),
 	portAdd: rpc.declare({ object: 'virox.ports', method: 'add', params: [ 'device', 'proto', 'ext', 'int', 'line', 'name' ] }),
 	portSet: rpc.declare({ object: 'virox.ports', method: 'set', params: [ 'id', 'enabled' ] }),

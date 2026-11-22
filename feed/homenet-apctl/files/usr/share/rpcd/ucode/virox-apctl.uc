@@ -142,6 +142,7 @@ function wifi_config(c) {
 	for (let i = 0; i < length(base ?? ''); i++) mdid = (mdid * 31 + ord(base, i)) % 65536;
 	return {
 		ssid: base ?? '', ssid5: b5 ?? base ?? '', key: key ?? '', encryption: enc ?? 'sae-mixed', keys: keys, hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
+		off_2g: c.get('lg7200', 'wifi', 'off_2g') == '1', off_5g: c.get('lg7200', 'wifi', 'off_5g') == '1',
 		roaming: c.get('apctl', 'main', 'roaming') == '1', mobility_domain: sprintf('%04x', mdid),
 		power_high: true	// always: old access points (rc2) still read it (owner 2026-11-22)
 	};
@@ -679,13 +680,43 @@ const apctl = {
 		}
 	},
 
+	// a router takes its internet from another router's Wi-Fi (owner 2026-11-22, apctl wifiwan)
+	wifi_wan: {
+		args: { band: '', ssid: '', key: '' },
+		call: function(req) {
+			const a = req.args;
+			if (mode() != 'router') return { result: false, error: 'not_router' };
+			if (!(a.band in [ '2g', '5g' ])) return { result: false, error: 'invalid_band' };
+			if (!length(a.ssid ?? '') || length(a.ssid) > 32) return { result: false, error: 'invalid_ssid' };
+			const k = `${a.key ?? ''}`;
+			if (k != '' && (length(k) < 8 || length(k) > 63)) return { result: false, error: 'invalid_key' };
+			const out = sh(`${AGENT} wifiwan ${shq(a.band)} ${shq(a.ssid)} ${shq(k)} 2>/dev/null`);
+			if (match(out, /^OK/)) return { result: true };
+			const e = match(out, /^ERR ([a-z_]+)/);
+			return { result: false, error: e ? e[1] : 'failed' };
+		}
+	},
+	wifi_wan_off: {
+		call: function() { sh(`${AGENT} wifiwan-off >/dev/null 2>&1`); return { result: true }; }
+	},
+	// { on, ssid, band, up, ip, signal, clash } (clash: the other router gives this router's own range)
+	wifi_wan_status: {
+		call: function() {
+			const f = split(trim(sh(`${AGENT} wifiwan-status 2>/dev/null`)), '\t');
+			if (length(f) < 6) return { on: false, router: mode() == 'router' };
+			return { on: true, router: mode() == 'router', ssid: f[0], band: f[1], up: f[2] == 'up', ip: f[3] == '-' ? null : f[3],
+			         signal: f[4] == '-' ? null : +f[4], clash: f[5] == '1' };
+		}
+	},
+
 	repeat_off: {
 		call: function() { sh(`${AGENT} repeat-off >/dev/null 2>&1`); return { result: true }; }
 	},
 
 	scan: {
 		call: function() {
-			if (mode() != 'ap') return { result: false, error: 'not_ap' };
+			// an access point (repeat) or a router (internet from Wi-Fi, wifi_wan)
+			if (!(mode() in [ 'ap', 'router' ])) return { result: false, error: 'not_ap' };
 			const out = [];
 			for (let l in split(sh(`${AGENT} scan 2>/dev/null`), '\n')) {
 				const m = match(l, /^(2g|5g) (-?[0-9]+) (.+)$/);

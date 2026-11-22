@@ -322,6 +322,20 @@ while a test is open). The client times both itself (the page: 8 s down, 16 MB u
 result with the measured line speed. Nothing goes to the internet. Errors: `no_memory` (under 80 MB
 free), `serve_failed`. Internet page, tab "Wi-Fi or internet?"; the phone app later.
 
+### `virox.wifi band { band, on }` — admin (owner 2026-11-22: switch 2.4 or 5 GHz off)
+Off: the home and guest networks of that band are switched off (`wireless.*.disabled`), a Wi-Fi client on that radio
+stays; error `last_band` when it is the last band on. On: the radio and its home network come back; a home network
+deleted in the OpenWrt pages is made again (`vx_home_<band>`) with the name and password of the other band (-5G with
+separate names) and the band's own hidden setting. `lg7200.wifi.off_<band>`; access points follow (`off_2g` /
+`off_5g` in the sync). `status` gives `bands: { "2g": { on }, "5g": { on } }`.
+
+### `virox.apctl wifi_wan { band, ssid, key }`, `wifi_wan_off`, `wifi_wan_status` — admin (owner 2026-11-22)
+A router takes its internet from another router's Wi-Fi: `wireless.vx_wifiwan` (mode sta on the chosen band's radio),
+network `wan3` (dhcp, metric 20, firewall zone wan), so homenet counts it as a line (usage, outages, internet state).
+Status: `{ on, router, ssid, band, up, ip, signal, clash }`, `clash` = the other router gives this router's own
+address range. Errors: `not_router`, `invalid_band`, `invalid_ssid`, `invalid_key`, `no_wifi`. `scan` now works in
+router mode too, and on a radio with no network running (a short-lived client interface scans).
+
 ### `priority_set { target, on }` — admin (owner 2026-11-22: one device or person first)
 `controls priority <target> 0|1` (`/etc/homenet/data/priority.tsv`, at most 3: error `too_many`). On the
 main router, `controls apply` keeps table `inet homenet_prio`: connections a chosen MAC opens from the LAN

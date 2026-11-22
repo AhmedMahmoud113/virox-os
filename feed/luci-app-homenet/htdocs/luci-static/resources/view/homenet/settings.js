@@ -45,7 +45,8 @@ return view.extend({
 			ask('s', () => hn.api.usb(), null),
 			ask('w', () => hn.api.wifiCards(), null),
 			ask('s', () => hn.api.addresses(), null),
-			ask('i', () => hn.api.quality(30), null)
+			ask('i', () => hn.api.quality(30), null),
+			ask('i', () => hn.api.wifiWanStatus(), null)
 		]).catch(() => null);
 	},
 
@@ -156,6 +157,54 @@ return view.extend({
 				out
 			]),
 			gm && gm.installed ? this.gamingCard(gm) : ''
+		]);
+	},
+
+	// internet from another router's Wi-Fi (owner 2026-11-22: "make 5 GHz a client"): a router joins
+	// that Wi-Fi on the band the admin picks (virox.apctl wifi_wan); the link is counted as a line
+	wifiWanCard(ww) {
+		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 8000); return r; };
+		const BAND = { '2g': _('2.4 GHz'), '5g': _('5 GHz') };
+		if (ww.on)
+			return hn.section(_('Internet from Wi-Fi'), _('This router takes its internet from the Wi-Fi of another router.'), [
+				hn.row(_('Network'), BAND[ww.band] || '', E('b', {}, [ fmt.name(ww.ssid || '—') ])),
+				hn.row(_('State'), ww.ip ? fmt.ltr(ww.ip) : '', ww.up ? hn.badge('ok', _('Connected')) : hn.badge('warn', _('Not connected'))),
+				ww.signal != null ? hn.row(_('Signal'), '', fmt.ltr(ww.signal + ' dBm')) : '',
+				ww.clash ? E('p', { 'class': 'vx-warn-text' }, [ _('The other router gives addresses in the same range as this router, so the internet cannot work. Give this router another address range in Quick setup (for example 192.168.3.1).') ]) : '',
+				!ww.up ? E('p', { 'class': 'vx-hint' }, [ _('Connecting takes up to a minute. If it stays like this, check the password and that the other router is in reach.') ]) : '',
+				E('button', { 'class': 'btn cbi-button-negative', 'click': () => hn.askConfirm(_('Stop taking the internet from this Wi-Fi?'), _('The internet comes from the cable on the WAN port again, if one is plugged in.'), _('Stop'))
+					.then(y => y && hn.act(hn.api.wifiWanOff(), _('Stopped.')).then(reload)) }, [ _('Stop') ])
+			]);
+		// which radio of this router catches (owner 2026-11-22: "I want to be the 5 that catches"): the
+		// list then shows only the networks that radio can catch (5 GHz catches 5 GHz, 2.4 catches 2.4)
+		const mine = hn.seg('vx-ww-band', [ [ '5g', _('My 5 GHz') ], [ '2g', _('My 2.4 GHz') ] ], '5g');
+		let found = [];
+		const sel = E('select', { 'aria-label': _('Network') }, [ E('option', { 'value': '' }, [ _('Press "Find networks".') ]) ]);
+		const fill = () => {
+			const nets = found.filter(n => n.band == mine.value());
+			sel.replaceChildren(...(nets.length ? nets.map(n => E('option', { 'value': n.band + '\t' + n.ssid }, [ n.ssid + ' · ' + n.signal + ' dBm' ]))
+				: [ E('option', { 'value': '' }, [ found.length ? _('No network of this band found.') : _('No network found.') ]) ]));
+		};
+		mine.el.addEventListener('click', () => { if (found.length) fill(); });
+		const key = E('input', { 'type': 'password', 'dir': 'ltr', 'maxlength': '63', 'autocomplete': 'off', 'aria-label': _('Password of that network') });
+		const find = E('button', { 'class': 'btn cbi-button', 'click': () => {
+			find.disabled = true; sel.replaceChildren(E('option', { 'value': '' }, [ _('Looking for networks…') ]));
+			hn.api.apScan().then(r => {
+				found = (r && r.networks) || [];
+				fill();
+			}).catch(() => sel.replaceChildren(E('option', { 'value': '' }, [ _('The router did not answer.') ]))).then(() => { find.disabled = false; });
+		} }, [ _('Find networks') ]);
+		const go = () => {
+			if (!sel.value) return hn.notify(_('Choose a network first.'), 'warning');
+			const i = sel.value.indexOf('\t'), band = sel.value.substring(0, i), ssid = sel.value.substring(i + 1);
+			hn.askConfirm(_('Take the internet from this Wi-Fi?'), _('That band of this router follows the channel of the other router. Use an address range different from the other router.'), _('Connect'))
+				.then(y => y && hn.act(hn.api.wifiWan(band, ssid, key.value), _('Connecting… this takes up to a minute.')).then(reload));
+		};
+		return hn.section(_('Internet from Wi-Fi'), _('No cable from the modem? This router can take its internet from the Wi-Fi of another router (for example a neighbour\'s or a mobile hotspot). 5 GHz is usually faster, 2.4 GHz reaches further.'), [
+			hn.row(_('Catch with'), _('5 GHz catches only 5 GHz networks and 2.4 GHz only 2.4 GHz ones. Catching with 2.4 GHz leaves your 5 GHz free and fast for your devices.'), mine.el),
+			E('div', { 'class': 'vx-inline' }, [ find, sel ]),
+			hn.field('', _('Password of that network'), key),
+			E('button', { 'class': 'btn cbi-button-positive', 'click': go }, [ _('Connect') ])
 		]);
 	},
 
@@ -711,6 +760,8 @@ return view.extend({
 				])
 				// the devices and their signal: Devices page (owner 2026-11-22: no second list here)
 			])),
+			// switch a band off or on (owner 2026-11-22: "where is the option to turn 5 GHz off?")
+			...this.bandSwitches(wf),
 			// 13.1: one name for both bands (default) or separate names
 			E('h3', {}, [ _('Network names') ]),
 			E('div', { 'class': 'vx-chips', 'role': 'group' }, [ [ false, _('One name for both bands') ], [ true, _('Separate names') ] ].map(x =>
@@ -725,6 +776,35 @@ return view.extend({
 					.then(y => y && hn.act(hn.api.wifiRescan(), _('Choosing… Wi-Fi is back in about a minute.'))) }, [ _('Choose the best channel now') ])
 			])
 		], { 'id': 'vx-wifi' });
+	},
+
+	// one switch per band of this unit; the last band that is on cannot be switched off
+	bandSwitches(wf) {
+		const bands = (wf && wf.bands) || {};
+		const list = [ '2g', '5g' ].filter(b => bands[b]);
+		if (list.length < 2) return [];
+		const name = b => b == '5g' ? _('5 GHz Wi-Fi') : _('2.4 GHz Wi-Fi');
+		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 4000); return r; };
+		const set = (b, on) => hn.api.wifiBand(b, on).then(r => {
+			if (r && r.result === false)
+				return hn.notify(r.error == 'last_band' ? _('At least one band has to stay on, or no device could reach the router by Wi-Fi.') : hn.errorText(r.error), 'warning');
+			hn.notify(_('Saved. Wi-Fi restarts for a few seconds.'), 'success');
+			reload(r);
+		}).catch(() => hn.notify(_('The router did not answer.'), 'danger'));
+		return [
+			E('h3', {}, [ _('Wi-Fi bands') ]),
+			...list.map(b => {
+				const box = E('input', { 'type': 'checkbox', 'role': 'switch', 'aria-label': name(b) });
+				box.checked = !!bands[b].on;
+				box.addEventListener('change', () => {
+					if (box.checked) return set(b, true);
+					hn.askConfirm(fmt.sentence(_('Switch off the %s?'), [ name(b) ]), _('Devices on it move to the other band if they can, or lose the Wi-Fi. Devices on a cable are not affected. You can switch it on again here.'), _('Switch off'))
+						.then(y => { if (y) set(b, false); else box.checked = true; });
+				});
+				return hn.row(name(b), bands[b].on ? '' : _('Off', 'Virox'), E('label', { 'class': 'vx-toggle' }, [ box, E('i') ]));
+			}),
+			E('p', { 'class': 'vx-hint' }, [ _('Switching a band off stops the home and guest networks on it, here and on the access points. A Wi-Fi link to another router on that band keeps working.') ])
+		];
 	},
 
 	// the hide box beside one network (owner 2026-11-22)
@@ -1088,8 +1168,10 @@ return view.extend({
 				_('Your settings are kept. The router restarts by itself and the internet stops for about five minutes. Do not switch it off meanwhile.'), _('Install'))
 				.then(y => y && hn.act(hn.api.updateInstall(), _('Installing…')).then(() => location.reload())) }, [ _('Install now') ]));
 		}
-		else body.push(E('p', {}, [ up.checked ? _('This is the newest version.') : _('Not checked yet.') ]));
-		if (up.error && up.error != 'no_update') body.push(E('p', { 'class': 'vx-warn-text', 'role': 'alert' }, [ hn.updateErrorText(up.error) ]));
+		// "the newest version" only after a check that worked (owner 2026-11-22: it showed above
+		// "the update server could not be reached"); while checking, the last error is not shown
+		else if (!up.error || up.error == 'no_update') body.push(E('p', {}, [ up.checked ? _('This is the newest version.') : _('Not checked yet.') ]));
+		if (up.error && up.error != 'no_update' && !up.busy) body.push(E('p', { 'class': 'vx-warn-text', 'role': 'alert' }, [ hn.updateErrorText(up.error) ]));
 		if (((this.data[13] || {}).aps || []).length)
 			body.push(E('p', { 'class': 'vx-hint' }, [ _('With access points: update the whole house at once from Wi-Fi, Access points.') ]));
 		if (!up.busy && !up.installing)
@@ -1211,7 +1293,7 @@ return view.extend({
 	// alone (owner, 2026-11-19: one long page was too much at once). #section in the address;
 	// old anchors (#vx-update, #vx-mac, #vx-package) still lead to their section.
 	sections() {
-		const [ set, wf, gm, us, pp, dv, up, bl, pv, th, ls, wk, gu, ap, vp, ua, po, sc, ub, qc, ad, qa ] = this.data;
+		const [ set, wf, gm, us, pp, dv, up, bl, pv, th, ls, wk, gu, ap, vp, ua, po, sc, ub, qc, ad, qa, ww ] = this.data;
 		const ICON = {
 			internet: 'M4 18h4v-6H4zM10 18h4V8h-4zM16 18h4V4h-4z',
 			lines: 'M4 8h16M4 16h16M8 4l-4 4 4 4M16 12l4 4-4 4',
@@ -1237,6 +1319,7 @@ return view.extend({
 				: [ 'lines', ls && ls.enabled ? _('Lines and packages') : _('Package'), '', () => ls ? this.linesCard(ls) : E('div', { 'id': 'vx-package' }, [ this.packageCard(set) ]), 'internet' ],
 			[ 'ping', _('Ping and games'), '', () => this.pingCard(ls, gm, qa, ap), 'internet' ],
 			[ 'wifitest', _('Wi-Fi or internet?'), '', () => this.wifiTestCard(ls, ap), 'internet' ],
+			ww && ww.router && !hn.isAccessPoint(ap) ? [ 'wifiwan', _('Internet from Wi-Fi'), '', () => this.wifiWanCard(ww), 'internet' ] : null,
 			po && po.router && !hn.isAccessPoint(ap) ? [ 'ports', _('Open ports'), '', () => this.portsCard(po, dv, ls), 'internet' ] : null,
 			vp && !vp.ap ? [ 'vpn', _('VPN'), vp.enabled ? (vp.connected ? _('Connected') : _('Not connected')) : _('Off'), () => this.vpnCard(vp, dv, pp), 'internet' ] : null,
 			[ 'wifi', _('Wi-Fi'), _('Name and password, channels, network names'), () => this.wifiCard(wf, gu), 'wifi' ],

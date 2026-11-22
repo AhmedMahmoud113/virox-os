@@ -3,12 +3,12 @@
 		"description": "Virox API, access points, admin role",
 		"read": {
 			"ubus": {
-				"virox.apctl": [ "list", "agent_status", "update_status", "addresses" ]
+				"virox.apctl": [ "list", "agent_status", "update_status", "addresses", "wifi_wan_status" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"virox.apctl": [ "addresses_set", "pair_code", "approve", "set_ap", "forget", "update", "update_all", "settings", "join", "restart_aps", "join_open", "join_close", "mesh_set", "repeat", "repeat_off", "scan" ]
+				"virox.apctl": [ "addresses_set", "pair_code", "approve", "set_ap", "forget", "update", "update_all", "settings", "join", "restart_aps", "join_open", "join_close", "mesh_set", "repeat", "repeat_off", "scan", "wifi_wan", "wifi_wan_off" ]
 			}
 		}
 	},

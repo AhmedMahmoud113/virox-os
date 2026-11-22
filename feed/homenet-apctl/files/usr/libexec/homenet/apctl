@@ -303,6 +303,8 @@ a_sync() {
 			else uci set wireless.$s.ssid="$ssid"; fi
 			uci set wireless.$s.key="$key"
 			if [ "$(echo "$r" | jsonfilter -e "@.wifi.hidden_$band")" = true ]; then uci set wireless.$s.hidden='1'; else uci -q delete wireless.$s.hidden; fi
+			# a band the main router switched off is off here too (owner 2026-11-22)
+			if [ "$(echo "$r" | jsonfilter -e "@.wifi.off_$band")" = true ]; then uci set wireless.$s.disabled='1'; else uci -q delete wireless.$s.disabled; fi
 			# personal passwords make identity switch to WPA2 (and keep the encryption to restore)
 			[ -n "$(uci -q get wireless.$s.wpa_psk_file)" ] || uci set wireless.$s.encryption="$enc"
 			if [ "$(echo "$r" | jsonfilter -e '@.wifi.roaming')" = true ]; then
@@ -625,5 +627,8 @@ case "$1" in
 	repeat) a_repeat "$2" "$3" "$4" ;;                 # repeat <2g|5g> <ssid> <key>
 	repeat-off) a_repeat_off ;;
 	scan) a_scan ;;
+	wifiwan) a_wifiwan "$2" "$3" "$4" ;;              # router: internet from <2g|5g> <ssid> <key>
+	wifiwan-off) a_wifiwan_off ;;
+	wifiwan-status) a_wifiwan_status ;;
 	*) echo "usage: apctl join <code> | sync | local-scan | roaming-local | keyid <mac> <person> | event <code> <id> | tick" >&2; exit 2 ;;
 esac

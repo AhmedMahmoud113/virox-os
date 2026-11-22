@@ -57,15 +57,40 @@ synced() {
 }
 
 # fetch <url> <file>: HTTPS with certificate checks, 60 s
-fetch() { rm -f "$2"; uclient-fetch -q -T 60 -O "$2" "$1" 2>/dev/null && [ -s "$2" ]; }
+# A file of a GitHub release (https://github.com/<owner>/<repo>/releases/download/<tag>/<name>) is
+# taken through the GitHub API first: github.com's own redirect left uclient-fetch hanging
+# ("Connection timed out") on the owner's line while the API and the file host answered
+# (2.230, 2026-11-22). The release list is kept for 10 minutes (the API allows 60 calls an hour).
+gh_fetch() { # <url> <file>
+	local rest repo tag name list u
+	rest="${1#https://github.com/}"
+	repo="$(echo "$rest" | cut -d/ -f1-2)"; tag="$(echo "$rest" | cut -d/ -f5)"; name="$(echo "$rest" | cut -d/ -f6-)"
+	[ -n "$repo" ] && [ -n "$tag" ] && [ -n "$name" ] || return 1
+	case "$name" in */*) return 1 ;; esac
+	list="$DIR/github-$tag.json"
+	if [ ! -s "$list" ] || [ $(( $(date +%s) - $(date -r "$list" +%s 2>/dev/null || echo 0) )) -gt 600 ]; then
+		uclient-fetch -q -T 60 -O "$list" "https://api.github.com/repos/$repo/releases/tags/$tag" 2>/dev/null || { rm -f "$list"; return 1; }
+	fi
+	u="$(jsonfilter -i "$list" -e "@.assets[@.name=\"$name\"].url" 2>/dev/null | head -n 1)"
+	[ -n "$u" ] || return 1
+	uclient-fetch -q -T 60 --header='Accept: application/octet-stream' -O "$2" "$u" 2>/dev/null && [ -s "$2" ]
+}
+fetch() {
+	rm -f "$2"
+	case "$1" in https://github.com/*/releases/download/*/*) gh_fetch "$1" "$2" && return 0; rm -f "$2" ;; esac
+	uclient-fetch -q -T 60 -O "$2" "$1" 2>/dev/null && [ -s "$2" ]
+}
 
 # version compare: newer <a> <b> -> exit 0 when a > b. "26.01.1" style numbers; "-rcN" is older
-# than the release of the same number.
+# than the release of the same number; "-rcN.M" is a fix of rcN (owner 2026-11-22: 0.9.0-rc3.1),
+# newer than rcN and older than rcN+1. (An rc3 unit with the old compare also takes rc3.1 as newer.)
 newer() {
 	awk -v a="$1" -v b="$2" '
-		function split_v(v, p,   r, n, i) { r = 99999; if (match(v, /-rc[0-9]+$/)) { r = substr(v, RSTART + 3) + 0; v = substr(v, 1, RSTART - 1) }
-			n = split(v, p, "."); for (i = n + 1; i <= 4; i++) p[i] = 0; p[5] = r; return n }
-		BEGIN { split_v(a, x); split_v(b, y); for (i = 1; i <= 5; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 } exit 1 }'
+		function split_v(v, p,   r, f, n, i, q) { r = 99999; f = 0
+			if (match(v, /-rc[0-9]+(\.[0-9]+)?$/)) { q = substr(v, RSTART + 3); v = substr(v, 1, RSTART - 1)
+				r = q + 0; if (index(q, ".")) f = substr(q, index(q, ".") + 1) + 0 }
+			n = split(v, p, "."); for (i = n + 1; i <= 4; i++) p[i] = 0; p[5] = r; p[6] = f; return n }
+		BEGIN { split_v(a, x); split_v(b, y); for (i = 1; i <= 6; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 } exit 1 }'
 }
 
 check() {
