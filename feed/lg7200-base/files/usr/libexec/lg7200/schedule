@@ -65,6 +65,15 @@ compute() { config_load lg7200; config_foreach _wifisched wifisched; }
 
 # the radios of one band ("2g" / "5g")
 radios_of() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.band='$1'$/\1/p"; }
+ifaces_of() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.device='$1'$/\1/p"; }
+ap_ifaces_of() { local s; for s in $(ifaces_of "$1"); do [ "$(uci -q get wireless.$s.mode)" = ap ] && echo "$s"; done; }
+has_client() {
+	local s
+	for s in $(ifaces_of "$1"); do
+		[ "$(uci -q get wireless.$s.mode)" = sta ] && [ "$(uci -q get wireless.$s.disabled)" != 1 ] && return 0
+	done
+	return 1
+}
 guest_ifaces() { uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.network='guest'$/\1/p"; }
 radio_up() { # is any interface of this radio up?
 	ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.$1.up" 2>/dev/null | grep -q true
@@ -77,6 +86,20 @@ wifi_apply() {
 		eval "[ \"\$want_$band\" = off ]" && want=off
 		for r in $(radios_of $band); do
 			[ "$(uci -q get wireless.$r.disabled)" = 1 ] && continue
+			# a Wi-Fi client on this radio (internet from Wi-Fi, repeater): the radio stays on, only its
+			# home networks go off (marked as ours) and come back; the guest network has its own part below
+			if has_client "$r"; then
+				for s in $(ap_ifaces_of "$r"); do
+					[ "$(uci -q get wireless.$s.network)" = guest ] && continue
+					if [ "$want" = off ]; then
+						[ "$(uci -q get wireless.$s.disabled)" = 1 ] && continue
+						uci set wireless.$s.disabled=1; uci set wireless.$s.lg7200_sched_off=1; changed=1
+					elif [ "$(uci -q get wireless.$s.lg7200_sched_off)" = 1 ]; then
+						uci -q delete wireless.$s.lg7200_sched_off; uci set wireless.$s.disabled=0; changed=1
+					fi
+				done
+				continue
+			fi
 			if [ "$want" = off ]; then
 				if radio_up "$r"; then wifi down "$r" >/dev/null 2>&1; logger -t lg7200 "schedule: Wi-Fi $band off"; fi
 				touch "$RUN/off-$r"

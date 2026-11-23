@@ -9,13 +9,21 @@ pages in English and Arabic.
 
 ## Which routers?
 
-**Only the Mercury GAPM-7200 / LG-7200.** The image carries this board's device tree, flash layout
-and MAC handling; it does not start on any other router. The label under the router must say
-**GAPM-7200** (the GAPD-7200 is a different device).
+Two LG U+ routers, **each with its own image** (look at the label under the router):
+
+| Label | Board | Image file name contains |
+|---|---|---|
+| **GAPM-7200** | Mercury, MediaTek MT7621 | `ramips-mt7621-mercury_gapm7200` |
+| **GAPD-7200** | Davolink, Qualcomm IPQ4018 (the board of the ASUS RT-AC58U) | `ipq40xx-generic-davolink_gapd7200` |
+
+An image does not start on the other board: installing the GAPM-7200 file on a GAPD-7200 left the
+router unable to boot. Virox refuses the other board's file on its own update page and in "update
+all", but the old system on a new router cannot tell them apart, so read the label first.
+The GAPD-7200 image is new (BUILD-PLAN 16) and still in hardware testing.
 
 The packages in `feed/` (devices, usage, controls, two lines, access points, the pages) are plain
-OpenWrt 25.12 packages and could be built for other OpenWrt routers, but only the GAPM-7200 is tested
-and supported.
+OpenWrt 25.12 packages and could be built for other OpenWrt routers, but only these two boards are
+supported.
 
 ## Guides
 
@@ -64,7 +72,8 @@ The router checks the releases of this repository once a day and offers an updat
 ## Source
 
 - `feed/` — the Virox packages (GPL-2.0-only unless a file says otherwise).
-- `device/` — the GAPM-7200 support for OpenWrt 25.12.6: patches on top of the tag `v25.12.6`.
+- `device/` — the GAPM-7200 support and the GAPD-7200 image profile for OpenWrt 25.12.6: patches on
+  top of the tag `v25.12.6`.
 - `build/` — the build settings of the release image (`release.seed`, `product.conf`).
 
 To build the image: [docs/BUILDING.md](docs/BUILDING.md).

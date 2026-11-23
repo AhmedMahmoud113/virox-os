@@ -274,6 +274,7 @@ return view.extend({
 	},
 
 	render(data) {
+		hn.page(this);
 		if (!data) return hn.failed();
 		this.data = data;
 		this.root = E('div', { 'class': 'vx-page vx-control' });

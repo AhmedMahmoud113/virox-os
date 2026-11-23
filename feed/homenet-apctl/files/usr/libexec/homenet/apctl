@@ -27,6 +27,8 @@ mkdir -p "$RUN"
 
 my_mode() { uci -q get lg7200.state.mode || echo router; }
 my_version() { . /etc/openwrt_release 2>/dev/null; echo "${DISTRIB_RELEASE:-}"; }
+# the Virox board id (gapm7200 | gapd7200, BUILD-PLAN 16)
+my_board() { ( . /lib/functions/lg7200.sh 2>/dev/null && lg7200_board ) || echo unknown; }
 my_mac() { cat "/sys/class/net/$(uci -q get network.lan.device || echo br-lan)/address" 2>/dev/null; }
 my_ip() { ip -4 addr show dev "$(uci -q get network.lan.device || echo br-lan)" 2>/dev/null | awk '/inet / { sub("/.*", "", $2); print $2; exit }'; }
 
@@ -99,6 +101,31 @@ a_join() {
 	uci commit apctl
 	a_sync >/dev/null 2>&1
 	echo OK
+}
+
+# The gateway of this unit's LAN address must still be there. Owner 2026-11-22: line 2's modem was
+# cabled to a LAN port of the main router for a while; an access point took its address from the
+# modem (192.168.3.12) and kept it, and the modem as gateway, after the modem left the LAN. Its
+# hellos went to a gateway that was gone, so the main router never listed it, and it made itself
+# the lead of a "router that is not a Virox". Now: 3 minutes in a row with no answer from the
+# gateway (not even to ARP) -> a new DHCP request; the router that is there now answers.
+a_gateway_check() {
+	local gw n
+	[ "$(my_mode)" = ap ] || return 0
+	[ "$(uci -q get network.lan.proto)" = dhcp ] || return 0
+	gw="$(ip -4 route show default | awk '{ print $3; exit }')"
+	[ -n "$gw" ] || return 0
+	# a router may ignore ping: being in the neighbour table with a MAC is enough
+	ping -c 1 -W 2 "$gw" >/dev/null 2>&1
+	if ip -4 neigh show "$gw" 2>/dev/null | grep -q lladdr && ! ip -4 neigh show "$gw" | grep -qE 'FAILED|INCOMPLETE'; then
+		rm -f "$RUN/gw-miss"; return 0
+	fi
+	n=$(( $(cat "$RUN/gw-miss" 2>/dev/null || echo 0) + 1 ))
+	echo "$n" > "$RUN/gw-miss"
+	[ "$n" -ge 3 ] || return 0
+	rm -f "$RUN/gw-miss" "$RUN/main-kind"
+	logger -t homenet "access point: the gateway $gw has not answered for 3 minutes; asking for a new address"
+	ifup lan
 }
 
 # not joined yet: say hello to the main router (the gateway) every minute; the owner adds this
@@ -249,6 +276,29 @@ a_find_lead() {
 	echo "$ip"
 }
 
+# devices on this access point's own cable ports (owner 2026-11-23: a PC plugged into AP 2 showed under
+# the main router): the bridge's learned entries on every port but the one towards the main router
+# (the port where the gateway's MAC is), never the Wi-Fi ports or this unit's own MACs; the same rule
+# as the Devices page of an access point (virox-homenet.uc online_macs). A switch on a port: every
+# device behind it, other access points too; the main router picks the nearest unit.
+a_wired() {
+	local lan gw gwmac up
+	lan="$(uci -q get network.lan.device || echo br-lan)"
+	gw="$(ip -4 route show default 2>/dev/null | awk '{ print $3; exit }')"
+	[ -n "$gw" ] || return 0
+	gwmac="$(ip -4 neigh show "$gw" dev "$lan" 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "lladdr") { print tolower($(i + 1)); exit } }')"
+	[ -n "$gwmac" ] || return 0
+	bridge fdb show br "$lan" 2>/dev/null | awk -v g="$gwmac" -v own="$(cat /sys/class/net/*/address 2>/dev/null | tr 'A-F\n' 'a-f ')" '
+		BEGIN { n = split(own, o, " "); for (i = 1; i <= n; i++) mine[o[i]] = 1 }
+		$2 == "dev" && / master / && !/ permanent/ {
+			m = tolower($1); p = $3
+			if (m == g) up = p
+			if (m !~ /^[0-9a-f][02468ace](:[0-9a-f][0-9a-f]){5}$/ || (m in mine) || p ~ /^(phy|wlan)/) next
+			port[m] = p
+		}
+		END { if (up == "") exit; for (m in port) if (port[m] != up) print m }' | sort | head -n 200
+}
+
 a_sync() {
 	local main id token r cfg old s band ssid key enc changed=0 ch2 ch5 dev via body
 	main="$(uci -q get apctl.agent.main)"; id="$(uci -q get apctl.agent.id)"; token="$(uci -q get apctl.agent.token)"
@@ -261,6 +311,10 @@ a_sync() {
 	fi
 	json_init
 	json_add_string id "$id"; json_add_string token "$token"; json_add_string version "$(my_version)"
+	# board (BUILD-PLAN 16): a main router from before 0.9.0-rc4 refuses the whole report for an
+	# argument it does not know ("Invalid argument": a GAPD-7200 on rc4 under an rc3.1 main router never
+	# synced, 2026-11-22); after one empty answer it is left out until this unit restarts
+	[ -f "$RUN/main-no-board" ] || json_add_string board "$(my_board)"
 	json_add_int uptime "$(cut -d . -f 1 /proc/uptime)"
 	json_add_string ip "$(my_ip)"
 	json_add_string uplink "$(a_uplink)"
@@ -272,6 +326,13 @@ a_sync() {
 		json_close_object
 	done < "$RUN/st"
 	json_close_array
+	# wired: MACs on this unit's cable ports (0.9.0-rc4.2); a main router from before refuses the whole
+	# report for an argument it does not know: after one empty answer it is left out (like board)
+	if [ ! -f "$RUN/main-no-wired" ]; then
+		json_add_array wired
+		for m in $(a_wired); do json_add_string "" "$m"; done
+		json_close_array
+	fi
 	# under a lead (no Virox main router counts the house): this unit's own counting of its devices,
 	# today and yesterday, per MAC; running totals, so a lost report is covered by the next one
 	if [ "$via" = lead ]; then
@@ -288,6 +349,16 @@ a_sync() {
 	fi
 	body="$(json_dump)"
 	r="$(rpc "$main" sync "$body")"
+	if [ -z "$r" ] && [ ! -f "$RUN/main-no-wired" ]; then
+		body="$(echo "$body" | sed 's/, *"wired": *\[[^]]*\]//')"
+		r="$(rpc "$main" sync "$body")"
+		[ -n "$r" ] && : > "$RUN/main-no-wired"
+	fi
+	if [ -z "$r" ] && [ ! -f "$RUN/main-no-board" ]; then
+		body="$(echo "$body" | sed 's/, *"board": *"[a-z0-9]*"//')"
+		r="$(rpc "$main" sync "$body")"
+		[ -n "$r" ] && : > "$RUN/main-no-board"
+	fi
 	# a lead that moved to another address (DHCP): find it by its MAC, once
 	if [ -z "$r" ] && [ "$via" = lead ] && main="$(a_find_lead)"; then r="$(rpc "$main" sync "$body")"; fi
 	[ "$(echo "$r" | jsonfilter -e '@.result' 2>/dev/null)" = true ] || return 0
@@ -371,6 +442,12 @@ m_update_prepare() {
 	v="$(lg7200-update status | sed -n 's/^latest=//p')"
 	out="$(lg7200-update download 2>&1)"
 	case "$out" in OK*) ;; *) echo "err ${out#ERR }" > "$RUN/update-prep"; return 0 ;; esac
+	# access points of the other board (BUILD-PLAN 16): their own image too, one download each; when
+	# that fails they fetch it from the update server themselves (never this router's image)
+	for b in $(for f in "$RUN"/ap*.json; do [ -s "$f" ] && jsonfilter -i "$f" -e '@.board' 2>/dev/null; done | sort -u); do
+		[ "$b" = "$(my_board)" ] || [ "$b" = unknown ] || lg7200-update download "$b" >/dev/null 2>&1 ||
+			logger -t homenet "update all: the $b image could not be fetched; those access points use the update server"
+	done
 	out="$(lg7200-update serve 2>&1)"
 	case "$out" in OK*) ;; *) echo "err ${out#ERR }" > "$RUN/update-prep"; return 0 ;; esac
 	echo "ok $v" > "$RUN/update-prep"
@@ -481,7 +558,7 @@ a_guest() {
 				[ "$band" = both ] || [ "$(uci -q get wireless.$rad.band)" = "$band" ] || { uci -q delete wireless.$s; continue; }
 				uci set wireless.$s=wifi-iface; uci set wireless.$s.device="$rad"; uci set wireless.$s.mode='ap'
 				uci set wireless.$s.network='guest'; uci set wireless.$s.ssid="$ssid"; uci set wireless.$s.key="$key"
-				uci set wireless.$s.encryption='sae-mixed'; uci set wireless.$s.isolate='1'; uci set wireless.$s.disabled='0'
+				uci set wireless.$s.encryption='psk2+ccmp'; uci set wireless.$s.isolate='1'; uci set wireless.$s.disabled='0'
 				if [ "$hid" = 1 ]; then uci set wireless.$s.hidden='1'; else uci -q delete wireless.$s.hidden; fi
 			done
 			uci commit network; uci commit wireless
@@ -521,11 +598,14 @@ m_guest_tunnel() {
 m_local_scan() {
 	local now
 	now="$(date +%s)"
-	{ awk -F '\t' '$2 != "main"' "$CLIENTS" 2>/dev/null
-	  stations | while read -r mac sig b kid; do printf '%s\tmain\t%s\t%s\t%s\n' "$mac" "$sig" "$b" "$now"; done
-	} > "$CLIENTS.new" && mv "$CLIENTS.new" "$CLIENTS"
-	# rows of access points that stopped reporting are dropped after 5 minutes
-	awk -F '\t' -v n="$now" 'n - $5 < 300' "$CLIENTS" > "$CLIENTS.new" && mv "$CLIENTS.new" "$CLIENTS"
+	# this router's part, written whole, then the whole list from every part (the access points'
+	# reports do the same in virox-apctl.uc: nobody rewrites another source's rows, 2026-11-23)
+	mkdir -p "$CLIENTS.d"
+	stations | while read -r mac sig b kid; do printf '%s\tmain\t%s\t%s\t%s\n' "$mac" "$sig" "$b" "$now"; done \
+		> "$CLIENTS.d/main.tsv.tmp" && mv "$CLIENTS.d/main.tsv.tmp" "$CLIENTS.d/main.tsv"
+	# rows of a source that stopped reporting are dropped after 5 minutes
+	cat "$CLIENTS.d"/*.tsv 2>/dev/null | awk -F '\t' -v n="$now" 'NF >= 5 && n - $5 < 300' > "$CLIENTS.main.tmp" &&
+		mv "$CLIENTS.main.tmp" "$CLIENTS"
 }
 
 m_roaming_local() {
@@ -609,7 +689,7 @@ case "$1" in
 	event) case "$2" in update_all_failed) hn_event "$2" warn ap_id="$3" ;; *) hn_event "$2" info ap_id="$3" ;; esac ;;
 	update-prepare) m_update_prepare ;;
 	tick) if [ "$(my_mode)" = ap ]; then
-			a_join_wireless; a_hello; a_sync; a_repeat_check
+			a_join_wireless; a_gateway_check; a_hello; a_sync; a_repeat_check
 			# a lead is the main router of the other access points
 			[ "$(cat "$RUN/role" 2>/dev/null)" = lead ] && { m_local_scan; m_guest_tunnel; m_mesh; }
 		else m_local_scan; m_guest_tunnel; m_mesh; fi

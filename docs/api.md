@@ -93,7 +93,7 @@ Mode effects (applied through the ops):
 - `ap`: WAN port added to the LAN bridge, LAN gets its address by DHCP from the main router,
   fallback interface `lan_fb` keeps the old address (so the browser can confirm the change),
   WAN interfaces disabled, DHCP/RA server off, `lan_fb` in the LAN firewall zone.
-- Wi-Fi: every access-point interface gets `ssid`, `key`, `encryption sae-mixed`.
+- Wi-Fi: every access-point interface gets `ssid`, `key`, `encryption psk2+ccmp` (WPA2 only, owner 2026-11-22: the WPA2/WPA3 mixed mode kept iPhones and many devices out).
 - `lg7200.state.mode` and `lg7200.state.setup_done = 1`.
 
 ### `set_password { password }` — admin
@@ -148,7 +148,9 @@ starts (only the MACs, never the other first-boot defaults).
 ### `self_upgrade { path }` — admin — HARDWARE-UNTESTED
 Runs `sysupgrade -P -n <path>` (creates the provisioning volume, F16). The image must already be in
 `/tmp` (LuCI `cgi-upload`) and pass `sysupgrade -T`.
-`{ result: true, rebooting: true }` or errors `invalid_path`, `no_nand`, `image_rejected`.
+`{ result: true, rebooting: true }` or errors `invalid_path`, `no_nand`, `wrong_board` (the image
+is made for the other board, GAPM-7200 / GAPD-7200: its metadata does not name this unit),
+`image_rejected`.
 
 ## virox.gaming (P4)
 
@@ -212,12 +214,20 @@ Both run in the background (downloads can take longer than rpcd allows a call); 
 settings kept (the router restarts; event `system/update_installing`). Errors in `status.error`:
 `clock_not_synced` (HTTPS needs the time; the updater waits instead of skipping certificate
 checks), `download_failed`, `bad_signature`, `bad_latest`, `wrong_board`, `bad_image` (size or
-sha256; the file is deleted), `image_refused` (`sysupgrade -T`), `no_space`, `no_update`,
+sha256; the file is deleted), `wrong_board_image` (the image is made for the other board),
+`image_refused` (`sysupgrade -T`), `no_space`, `no_update`,
 `no_update_server`; `busy` as the call's own error. The daily check (cron, once a day after the
 clock sync) raises `system/update_available` once per version; it sends nothing about the user.
 
 `latest.json` (written by `tools/release.sh`, signed with `usign -S`):
-`{ product, version, boards: [ board_name ], image: { file, sha256, size }, changelog: { ar, en } }`.
+`{ product, version, boards: [ board_name ], image: { file, sha256, size }, images: [ { board,
+boards: [ board_name ], file, sha256, size } ], changelog: { ar, en } }`. Two boards (BUILD-PLAN 16):
+`images` holds one entry per board (`gapm7200` = `mercury,gapm7200`, `gapd7200` = `asus,rt-ac58u`);
+a unit takes only the entry whose `boards` name its own board name (none: `wrong_board`). The top
+`boards` + `image` stay the GAPM-7200 image, for units from before BUILD-PLAN 16; when `images` is
+present, the top entry is never used. Before `sysupgrade -T` the image's own metadata
+(`supported_devices`) must name this board: else `wrong_board_image` (file deleted, nothing written).
+`status` (shell) also prints `board=<gapm7200|gapd7200|unknown>`.
 
 ## virox.support (section 12 items 7-9, P7, B7.3e item 7; package `lg7200-support`)
 
@@ -332,9 +342,18 @@ separate names) and the band's own hidden setting. `lg7200.wifi.off_<band>`; acc
 ### `virox.apctl wifi_wan { band, ssid, key }`, `wifi_wan_off`, `wifi_wan_status` — admin (owner 2026-11-22)
 A router takes its internet from another router's Wi-Fi: `wireless.vx_wifiwan` (mode sta on the chosen band's radio),
 network `wan3` (dhcp, metric 20, firewall zone wan), so homenet counts it as a line (usage, outages, internet state).
-Status: `{ on, router, ssid, band, up, ip, signal, clash }`, `clash` = the other router gives this router's own
-address range. Errors: `not_router`, `invalid_band`, `invalid_ssid`, `invalid_key`, `no_wifi`. `scan` now works in
-router mode too, and on a radio with no network running (a short-lived client interface scans).
+Status: `{ on, router, ssid, band, up, ip, signal, clash, state }`, `clash` = the other router gives this router's own
+address range; `state` = `connected` | `address` (associated, waiting for DHCP) | `connecting` | `channel_check`
+(hostapd's radar check of a DFS channel, about a minute) | `wrong_password` | `not_found` (from wpa_supplicant's and
+hostapd's log lines). Errors: `not_router`, `invalid_band`, `invalid_ssid`, `invalid_key`, `no_wifi`, `key_needed`
+(the network is protected and no key was given), `unsupported_security` (WEP or 802.1X), `channel_not_allowed`.
+Success: `{ result: true, notes: [ "dfs" | "high" ] }`: the other router's channel needs a radar check, or is above
+64 (phones set for Egypt may not see this router's 5 GHz network meanwhile). The client takes the security of the
+network from the scan (`sae`, `psk2+ccmp` (also for a mixed WPA2/WPA3 router), `psk-mixed`, `none`); the radio follows the other router's
+channel while the client is on it (its own `channel`, `channels`, `acs_exclude_dfs` are kept in
+`lg7200_saved_*` and put back by `wifi_wan_off`); `wifi-power` leaves such a radio's channel alone, and the night
+schedule switches only its home networks off, never the radio. `scan` works in router mode too, and on a radio
+with no network running (a short-lived client interface scans).
 
 ### `priority_set { target, on }` — admin (owner 2026-11-22: one device or person first)
 `controls priority <target> 0|1` (`/etc/homenet/data/priority.tsv`, at most 3: error `too_many`). On the
@@ -671,7 +690,8 @@ still fails. `{ result: true, mac, ip }` or `{ result: false, error, ... }`:
 ### virox.lines (package `homenet-dualwan`, admin)
 - `status` → `{ enabled, default_line, lines: [ { id, iface, name, colour, up, package_mb, renew_day,
   warn, up_kbit, down_kbit, used_mb, today_mb, cycle_start, used_up, days_left } ], assignments:
-  [ { target, kind: line|both|borrow, line, minutes_left, mb_limit } ] }`. `days_left`: forecast
+  [ { target, kind: line|both|borrow, line, minutes_left, mb_limit } ], plan: { <mac>: l1|l2|both|stop } }`.
+  `plan` (0.9.0-rc4.2): the line each MAC uses now, as the routing is built (`lines plan`); empty with one line. `days_left`: forecast
   from the last 7 full days (X2), `null` without a package or history.
 - `enable { on }`: second line on (port `lines.main.port`, default `lan4`, becomes `wan2`) / off.
 - `set_line { id, name, colour, package_mb, renew_day, warn, up_kbit, down_kbit }`: empty fields stay.
@@ -709,6 +729,11 @@ still fails. `{ result: true, mac, ip }` or `{ result: false, error, ... }`:
   2026-11-20): `2g` (default) | `5g` | `both`, on the main router and its access points. Guests' usage is the `guest` row
   of `devices` (like `router` and `unknown`).
 - `devices`: each device gains `where: { ap, name, signal, band }` (Y3; `ap` = `main` or an AP id).
+  Since 0.9.0-rc4.2 `band` can be `lan`: on a cable port of that access point (`signal` null). The
+  access point sends `wired: [ mac ]` in `sync` (devices learned on its cable ports, not the port towards
+  the main router); a Wi-Fi report always wins, and of several units that see the same device on a
+  cable the nearest one (no other claimant behind it) is taken. An access point leaves `wired` out
+  after one empty answer from an older main router (like `board`).
 - Event `device_person_from_key` (device_id=, person_id=).
 
 ### virox.apctl (package `homenet-apctl`)
@@ -836,7 +861,11 @@ install (the protected unit storage of B6 item 1 is made by the first update).
   the access points update one at a time (each fetches from there with `LG7200_UPDATE_URL` and
   still checks signature and sha256 with its own keys; the update server if that fails); each must
   report the target version within 10 minutes or the rest stop; an access point offline at its turn
-  is skipped; this router installs last. Events `ap/update_all_failed` (warn, `ap_id`),
+  is skipped; this router installs last. Mixed boards (BUILD-PLAN 16): each access point reports its
+  board in `sync` (`board`: `gapm7200` | `gapd7200`); this router also downloads the image of every
+  other board among its access points (`lg7200-update download <board>`, kept apart, never
+  installed here) and offers it next to its own; an access point never takes another board's image
+  (its own updater selects by board name and checks the image's metadata). Events `ap/update_all_failed` (warn, `ap_id`),
   `ap/update_all_skipped`, `ap/update_all_done`.
 - `update_status` → `{ state: idle|preparing|updating|main|done|failed|error, target, error, failed,
   current, wait_minutes: 10, version, units: [ { id, name, version, state:
@@ -845,7 +874,7 @@ install (the protected unit storage of B6 item 1 is made by the first update).
   (subnet 10.73.73.0/24, isolated, firewall zone `vxjoin`: DHCP and TCP 443 only, nothing
   forwarded) for an access point without a cable; it says `hello` there and is approved as usual.
   `join_close` → `{ result }`.
-- `mesh_set { enabled }`: the wireless link between Virox units (on by default). While this router
+- `mesh_set { enabled }`: the wireless link between Virox units (off by default since 0.9.0-rc4.1: beside the 5 GHz network of the GAPM-7200 it broke that network for phones). While this router
   has access points (or a join window), a hidden 802.11s mesh on 5 GHz (SAE, random `mesh_id` and
   `mesh_key` made once, in `apctl.main`) is bridged into the LAN, and STP runs on the LAN bridge
   (this router root, priority 4096; forward delay 4 s); the mesh port costs 200, so a cable is
@@ -853,8 +882,10 @@ install (the protected unit storage of B6 item 1 is made by the first update).
 - `repeat { band, ssid, key }` (access point mode only; a router that is not a Virox above) →
   `{ result }` | `not_ap`, `invalid_band`, `invalid_ssid`, `invalid_key`: repeat that router's
   Wi-Fi: a 4-address client in the LAN bridge first; relayd (`network.vxrelay`, `wwan` by DHCP)
-  when no address comes through it within 90 s. `repeat_off`. `scan` → `{ result, networks: [ {
-  band, signal, ssid } ] }`.
+  when no address comes through it within 90 s. `repeat_off`. Same security, channel and notes rules
+  and errors as `wifi_wan`. `scan` → `{ result, networks: [ { band, signal, channel, security, ssid } ] }`
+  (an active scan from a home interface of the radio; the radio's last results when the driver is
+  busy, e.g. while a client searches).
 - `restart_aps` (also called by the scheduled restart): the access points restart one at a time,
   each must come back (a report with a shorter uptime) within 10 minutes or the rest stop (event
   `ap/restart_aps_failed`); offline ones are skipped.

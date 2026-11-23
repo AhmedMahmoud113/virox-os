@@ -1,6 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
-# /lib/functions/lg7200.sh — per-unit identity for Virox on the Mercury GAPM-7200.
+# /lib/functions/lg7200.sh — per-unit identity for Virox on the Mercury GAPM-7200 and the
+# LG U+ GAPD-7200 (BUILD-PLAN 16). Everything that differs between the boards goes through
+# lg7200_board (never an assumption about the SoC).
 #
 # Storage (BUILD-PLAN B6 item 1, planner decision on F16):
 #   1. the upstream "provisioning" UBI volume (created by `sysupgrade -P`), accessed only
@@ -22,6 +24,45 @@
 : "${LG7200_CONFIG_DEV:=}"
 
 LG7200_KEY_RE='^[a-z0-9_]+$'
+
+# ---------------------------------------------------------------- board (BUILD-PLAN 16)
+# The Virox board id from the OpenWrt board name:
+#   mercury,gapm7200 -> gapm7200   Mercury GAPM-7200 (ramips mt7621, MT7615 DBDC)
+#   asus,rt-ac58u    -> gapd7200   LG U+ GAPD-7200 (ipq40xx; its PandoraBox recovery and the
+#                                  image profile davolink_gapd7200 keep the RT-AC58U board name)
+#   anything else    -> unknown
+: "${LG7200_BOARD_NAME_FILE:=/tmp/sysinfo/board_name}"
+lg7200_board() {
+	case "$(cat "$LG7200_BOARD_NAME_FILE" 2>/dev/null)" in
+		mercury,gapm7200) echo gapm7200 ;;
+		asus,rt-ac58u|davolink,gapd7200) echo gapd7200 ;;
+		*) echo unknown ;;
+	esac
+}
+# 0 when the sysupgrade image $1 is made for this board: its metadata (fwtool) names this unit's
+# board name. A GAPM-7200 image on a GAPD-7200 (or the other way) is refused here, before
+# sysupgrade, so the pages can say why in plain words. An image without metadata: 0 (sysupgrade
+# -T decides). Prints the image's boards on refusal.
+lg7200_image_for_board() {
+	local meta="/tmp/lg7200-image-meta.$$" b
+	command -v fwtool >/dev/null 2>&1 || return 0
+	if ! fwtool -q -i "$meta" "$1" 2>/dev/null; then rm -f "$meta"; return 0; fi
+	b="$(jsonfilter -i "$meta" -e '@.supported_devices[*]' 2>/dev/null)"
+	rm -f "$meta"
+	[ -n "$b" ] || return 0
+	echo "$b" | grep -qxF "$(cat "$LG7200_BOARD_NAME_FILE" 2>/dev/null)" && return 0
+	echo $b
+	return 1
+}
+
+# The name on the unit's label (shown in the pages and the install guide)
+lg7200_board_label() {
+	case "${1:-$(lg7200_board)}" in
+		gapm7200) echo GAPM-7200 ;;
+		gapd7200) echo GAPD-7200 ;;
+		*) cat /tmp/sysinfo/model 2>/dev/null ;;
+	esac
+}
 
 # ---------------------------------------------------------------- storage
 
@@ -164,10 +205,32 @@ lg7200_mac_add() {
 	printf '%s:%02x:%02x:%02x\n' "$oui" $((nic >> 16)) $(((nic >> 8) & 0xff)) $((nic & 0xff))
 }
 
+lg7200_ubi_dev() {
+	# $1 = UBI volume name -> /dev/ubiX_Y
+	local n
+	for n in "$LG7200_SYSFS_UBI"/ubi*_*/name; do
+		[ -r "$n" ] || continue
+		[ "$(cat "$n")" = "$1" ] && { n="${n%/name}"; echo "/dev/${n##*/}"; return 0; }
+	done
+	return 1
+}
+
+# The unit's own MAC as the maker wrote it (read only, never written):
+#  - GAPM-7200: mtd "Factory", offset 4;
+#  - GAPD-7200: UBI volume "Factory" (the ART copy), offset 0x5006 = 20486, the MAC the board's
+#    DTS gives the LAN (unit AA54: ...:a0:ae:2c; 0x1006 holds the WAN / 2.4 GHz one, ...:28).
+lg7200_factory_dev() {
+	case "$(lg7200_board)" in
+		gapd7200) echo "${LG7200_FACTORY_DEV:-$(lg7200_ubi_dev Factory)}" ;;
+		*) echo "${LG7200_FACTORY_DEV:-$(lg7200_mtd_dev Factory)}" ;;
+	esac
+}
 lg7200_factory_mac() {
-	local dev="${LG7200_FACTORY_DEV:-$(lg7200_mtd_dev Factory)}"
+	local dev off=4
+	dev="$(lg7200_factory_dev)"
+	[ "$(lg7200_board)" = gapd7200 ] && off=20486
 	[ -r "$dev" ] || return 1
-	lg7200_mac_norm "$(hexdump -v -n 6 -s 4 -e '5/1 "%02x:" 1/1 "%02x"' "$dev" 2>/dev/null)"
+	lg7200_mac_norm "$(hexdump -v -n 6 -s "$off" -e '5/1 "%02x:" 1/1 "%02x"' "$dev" 2>/dev/null)"
 }
 
 # Locally administered MAC, stable for this unit: derived from the stock per-unit

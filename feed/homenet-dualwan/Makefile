@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=homenet-dualwan
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 PKG_LICENSE:=LicenseRef-PolyForm-Noncommercial-1.0.0
 
 include $(INCLUDE_DIR)/package.mk

@@ -30,65 +30,71 @@
 	font-display: swap;
 	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-:root { --font-family-sans-serif: "Google Sans Flex", "Cairo", "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
-body, button, input, select, textarea { font-family: var(--font-family-sans-serif); }
-html[lang="ar"] body { line-height: 1.6; }
-
-/* ---------------------------------------------------------------- tokens
- * The Virox component names, mapped onto Argon's roles (light and dark come from Argon). */
+/* one font token (virox-ui-ux-guideline.md 4.1): Cairo sets Arabic, Google Sans Flex sets Latin */
 :root {
-	--vx-accent: var(--primary);
-	--vx-accent-strong: var(--link-color, var(--primary));
-	--vx-accent-soft: color-mix(in srgb, var(--primary) 10%, var(--surface-color, #fff));
-	--vx-accent-line: color-mix(in srgb, var(--primary) 35%, var(--surface-color, #fff));
-	--vx-on-accent: var(--accent-text, #fff);
-	--vx-ink: var(--text-strong);
-	--vx-text: var(--text-color);
-	--vx-muted: var(--muted-text);
-	--vx-line: var(--border-color);
-	--vx-bg: var(--background-color);
-	--vx-card: var(--surface-color);
-	--vx-green: #15803d;
-	--vx-green-soft: #f0fdf4;
-	--vx-amber: #b45309;
-	--vx-amber-soft: #fffbeb;
-	--vx-red: #b91c1c;
-	--vx-red-soft: #fef2f2;
-	--vx-shadow: 0 0 2rem 0 rgba(136, 152, 170, .15);
-	--vx-focus: var(--focus-ring, var(--primary));
+	--vx-font-latin: "Google Sans Flex", "Cairo", "Segoe UI", system-ui, sans-serif;
+	--vx-font-arabic: "Cairo", "Google Sans Flex", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+	--vx-font-mono: ui-monospace, "SFMono-Regular", Consolas, "DejaVu Sans Mono", monospace;
+	--vx-font-ui: var(--vx-font-latin);
+	--font-family-sans-serif: var(--vx-font-ui);
+}
+html[lang="ar"], html[lang="fa"], html[lang="ur"] { --vx-font-ui: var(--vx-font-arabic); --font-family-sans-serif: var(--vx-font-arabic); }
+body, button, input, select, textarea { font-family: var(--vx-font-ui); }
+/* the Virox pages read at 16 px (4.2); the legacy LuCI pages keep Argon's compact size (5.7) */
+.vx-page, .modal { font-size: var(--vx-text-body); line-height: var(--vx-leading-body); }
+html[lang="ar"] body { letter-spacing: 0; }
 
-	--vx-radius: .375rem;
-	--vx-radius-small: .375rem;
-	--vx-space-1: 4px;
-	--vx-space-2: 8px;
-	--vx-space-3: 12px;
-	--vx-space-4: 16px;
-	--vx-space-5: 24px;
-	--vx-space-6: 32px;
-	--vx-touch: 44px;             /* minimum touch target (10a item 9) */
-	--vx-content: 960px;          /* content width on wide screens (10a item 7) */
-	--vx-font-mono: ui-monospace, Consolas, "DejaVu Sans Mono", monospace;
-	--vx-size-small: 15px;        /* 10a item 10: body text at least 15 px */
-	--vx-size-body: 16px;
-	--vx-size-title: 22px;
-	--vx-size-big: 26px;
+/* ---------------------------------------------------------------- tokens (guideline section 3)
+ * The colours (base theme + accent, light / dark) are written by head.ut into the page head, so the
+ * first paint is right; the values below are only the fallback (Slate base, light: the default since 2026-11-23). Everything else
+ * here is fixed: spacing, radius, type, sizes, motion. */
+:root {
+	--vx-bg: #f4f6f8; --vx-surface: #fff; --vx-surface-raised: #fff; --vx-surface-sunken: #eaeef2;
+	--vx-text-strong: #0f172a; --vx-text: #243044; --vx-text-muted: #5b6b7f;
+	--vx-border: #dfe5ec; --vx-border-strong: #c4ced9; --vx-track: #e4eaf1;
+	--vx-accent: #2563eb; --vx-accent-strong: #1f53c5; --vx-accent-soft: #e9effd; --vx-accent-line: #acc4f7; --vx-on-accent: #fff; --vx-focus: #2563eb;
+	--vx-success: #12734a; --vx-success-soft: #e6f4ec; --vx-warning: #8a5600; --vx-warning-soft: #fbf1de;
+	--vx-danger: #b3261e; --vx-danger-soft: #fceae8; --vx-info: #1d5fa8; --vx-info-soft: #e8f0fa;
+	--vx-scrim: rgba(18, 26, 28, .48);
+	--vx-shadow-card: 0 1px 2px rgba(18, 26, 28, .04), 0 8px 24px rgba(18, 26, 28, .05);
+	--vx-shadow-pop: 0 8px 16px rgba(18, 26, 28, .08), 0 24px 48px rgba(18, 26, 28, .12);
+	--vx-hero-bg: linear-gradient(135deg, var(--vx-accent-strong), var(--vx-accent)); --vx-hero-text: var(--vx-on-accent);
+	--vx-hero-muted: var(--vx-on-accent); --vx-hero-edge: transparent;
+
+	--vx-space-0: 0; --vx-space-1: 4px; --vx-space-2: 8px; --vx-space-3: 12px; --vx-space-4: 16px; --vx-space-5: 20px;
+	--vx-space-6: 24px; --vx-space-8: 32px; --vx-space-10: 40px; --vx-space-12: 48px; --vx-space-16: 64px;
+	--vx-radius-sm: 8px; --vx-radius-md: 12px; --vx-radius-lg: 16px; --vx-radius-xl: 20px; --vx-radius-pill: 999px;
+	--vx-size-sidebar: 264px; --vx-size-topbar: 64px; --vx-size-content: 1120px; --vx-size-touch: 44px; --vx-size-field: 44px;
+	--vx-size-icon: 20px; --vx-size-icon-lg: 24px;
+	--vx-dur-fast: 150ms; --vx-dur-base: 200ms; --vx-dur-slow: 280ms;
+	--vx-ease-out: cubic-bezier(.2, .8, .2, 1); --vx-ease-in-out: cubic-bezier(.4, 0, .2, 1);
+	--vx-z-sticky: 20; --vx-z-drawer: 60; --vx-z-modal: 70; --vx-z-toast: 80;
+
+	/* type scale (4.2) */
+	--vx-text-display: 2.5rem; --vx-text-h1: 1.75rem; --vx-text-h2: 1.375rem; --vx-text-h3: 1.125rem;
+	--vx-text-body: 1rem; --vx-text-small: .875rem; --vx-text-caption: .75rem; --vx-leading-body: 1.625;
+
+	/* older names used by the pages, kept as aliases of the tokens above */
+	--vx-ink: var(--vx-text-strong);
+	--vx-muted: var(--vx-text-muted);
+	--vx-line: var(--vx-border);
+	--vx-card: var(--vx-surface);
+	--vx-green: var(--vx-success); --vx-green-soft: var(--vx-success-soft);
+	--vx-amber: var(--vx-warning); --vx-amber-soft: var(--vx-warning-soft);
+	--vx-red: var(--vx-danger); --vx-red-soft: var(--vx-danger-soft);
+	--vx-shadow: var(--vx-shadow-card);
+	--vx-radius: var(--vx-radius-lg);
+	--vx-radius-small: var(--vx-radius-sm);
+	--vx-touch: var(--vx-size-touch);
+	--vx-content: var(--vx-size-content);
+	--vx-size-small: var(--vx-text-small);
+	--vx-size-body: var(--vx-text-body);
+	--vx-size-title: var(--vx-text-h1);
+	--vx-size-big: 1.625rem;
 	--vx-weight-strong: 600;
 	--vx-weight-title: 700;
 }
-:root[data-argon-mode="dark"] {
-	--vx-green: #4ade80; --vx-green-soft: #052e16;
-	--vx-amber: #fbbf24; --vx-amber-soft: #2a1a04;
-	--vx-red: #f87171; --vx-red-soft: #2a0b0b;
-	--vx-shadow: none;
-}
-@media (prefers-color-scheme: dark) {
-	:root:not([data-argon-mode="light"]):not([data-argon-mode="dark"]) {
-		--vx-green: #4ade80; --vx-green-soft: #052e16;
-		--vx-amber: #fbbf24; --vx-amber-soft: #2a1a04;
-		--vx-red: #f87171; --vx-red-soft: #2a0b0b;
-		--vx-shadow: none;
-	}
-}
+html[lang="ar"] { --vx-leading-body: 1.875; }
 
 /* ---------------------------------------------------------------- base */
 :focus-visible { outline: 3px solid var(--vx-focus) !important; outline-offset: 2px; }
@@ -127,7 +133,21 @@ body[data-page="admin-setup"] #tabmenu { display: none !important; }
 .vx-login .brand-text { font-family: var(--font-family-sans-serif) !important; }
 .vx-login .vx-label { display: block; font-weight: var(--vx-weight-strong); margin-block-end: var(--vx-space-1); }
 .vx-login .vx-hint { font-size: var(--vx-size-small); opacity: .85; margin-block: var(--vx-space-2) 0; }
-.vx-login .cbi-button-apply { inline-size: 100%; }
+.vx-login .cbi-button-apply { inline-size: 100%; min-block-size: 48px; border-radius: var(--vx-radius-sm); background: var(--vx-accent) !important;
+	border-color: var(--vx-accent) !important; color: var(--vx-on-accent) !important; font-weight: 600; }
+/* the sign-in page follows the same tokens (9.1): the canvas with a faint accent tint, no photo */
+body.node-main-login { background: radial-gradient(60rem 40rem at 100% 0, color-mix(in srgb, var(--vx-accent) 6%, transparent), transparent 70%), var(--vx-bg) !important;
+	color: var(--vx-text); font-family: var(--vx-font-ui); }
+html[dir="rtl"] body.node-main-login { background: radial-gradient(60rem 40rem at 0 0, color-mix(in srgb, var(--vx-accent) 6%, transparent), transparent 70%), var(--vx-bg) !important; }
+body.node-main-login .main-bg { display: none !important; }
+body.node-main-login .login-page .login-container { background: none !important; }
+body.node-main-login .login-form { background: var(--vx-surface) !important; color: var(--vx-text) !important; border: 1px solid var(--vx-border);
+	border-radius: var(--vx-radius-xl) !important; box-shadow: var(--vx-shadow-card) !important; }
+body.node-main-login .login-form .brand, body.node-main-login .login-form .brand-text { color: var(--vx-text-strong) !important; }
+body.node-main-login .login-form input { background: var(--vx-surface) !important; color: var(--vx-text-strong) !important; border: 1px solid var(--vx-border-strong) !important;
+	border-radius: var(--vx-radius-sm) !important; min-block-size: var(--vx-size-field); font-size: var(--vx-text-body); }
+body.node-main-login .login-form input:focus { outline: 3px solid var(--vx-accent-line); border-color: var(--vx-accent) !important; }
+body.node-main-login .errorbox { background: var(--vx-danger-soft); color: var(--vx-danger); border-radius: var(--vx-radius-md); }
 .vx-langswitch {
 	display: inline-flex; align-items: center; min-height: 36px !important; block-size: 36px;
 	padding: 0 var(--vx-space-3); border: 1px solid var(--vx-line); border-radius: 99px;
@@ -524,12 +544,17 @@ button.showSide { background: none; border: 0; padding: 0; color: inherit; curso
 .vx-ap .vx-inline { display: flex; flex-wrap: wrap; gap: var(--vx-space-2); align-items: center; }
 
 /* ---------------------------------------------------------------- the message after an action: one, at the bottom */
-.vx-toast { position: fixed; inset-inline: 0; inset-block-end: 20px; margin: 0 auto; inline-size: max-content; max-inline-size: calc(100vw - 32px);
-	padding: 11px 18px; border-radius: 12px; background: #0f172a; color: #fff; font-weight: 600; z-index: 3000; opacity: 0;
-	transform: translateY(10px); transition: opacity .2s, transform .2s; pointer-events: none; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); }
-.vx-toast.show { opacity: 1; transform: none; }
-.vx-toast.bad { background: #b91c1c; }
-.vx-toast.warn { background: #92400e; }
+/* a toast (6.8): at the block end, inline end; 380 px at most; text and a shape, never colour alone */
+.vx-toast { position: fixed; inset-inline-end: var(--vx-space-4); inset-block-end: var(--vx-space-4); margin: 0; inline-size: max-content;
+	max-inline-size: min(380px, calc(100vw - 32px)); display: flex; align-items: center; gap: var(--vx-space-2);
+	padding: var(--vx-space-3) var(--vx-space-4); border-radius: var(--vx-radius-md); background: var(--vx-surface-raised); color: var(--vx-text-strong);
+	border: 1px solid var(--vx-border); border-inline-start: 4px solid var(--vx-success); font-weight: 600; z-index: 3000; opacity: 0;
+	transform: translateY(8px); transition: opacity var(--vx-dur-fast), transform var(--vx-dur-fast); pointer-events: none; box-shadow: var(--vx-shadow-pop); }
+.vx-toast.show { opacity: 1; transform: none; pointer-events: auto; }
+.vx-toast.bad { border-inline-start-color: var(--vx-danger); }
+.vx-toast.warn { border-inline-start-color: var(--vx-warning); }
+.vx-toast.info { border-inline-start-color: var(--vx-info); }
+@media (max-width: 600px) { .vx-toast { inset-inline: var(--vx-space-4); inline-size: auto; } }
 @media (prefers-reduced-motion: reduce) { .vx-toast { transition: none; } }
 
 /* ---------------------------------------------------------------- the language and light/dark buttons of the top bar */

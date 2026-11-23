@@ -74,7 +74,7 @@ g_apply() {
 				set wireless.$s.network='guest'
 				set wireless.$s.ssid='$(echo "$ssid" | sed "s/'/'\\\\''/g")'
 				set wireless.$s.key='$(echo "$key" | sed "s/'/'\\\\''/g")'
-				set wireless.$s.encryption='sae-mixed'
+				set wireless.$s.encryption='psk2+ccmp'
 				set wireless.$s.isolate='1'
 				set wireless.$s.disabled='0'
 			EOF

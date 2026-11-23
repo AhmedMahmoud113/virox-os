@@ -1,9 +1,16 @@
 #!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 # Small safety loop (BUILD-PLAN B7.5b), run by procd (/etc/init.d/lg7200-watch):
-# every 15 s the DHCP guard and the time fallback.
+# every 15 s the DHCP guard and the time fallback; every 5 minutes (the first 2 minutes after
+# the start) the check for another router or DHCP server on the home network (lan-check).
+n=12
 while :; do
 	/usr/libexec/lg7200/dhcp-guard check >/dev/null 2>&1
 	/usr/libexec/lg7200/time-fallback check >/dev/null 2>&1
+	n=$((n + 1))
+	if [ "$n" -ge 20 ]; then
+		n=0
+		/usr/libexec/lg7200/lan-check run >/dev/null 2>&1
+	fi
 	sleep 15
 done

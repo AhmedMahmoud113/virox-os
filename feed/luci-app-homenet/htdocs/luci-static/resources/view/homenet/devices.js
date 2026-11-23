@@ -74,7 +74,9 @@ return view.extend({
 		const now = Date.now() / 1000;
 		const paused = d.paused_until && d.paused_until > now;
 		const on = (d.macs || []).filter(m => m.online);
-		const link = on.map(m => m.link)[0];
+		// Wi-Fi or cable: where the device is (an access point's report) before this router's own view, in
+		// which a phone on an access point's Wi-Fi comes through a cable (2026-11-23: the iPhone showed cable)
+		const link = d.where ? (d.where.band == 'lan' ? 'lan' : 'wifi') : on.map(m => m.link)[0];
 		const ip = on.map(m => m.ip).filter(x => x)[0] || ((d.macs || []).map(m => m.ip).filter(x => x)[0]);
 		const name = hn.deviceName(d);
 		// the internet switch of the card: on = not blocked (a held device is allowed from its sheet)
@@ -92,7 +94,7 @@ return view.extend({
 			'data-id': d.id, 'role': 'button', 'tabindex': '0', 'aria-label': name,
 			'click': open, 'keydown': ev => { if (ev.key == 'Enter' || ev.key == ' ') { ev.preventDefault(); open(); } } }, [
 			E('div', { 'class': 'vx-dev-head' }, [
-				E('span', { 'class': 'vx-dev-icon' }, [ icon(link == 'cable' ? I_CABLE : I_WIFI) ]),
+				E('span', { 'class': 'vx-dev-icon' }, [ icon(link == 'lan' ? I_CABLE : I_WIFI) ]),
 				E('div', { 'class': 'vx-dev-title' }, [
 					E('h3', {}, [ E('bdi', { 'dir': 'auto' }, [ name ]) ]),
 					E('p', { 'class': 'vx-dev-sub' }, [ E('span', { 'class': 'vx-dot' + (d.online ? ' on' : ''), 'aria-hidden': 'true' }), ' ',
@@ -100,13 +102,24 @@ return view.extend({
 						ip ? E('span', { 'class': 'vx-dev-ip' }, [ fmt.ltr(ip) ]) : '' ]),
 					d.person_name ? E('p', { 'class': 'vx-dev-sub' }, [ _('Belongs to'), ' ', E('bdi', { 'dir': 'auto' }, [ d.person_name ]) ]) : '',
 					// a router plugged in as a router hides its devices (owner 2026-11-20)
+					// a computer sharing its internet (a virtual machine inside it): a note, not the router warning
+					d.behind_router && hn.isComputer(d) ? E('p', { 'class': 'vx-dev-sub' }, [ _('Shares its internet with a system running inside it (for example a virtual machine)') ]) :
 					d.behind_router ? E('p', { 'class': 'vx-dev-sub' }, [ hn.badge('warn', _('Router')), ' ',
 						_('The devices behind it are counted together under this name. To see each one, set it to access point mode.') ]) : '',
 					// B9 Y3: where the device is, to find weak spots in the house
 					d.online && d.where ? E('p', { 'class': 'vx-dev-sub' }, [
 						d.where.ap == 'main' ? _('On this router') : fmt.sentence(_('On %s'), [ fmt.name(d.where.name || d.where.ap) ]), ' ',
+						// on a cable port of an access point: no signal
+						d.where.band == 'lan' ? hn.badge('ok', _('Cable')) :
 						hn.badge(d.where.signal >= -60 ? 'ok' : (d.where.signal >= -80 ? 'warn' : 'bad'),
-							d.where.signal >= -60 ? _('Strong signal') : (d.where.signal >= -80 ? _('Fair signal') : _('Weak signal'))) ]) : ''
+							d.where.signal >= -60 ? _('Strong signal') : (d.where.signal >= -80 ? _('Fair signal') : _('Weak signal'))) ]) : '',
+					// B9: the internet line it uses now, with the line's colour
+					(() => {
+						const ln = d.online ? hn.deviceLine(this.data && this.data[5], d) : null;
+						return ln ? E('p', { 'class': 'vx-dev-sub' }, [
+							ln.colour ? E('span', { 'class': 'vx-dot on', 'style': 'background:' + ln.colour, 'aria-hidden': 'true' }) : '', ' ',
+							ln.warn ? hn.badge('bad', _('Line: %s').format(ln.text)) : _('Line: %s').format(ln.text) ]) : '';
+					})()
 				]),
 				toggle
 			]),
@@ -410,7 +423,7 @@ return view.extend({
 			// an old card of a device that is gone (owner 2026-11-20)
 			add('device', hn.section(_('Remove from the list'), _('For a device that is gone. Its settings end with it; its usage stays in the totals as "Removed devices". If it connects again it comes back as a new device.'), [], [
 				E('button', { 'class': 'btn cbi-button-negative', 'click': () => hn.askConfirm(_('Remove this device from the list?'), _('Its block, limits and schedules end. Its usage stays in the totals.'), _('Remove', 'Virox'))
-					.then(y => y && hn.act(hn.api.deviceForget(d.id), _('Removed.')).then(() => { ui.hideModal(); location.reload(); })) }, [ _('Remove from the list') ])
+					.then(y => y && hn.act(hn.api.deviceForget(d.id), _('Removed.')).then(() => { ui.hideModal(); hn.refresh(); })) }, [ _('Remove from the list') ])
 			], { 'class': 'vx-card vx-sec danger' }));
 		}
 
@@ -483,6 +496,7 @@ return view.extend({
 	},
 
 	render(data) {
+		hn.page(this);
 		if (!data) return hn.failed();
 		this.data = data;
 		this.root = E('div', { 'class': 'vx-page vx-devices' });

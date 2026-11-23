@@ -1,0 +1,149 @@
+#!/bin/sh
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Another router or DHCP server on the home network (owner, 2026-11-22). Router mode only.
+#
+#   lan-check run      one check; called every 5 minutes by the lg7200-watch loop
+#   lan-check status   the last result as key=value lines (for the help report and tests)
+#
+# Found on the test unit (2.230): the ZTE of line 2 was cabled to a LAN port, so its DHCP server
+# and its IPv6 router adverts were on the home network (a PC got a 192.168.3.x address), and a
+# second Virox unit in router mode, cabled LAN to LAN, answered this router's own address
+# 192.168.72.1. Nothing warned. Now:
+#  - DHCP: a DHCP request from a temporary macvlan on the LAN bridge. This router's own dnsmasq
+#    never sees it (a macvlan cannot talk to its parent), so every answer comes from another
+#    server. An answer whose server address is this router's own LAN address means a second
+#    device holds that address too (event ip_conflict, danger); any other answer is a foreign
+#    DHCP server (event foreign_dhcp, warn). The request is released at once.
+#  - a second Virox unit still in router mode on the LAN (event second_virox, with the steps to make
+#    it an access point). Candidates are the LAN neighbours the kernel marks as routers (any device
+#    that forwards, so access points too) and that the switch saw in the last 5 minutes; each is
+#    asked its mode with the anonymous, read-only virox.apctl peer call over its IPv6 link-local
+#    address. A Virox access point (mode ap) is never reported; a device that is not a Virox is
+#    not reported either (the DHCP check above catches the harm a foreign router does).
+# Each finding is raised once a day per server/MAC (no flood); the state is in RAM.
+. /lib/functions.sh
+. /lib/functions/lg7200.sh
+
+RUN=/var/run/lg7200-lancheck
+PROBE=vxprobe
+mkdir -p "$RUN"
+
+lan_dev() { uci -q get network.lan.device || echo br-lan; }
+lan_ip() { ip -4 -o addr show dev "$(lan_dev)" 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }'; }
+
+# raise <code> <level> <key> [k=v ...]: once a day per code + key
+raise() {
+	local code="$1" level="$2" key="$3" f
+	shift 3
+	# LANCHECK_DRY=1 (tests on a unit in use): print the finding, raise nothing
+	[ "${LANCHECK_DRY:-0}" = 1 ] && { echo "would_raise=$code $*"; return 0; }
+	f="$RUN/seen-$code-$(echo "$key" | tr -c 'a-zA-Z0-9.\n' '_')"
+	[ -f "$f" ] && [ "$(date +%F -r "$f")" = "$(date +%F)" ] && return 0
+	: > "$f"
+	logger -t lg7200 "lan-check: $code $*"
+	lg7200_event_add network "$code" "$level" "$@" >/dev/null 2>&1
+}
+
+dhcp_probe() {
+	local dev mac
+	dev="$(lan_dev)"
+	ip link del "$PROBE" >/dev/null 2>&1
+	# a fixed locally administered MAC, so a foreign server sees one client, not a new one each time
+	mac="06:76:78:$(lg7200_base_mac | cut -d' ' -f1 | cut -d: -f4-6)"
+	ip link add "$PROBE" link "$dev" type macvlan mode bridge >/dev/null 2>&1 || { echo "probe=unsupported"; return 0; }
+	ip link set "$PROBE" address "$mac" up >/dev/null 2>&1
+	cat > "$RUN/udhcpc.sh" <<-'EOF'
+	#!/bin/sh
+	case "$1" in bound|renew) echo "$serverid $ip" > "$LANCHECK_OUT" ;; esac
+	exit 0
+	EOF
+	chmod 755 "$RUN/udhcpc.sh"
+	rm -f "$RUN/offer"
+	# -n: give up after the tries; -q -R: quit at once and release what was offered; no hostname,
+	# no address is ever configured (the script only writes the answer down)
+	LANCHECK_OUT="$RUN/offer" udhcpc -i "$PROBE" -n -q -R -t 3 -T 2 -A 1 -s "$RUN/udhcpc.sh" >/dev/null 2>&1
+	ip link del "$PROBE" >/dev/null 2>&1
+	if [ -s "$RUN/offer" ]; then
+		set -- $(cat "$RUN/offer")
+		echo "probe=offer server=$1 offered=$2"
+	else
+		echo "probe=none"
+	fi
+}
+
+# access point: the fallback address (lan_fb, the same address every unit starts with) must never
+# stay up next to an address from the main router: it would answer for the main router's own
+# address. ap-fallback drops it 90 s after the main router gives an address; this is the net under
+# it when that was missed (an AP must give up 192.168.72.1 once the main router is seen).
+ap_check() {
+	ubus call network.interface.lan_fb status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null | grep -q true || { echo "ap_fallback=down"; return 0; }
+	ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null | grep -q . || { echo "ap_fallback=up_no_main"; return 0; }
+	# the hotplug's own 90 s wait is still running: leave it to it
+	[ $(( $(cut -d. -f1 /proc/uptime) )) -gt 300 ] || { echo "ap_fallback=up_waiting"; return 0; }
+	echo 1 > "/proc/sys/net/ipv4/conf/$(lan_dev)/promote_secondaries" 2>/dev/null
+	[ "$(uci -q get network.lan_fb.auto)" = 0 ] || { uci set network.lan_fb.auto=0; uci commit network; }
+	ifdown lan_fb
+	logger -t lg7200 "lan-check: access point had its fallback address up next to the main router's; turned off"
+	echo "ap_fallback=turned_off"
+}
+
+# the mode of a Virox unit (router | ap) by its anonymous, read-only peer call; nothing if not a Virox
+peer_mode() {
+	uclient-fetch -q -T 5 --no-check-certificate -O - \
+		--post-data='{"jsonrpc":"2.0","id":1,"method":"call","params":["00000000000000000000000000000000","virox.apctl","peer",{}]}' \
+		"https://[$1]/ubus" 2>/dev/null | jsonfilter -e '@.result[1].mode' 2>/dev/null
+}
+
+run() {
+	local me out server offered m
+	[ "$(uci -q get lg7200.state.mode)" = ap ] && { ap_check; return 0; }
+	me="$(lan_ip)"; [ -n "$me" ] || { echo "skipped=no_lan_address"; return 0; }
+	out="$(dhcp_probe)"
+	echo "$out"
+	server="$(echo "$out" | sed -n 's/.* server=\([^ ]*\).*/\1/p')"
+	offered="$(echo "$out" | sed -n 's/.* offered=\([^ ]*\).*/\1/p')"
+	# IPv6 router adverts from another device (the kernel marks the sender of an RA as a router).
+	# A second Virox router (owner 2026-11-22: a unit still in router mode, cabled LAN to LAN, held
+	# 192.168.72.1 and sent adverts) is told apart by its own page files, read over its IPv6
+	# link-local address (no password; nothing is changed on it): the alert then says how to make
+	# it an access point, and its address clash is not raised a second time.
+	local dev own ll mode virox=0
+	dev="$(lan_dev)"; own="$(cat /sys/class/net/"$dev"/address 2>/dev/null)"
+	ip -6 neigh show dev "$dev" 2>/dev/null | awk '/ router/ { for (i = 1; i <= NF; i++) if ($i == "lladdr") print $1, $(i + 1) }' |
+	sort -u -k2,2 > "$RUN/routers6"
+	bridge fdb show br "$dev" 2>/dev/null | grep -v permanent | cut -d' ' -f1 > "$RUN/fdb"
+	while read -r ll m; do
+		[ "$m" = "$own" ] && continue
+		# only a router on a LAN port now: the neighbour list keeps old entries (the line-2 modem
+		# stayed listed on the LAN after its port moved to the second line); the switch forgets a
+		# MAC 5 minutes after its last packet
+		grep -qixF "$m" "$RUN/fdb" || { echo "router6_gone=$m"; continue; }
+		case "$ll" in fe80:*) ;; *) ll="" ;; esac
+		[ -n "$ll" ] || continue
+		mode="$(peer_mode "$ll%$dev")"
+		case "$mode" in
+			router)
+				echo "virox_router=$m"
+				virox=1
+				raise second_virox warn "$m" mac="$m" ;;
+			'') echo "router6=$m not_virox" ;;
+			*) echo "virox_$mode=$m" ;;
+		esac
+	done < "$RUN/routers6"
+	if [ -n "$server" ]; then
+		if [ "$server" = "$me" ]; then
+			[ "$virox" = 1 ] || raise ip_conflict danger "$server" ip="$me"
+		else
+			raise foreign_dhcp warn "$server" server="$server" offered="$offered"
+		fi
+	fi
+}
+
+case "$1" in
+	run)
+		exec 7>"$RUN.lock"; flock -n 7 || exit 0
+		run > "$RUN/last.new" 2>&1; echo "time=$(date +%s)" >> "$RUN/last.new"; mv -f "$RUN/last.new" "$RUN/last"
+		cat "$RUN/last" ;;
+	status) cat "$RUN/last" 2>/dev/null ;;
+	*) echo "usage: $0 run | status" >&2; exit 1 ;;
+esac

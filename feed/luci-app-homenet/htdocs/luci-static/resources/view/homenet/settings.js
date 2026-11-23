@@ -73,7 +73,7 @@ return view.extend({
 				if (s && s.state == 'running' && ++n < 30) return setTimeout(ask, 2000);
 				if (s && s.state == 'done') {
 					end(fmt.sentence(_('Done: download kept at %s and upload at %s, so games and calls keep a low ping.'), [ fmt.speed(s.down_kbit), fmt.speed(s.up_kbit) ]));
-					setTimeout(() => location.reload(), 4000);
+					hn.refresh(4000);
 				}
 				else end(hn.errorText(s && s.state == 'running' ? 'busy' : (s && s.error)));
 			}).catch(() => end(_('The router did not answer.')));
@@ -163,15 +163,22 @@ return view.extend({
 	// internet from another router's Wi-Fi (owner 2026-11-22: "make 5 GHz a client"): a router joins
 	// that Wi-Fi on the band the admin picks (virox.apctl wifi_wan); the link is counted as a line
 	wifiWanCard(ww) {
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 8000); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(8000); return r; };
 		const BAND = { '2g': _('2.4 GHz'), '5g': _('5 GHz') };
 		if (ww.on)
 			return hn.section(_('Internet from Wi-Fi'), _('This router takes its internet from the Wi-Fi of another router.'), [
 				hn.row(_('Network'), BAND[ww.band] || '', E('b', {}, [ fmt.name(ww.ssid || '—') ])),
-				hn.row(_('State'), ww.ip ? fmt.ltr(ww.ip) : '', ww.up ? hn.badge('ok', _('Connected')) : hn.badge('warn', _('Not connected'))),
+				hn.row(_('State'), ww.ip ? fmt.ltr(ww.ip) : '', ww.up ? hn.badge('ok', _('Connected')) : hn.badge(
+					ww.state in { wrong_password: 1, not_found: 1 } ? 'bad' : 'warn', ({
+						address: _('Connected, getting an address…'),
+						channel_check: _('Waiting for the radar check of this channel (about one minute)'),
+						wrong_password: _('Wrong password'),
+						not_found: _('The network is not in reach')
+					})[ww.state] || _('Connecting…'))),
 				ww.signal != null ? hn.row(_('Signal'), '', fmt.ltr(ww.signal + ' dBm')) : '',
 				ww.clash ? E('p', { 'class': 'vx-warn-text' }, [ _('The other router gives addresses in the same range as this router, so the internet cannot work. Give this router another address range in Quick setup (for example 192.168.3.1).') ]) : '',
-				!ww.up ? E('p', { 'class': 'vx-hint' }, [ _('Connecting takes up to a minute. If it stays like this, check the password and that the other router is in reach.') ]) : '',
+				!ww.up && !(ww.state in { wrong_password: 1, not_found: 1 }) ? E('p', { 'class': 'vx-hint' }, [ _('Connecting takes up to a minute. If it stays like this, check the password and that the other router is in reach.') ]) : '',
+				ww.state == 'wrong_password' ? E('p', { 'class': 'vx-warn-text' }, [ _('The other router refused the password. Stop, then connect again with the right password.') ]) : '',
 				E('button', { 'class': 'btn cbi-button-negative', 'click': () => hn.askConfirm(_('Stop taking the internet from this Wi-Fi?'), _('The internet comes from the cable on the WAN port again, if one is plugged in.'), _('Stop'))
 					.then(y => y && hn.act(hn.api.wifiWanOff(), _('Stopped.')).then(reload)) }, [ _('Stop') ])
 			]);
@@ -198,7 +205,14 @@ return view.extend({
 			if (!sel.value) return hn.notify(_('Choose a network first.'), 'warning');
 			const i = sel.value.indexOf('\t'), band = sel.value.substring(0, i), ssid = sel.value.substring(i + 1);
 			hn.askConfirm(_('Take the internet from this Wi-Fi?'), _('That band of this router follows the channel of the other router. Use an address range different from the other router.'), _('Connect'))
-				.then(y => y && hn.act(hn.api.wifiWan(band, ssid, key.value), _('Connecting… this takes up to a minute.')).then(reload));
+				.then(y => y && hn.act(hn.api.wifiWan(band, ssid, key.value), _('Connecting… this takes up to a minute.')).then(r => {
+					// the channel of the other router: a radar check (a minute of waiting at each start) or
+					// above 64 (phones set for Egypt may not see this router's 5 GHz network meanwhile)
+					const n = (r && r.notes) || [];
+					if (n.indexOf('dfs') >= 0) hn.notify(_('The other router uses a channel with a radar check: this router\'s Wi-Fi on that band waits about one minute after each start.'), 'warning');
+					if (n.indexOf('high') >= 0) hn.notify(_('The other router uses a channel above 64: some phones may not see this router\'s 5 GHz network while it follows that channel.'), 'warning');
+					return reload(r);
+				}));
 		};
 		return hn.section(_('Internet from Wi-Fi'), _('No cable from the modem? This router can take its internet from the Wi-Fi of another router (for example a neighbour\'s or a mobile hotspot). 5 GHz is usually faster, 2.4 GHz reaches further.'), [
 			hn.row(_('Catch with'), _('5 GHz catches only 5 GHz networks and 2.4 GHz only 2.4 GHz ones. Catching with 2.4 GHz leaves your 5 GHz free and fast for your devices.'), mine.el),
@@ -262,7 +276,7 @@ return view.extend({
 	linesCard(ls) {
 		const [ , , , , pp, dv ] = this.data;
 		const people = (pp && pp.people) || [], devices = (dv && dv.devices) || [];
-		const done = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 1200); return r; };
+		const done = r => { if (r && r.result !== false) hn.refresh(1200); return r; };
 		const name = id => id == 'all' ? _('Everyone') : fmt.name(hn.targetName(id, devices, people));
 		const untilMidnight = () => { const m = new Date(); m.setHours(24, 0, 0, 0); return Math.max(1, Math.round((m - Date.now()) / 60000)); };
 		const DUR = [ [ '60', _('1 hour') ], [ '120', _('2 hours') ], [ 'midnight', _('Until midnight') ], [ '0', _('No time limit') ] ];
@@ -395,7 +409,7 @@ return view.extend({
 		const devices = (dv && dv.devices) || [];
 		const keyOf = id => ((wk.keys || []).filter(k => k.person == id)[0] || {}).key || '';
 		const homeSsid = (((this.data[19] || {}).networks || []).filter(n => n.kind == 'home')[0] || {});
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 2500); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(2500); return r; };
 		const gen = () => {
 			const a = 'abcdefghjkmnpqrstuvwxyz23456789';
 			const r = new Uint32Array(10); crypto.getRandomValues(r);
@@ -460,7 +474,7 @@ return view.extend({
 
 	// B9 Y2 guest network: own name and password, internet only, QR code for visitors
 	guestCard(gu, ls) {
-		const done = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 2500); return r; };
+		const done = r => { if (r && r.result !== false) hn.refresh(2500); return r; };
 		const gen = () => {
 			const a = 'abcdefghjkmnpqrstuvwxyz23456789';
 			const r = new Uint32Array(10); crypto.getRandomValues(r);
@@ -513,7 +527,7 @@ return view.extend({
 			hn.field('vx-g-hours', _('Switch the guest network off by itself after'), hrs),
 			gu.enabled && gu.off_at ? E('p', { 'class': 'vx-hint' }, [ fmt.sentence(_('It switches off at %s.'), [ fmt.time(gu.off_at) ]) ]) : '',
 			E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.guestLimits(Math.round((+sd.value || 0) * 1000),
-				Math.round((+su.value || 0) * 1000), +hrs.value), _('Saved.')).then(r => { if (r && r.result !== false) setTimeout(() => location.reload(), 800); return r; }) }, [ _('Save') ])
+				Math.round((+su.value || 0) * 1000), +hrs.value), _('Saved.')).then(r => { if (r && r.result !== false) hn.refresh(800); return r; }) }, [ _('Save') ])
 		]);
 	},
 
@@ -544,7 +558,7 @@ return view.extend({
 	// B9 Y1/Y3 access points: on the main router pair, name, channels, firmware, roaming; on an
 	// access point: join the main router with its code
 	apsCard(ap) {
-		const done = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 1200); return r; };
+		const done = r => { if (r && r.result !== false) hn.refresh(1200); return r; };
 		if (ap.mode == 'ap') {
 			// joined: the main router manages it. Main router not a Virox (an ISP router): nothing to
 			// join, say so plainly instead of waiting for a router that never answers (owner 2026-11-20)
@@ -669,7 +683,7 @@ return view.extend({
 
 	// under a router that is not a Virox, without a cable: repeat that router's Wi-Fi
 	repeatCard(ap) {
-		const done = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 4000); return r; };
+		const done = r => { if (r && r.result !== false) hn.refresh(4000); return r; };
 		if (ap.repeat)
 			return hn.section(_('Repeating another router'), _('This access point is connected by Wi-Fi to another router and repeats its internet. Devices behind it may be counted together, as one device, on the other router.'), [
 				hn.row(_('Network'), '', fmt.name(ap.repeat.ssid)),
@@ -719,7 +733,7 @@ return view.extend({
 		else if (us.state == 'done') msg = _('Every unit has the newest version.');
 		else if (us.state == 'failed') msg = fmt.sentence(_('Stopped: %s did not come back within %s minutes. The other units were not touched. Check its power and cable, then press Update all again.'), [ fmt.name(failedName), fmt.ltr(String(us.wait_minutes || 10)) ]);
 		else if (us.state == 'error') msg = hn.updateErrorText(us.error);
-		if (running) setTimeout(() => location.reload(), 15000);
+		if (running) hn.refresh(15000);
 		const unitRow = (name, version, badge) => E('li', {}, [
 			E('span', { 'class': 'vx-name vx-rows' }, [ E('strong', {}, [ name ]), E('span', { 'class': 'vx-row-line' }, [ fmt.sentence(_('Version: %s'), [ fmt.ltr(version || '—') ]) ]) ]),
 			badge
@@ -732,7 +746,7 @@ return view.extend({
 		], [
 			E('button', { 'class': 'btn cbi-button-positive', 'disabled': running ? '' : null, 'click': () => hn.askConfirm(_('Update every unit of the house?'),
 				_('The access points update one at a time, then this router. Each one restarts once: a few minutes without Wi-Fi near it. Settings are kept.'), _('Update all'))
-				.then(y => y && hn.act(hn.api.apUpdateAll(), _('Started.')).then(r => { if (r && r.result !== false) setTimeout(() => location.reload(), 3000); })) }, [ _('Update all') ])
+				.then(y => y && hn.act(hn.api.apUpdateAll(), _('Started.')).then(r => { if (r && r.result !== false) hn.refresh(3000); })) }, [ _('Update all') ])
 		]);
 	},
 
@@ -766,7 +780,7 @@ return view.extend({
 			E('h3', {}, [ _('Network names') ]),
 			E('div', { 'class': 'vx-chips', 'role': 'group' }, [ [ false, _('One name for both bands') ], [ true, _('Separate names') ] ].map(x =>
 				E('button', { 'class': 'btn cbi-button', 'aria-pressed': String(!!(wf && wf.split) == x[0]),
-					'click': () => hn.act(hn.api.wifiSplit(x[0]), _('Saved. Wi-Fi restarts for a few seconds.')).then(r => r && r.result !== false && setTimeout(() => location.reload(), 4000)) }, [ x[1] ]))),
+					'click': () => hn.act(hn.api.wifiSplit(x[0]), _('Saved. Wi-Fi restarts for a few seconds.')).then(r => r && r.result !== false && hn.refresh(4000)) }, [ x[1] ]))),
 			E('p', { 'class': 'vx-hint' }, [ _('With one name, phones that can use 5 GHz are moved to it by themselves. Separate names add "-5G" to the name of the 5 GHz network.') ]),
 			E('p', { 'class': 'vx-hint' }, [ _('A hidden network does not show in the list of networks on phones. Devices that are already connected stay connected; a new device types the name by hand or uses the QR code.') ]),
 			// no signal strength switch: 25 dBm on 2.4 GHz is always on (owner 2026-11-22, wifi-power)
@@ -784,7 +798,7 @@ return view.extend({
 		const list = [ '2g', '5g' ].filter(b => bands[b]);
 		if (list.length < 2) return [];
 		const name = b => b == '5g' ? _('5 GHz Wi-Fi') : _('2.4 GHz Wi-Fi');
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 4000); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(4000); return r; };
 		const set = (b, on) => hn.api.wifiBand(b, on).then(r => {
 			if (r && r.result === false)
 				return hn.notify(r.error == 'last_band' ? _('At least one band has to stay on, or no device could reach the router by Wi-Fi.') : hn.errorText(r.error), 'warning');
@@ -824,7 +838,7 @@ return view.extend({
 	// VPN client (owner 2026-11-20): the file of the VPN service (WireGuard .conf or OpenVPN .ovpn),
 	// then everyone or chosen people and devices go through it; kill switch on by default
 	vpnCard(vp, dv, pp) {
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 2500); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(2500); return r; };
 		const file = E('input', { 'type': 'file', 'id': 'vx-vpn-file', 'accept': '.conf,.ovpn,.txt' });
 		const user = E('input', { 'type': 'text', 'id': 'vx-vpn-user', 'dir': 'ltr', 'autocomplete': 'off' });
 		const pass = E('input', { 'type': 'password', 'id': 'vx-vpn-pass', 'dir': 'ltr', 'autocomplete': 'new-password' });
@@ -885,7 +899,7 @@ return view.extend({
 	// open a port for a device (15.4 item 2): the rule follows the device; the page says plainly when
 	// a line cannot be reached from outside (a private address from the ISP router, or CGNAT)
 	portsCard(po, dv, ls) {
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 1500); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(1500); return r; };
 		const two = !!po.two_lines;
 		const lineName = n => (ls && ls.lines && ls.lines[n - 1]) ? hn.lineName(ls.lines[n - 1]) : _('Line %d').format(n);
 		const warn = (po.wan || []).map(w => {
@@ -944,7 +958,7 @@ return view.extend({
 	// night schedules for Wi-Fi and lights (15.4 item 3): windows with days, off-time and on-time;
 	// before saving, a warning when the admin's own device is on a Wi-Fi that will switch off
 	scheduleCard(sc) {
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 1500); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(1500); return r; };
 		// a list of names: separated by the comma of the page language
 		const joinEls = els => E('span', {}, els.reduce((o, e, i) => (i ? o.concat([ document.documentElement.lang == 'ar' ? '، ' : ', ', e ]) : [ e ]), []));
 		if (sc.managed)
@@ -1012,7 +1026,7 @@ return view.extend({
 
 	// USB disk and printer (15.4 item 5): shared on the home network only
 	usbCard(ub) {
-		const reload = r => { if (r && r.result !== false) setTimeout(() => location.reload(), 2000); return r; };
+		const reload = r => { if (r && r.result !== false) hn.refresh(2000); return r; };
 		const sh = ub.share || {}, pr = ub.printer || {}, disks = ub.disks || [];
 		const ip = pr.address || '';
 		// disks
@@ -1078,7 +1092,7 @@ return view.extend({
 			E('fieldset', {}, [ E('legend', {}, [ _('Devices') ]),
 				hn.field('vx-ad-ds', _('From'), ds), hn.field('vx-ad-de', _('To'), de) ]),
 			E('p', { 'class': 'vx-hint' }, [ fmt.sentence(_('Now: units %s to %s, devices %s to %s.'), [ full(ad.units_start), full(ad.units_end), full(ad.dev_start), full(ad.dev_end) ]) ]),
-			E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.addressesSet(+us.value, +ue.value, +ds.value, +de.value), _('Saved.')).then(r => r && r.result !== false && setTimeout(() => location.reload(), 1500)) }, [ _('Save') ]),
+			E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.addressesSet(+us.value, +ue.value, +ds.value, +de.value), _('Saved.')).then(r => r && r.result !== false && hn.refresh(1500)) }, [ _('Save') ]),
 			E('h3', {}, [ _('Fixed addresses of the access points') ]),
 			(ad.aps || []).length ? E('ul', { 'class': 'vx-list' }, ad.aps.map(a => E('li', {}, [
 				E('span', { 'class': 'vx-name' }, [ fmt.name(a.name) ]), fmt.ltr(a.ip) ]))) : hn.empty(_('No access point yet.'))
@@ -1112,7 +1126,7 @@ return view.extend({
 			gm.enabled && (gm.leases || []).length ? E('ul', { 'class': 'vx-list' }, gm.leases.map(l => E('li', {}, [
 				E('span', { 'class': 'vx-name vx-rows' }, [ E('strong', {}, [ fmt.name(l.description || '—') ]), E('span', { 'class': 'vx-row-line' }, [ fmt.ltr('%s %d, %s:%d'.format(l.proto, l.ext_port, l.ip, l.int_port)) ]) ]) ]))) : '',
 			E('button', { 'class': 'btn ' + (gm.enabled ? 'cbi-button' : 'cbi-button-positive'), 'click': () =>
-				hn.act(hn.api.gamingSet(!gm.enabled), gm.enabled ? _('Games mode is off.') : _('Games mode is on.')).then(() => location.reload()) },
+				hn.act(hn.api.gamingSet(!gm.enabled), gm.enabled ? _('Games mode is off.') : _('Games mode is on.')).then(() => hn.refresh()) },
 				[ gm.enabled ? _('Turn off') : _('Turn on') ])
 		]);
 	},
@@ -1129,7 +1143,7 @@ return view.extend({
 				E('span', { 'class': 'vx-actions' }, [
 					E('button', { 'class': 'btn cbi-button', 'click': () => this.passwordDialog(u.username) }, [ _('New password') ]),
 					E('button', { 'class': 'btn cbi-button-negative', 'click': () => hn.askConfirm(_('Remove the login %s?').format(u.username), _('It stops working at once.'), _('Remove', 'Virox'))
-						.then(y => y && hn.act(hn.api.userDelete(u.username), _('Removed.')).then(() => location.reload())) }, [ _('Remove', 'Virox') ])
+						.then(y => y && hn.act(hn.api.userDelete(u.username), _('Removed.')).then(() => hn.refresh())) }, [ _('Remove', 'Virox') ])
 				])
 			]))) : hn.empty(_('No family login yet.')),
 			people.length ? E('fieldset', {}, [
@@ -1137,7 +1151,7 @@ return view.extend({
 				hn.field('vx-us-name', _('Login name (small English letters and digits)'), un),
 				hn.field('vx-us-pass', _('Password (at least 8 characters)'), pw),
 				hn.field('vx-us-person', _('Sees the devices of'), ps),
-				E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.userAdd(un.value.trim(), pw.value, ps.value), _('Added.')).then(r => r && r.result !== false && location.reload()) }, [ _('Add', 'Virox') ])
+				E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.userAdd(un.value.trim(), pw.value, ps.value), _('Added.')).then(r => r && r.result !== false && hn.refresh()) }, [ _('Add', 'Virox') ])
 			]) : E('p', { 'class': 'vx-hint' }, [ _('Add a person under Devices first.') ])
 		]);
 	},
@@ -1175,7 +1189,7 @@ return view.extend({
 		if (((this.data[13] || {}).aps || []).length)
 			body.push(E('p', { 'class': 'vx-hint' }, [ _('With access points: update the whole house at once from Wi-Fi, Access points.') ]));
 		if (!up.busy && !up.installing)
-			body.push(E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.updateCheck(), _('Checking…')).then(() => setTimeout(() => location.reload(), 8000)) }, [ _('Check now') ]));
+			body.push(E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.updateCheck(), _('Checking…')).then(() => hn.refresh(8000)) }, [ _('Check now') ]));
 		return hn.card(_('Update'), body, { 'id': 'vx-update' });
 	},
 
@@ -1234,10 +1248,14 @@ return view.extend({
 	accountCard(pv, th, part) {
 		const root = document.documentElement;
 		const lang = root.lang == 'ar' ? 'ar' : 'en';
-		th = th || { look: 'argon', mode: 'light', accent: '#2563eb', looks: [ 'argon' ] };
-		const save = (args) => hn.act(hn.api.setTheme(args.look || '', args.mode || '', args.accent || ''), null)
+		th = th || { look: 'argon', mode: 'light', base: 'slate', accent: '#2563eb', looks: [ 'argon' ] };
+		// the whole look is drawn by the server (no flash, legacy pages included): one reload after
+		// Save applies it (guideline 8.2)
+		const save = (args) => hn.act(hn.api.setTheme(args.look || '', args.mode || '', args.accent || '', args.base || ''), null)
 			.then(r => r && r.result !== false && location.reload());
 		const accent = E('input', { 'id': 'vx-accent', 'type': 'color', 'value': th.accent || '#2563eb' });
+		// the three base themes (guideline 3.5): neutrals + default accent; the accent can be changed on top
+		const BASES = [ [ 'slate', _('Slate (cool, blue)'), '#2563eb' ], [ 'virox', _('Virox (warm, green)'), '#0b7a5f' ], [ 'sand', _('Sand (warm, clay)'), '#b4552d' ] ];
 		const pick = (attr, list, cur, click) => E('div', { 'class': 'vx-chips', 'role': 'group' }, list.map(x =>
 			E('button', Object.assign({ 'class': 'btn cbi-button', 'aria-pressed': String(x[0] == cur), 'click': ev => click(x[0], ev) }, { [attr]: x[0] }), [ x[1] ])));
 		const body = [
@@ -1250,10 +1268,15 @@ return view.extend({
 			(th.looks || []).length > 1 ? pick('data-look', [ [ 'argon', 'Argon' ], [ 'vantage', 'Vantage' ] ], th.look, l => save({ look: l })) : '',
 			E('h3', {}, [ _('Theme mode') ]),
 			pick('data-mode', [ [ 'light', _('Light') ], [ 'dark', _('Dark') ], [ 'normal', _('Automatic', 'Virox') ] ], th.mode, m => save({ mode: m })),
+			E('h3', {}, [ _('Base theme') ]),
+			E('p', { 'class': 'vx-hint' }, [ _('The background and text colours, with their own main colour. Choosing one also brings back its main colour.') ]),
+			E('div', { 'class': 'vx-chips', 'role': 'group' }, BASES.map(b => E('button', { 'class': 'btn cbi-button', 'data-base': b[0],
+				'aria-pressed': String(b[0] == (th.base || 'slate')), 'click': () => save({ base: b[0], accent: 'default' }) }, [
+				E('span', { 'class': 'vx-swatch', 'style': 'background:' + b[2], 'aria-hidden': 'true' }), ' ', b[1] ]))),
 			E('div', { 'class': 'vx-inline' }, [
 				E('label', { 'for': 'vx-accent', 'class': 'vx-label' }, [ _('Accent colour') ]), accent,
 				E('button', { 'class': 'btn cbi-button-positive', 'click': () => save({ accent: accent.value }) }, [ _('Save') ]),
-				E('button', { 'class': 'btn cbi-button', 'click': () => save({ accent: '#2563eb' }) }, [ _('Default colour') ])
+				th.accent_custom ? E('button', { 'class': 'btn cbi-button', 'click': () => save({ accent: 'default' }) }, [ _('Default colour') ]) : ''
 			])
 		];
 		if (part == 'display')
@@ -1398,7 +1421,13 @@ return view.extend({
 		);
 	},
 
+	// after an action (hn.refresh): the data again, drawn in place (the page and its listeners stay)
+	reload() {
+		return this.load().then(d => { if (d) { this.data = d; this.draw(); } });
+	},
+
 	render(data) {
+		hn.page(this);
 		if (!data) return hn.failed();
 		this.data = data;
 		this.root = E('div', { 'class': 'vx-page vx-settings' });

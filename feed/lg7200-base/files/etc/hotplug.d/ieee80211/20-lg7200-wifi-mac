@@ -1,13 +1,27 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 # Per-unit Wi-Fi MACs from the base MAC (2.4 GHz = base+2, 5 GHz = base+3), after the
-# board's own 10_fix_wifi_mac. Only on the Mercury GAPM-7200 (one MT7615 DBDC: phy0, phy1).
+# board's own MAC setup. Per board (BUILD-PLAN 16):
+#  - Mercury GAPM-7200: one MT7615 DBDC, phy0 = 2.4 GHz, phy1 = 5 GHz (after 10_fix_wifi_mac);
+#  - GAPD-7200 (ipq40xx): two ath10k radios that come up with the LAN and WAN MACs of the
+#    board's DTS (both shared with the cable ports); the band is read from the phy itself.
 [ "$ACTION" = add ] || exit 0
 . /lib/functions.sh
-[ "$(board_name)" = "mercury,gapm7200" ] || exit 0
 . /lib/functions/lg7200.sh
-case "${DEVPATH##*/}" in
-	phy0) m="$(lg7200_port_mac phy0)" ;;
-	phy1) m="$(lg7200_port_mac phy1)" ;;
+phy="${DEVPATH##*/}"
+case "$(lg7200_board)" in
+	gapm7200)
+		case "$phy" in
+			phy0) m="$(lg7200_port_mac wlan2g)" ;;
+			phy1) m="$(lg7200_port_mac wlan5g)" ;;
+			*) exit 0 ;;
+		esac ;;
+	gapd7200)
+		case "$phy" in phy[0-9]*) ;; *) exit 0 ;; esac
+		if iw phy "$phy" info 2>/dev/null | grep -qE '\* 5[0-9]{3}(\.[0-9]+)? MHz'; then
+			m="$(lg7200_port_mac wlan5g)"
+		else
+			m="$(lg7200_port_mac wlan2g)"
+		fi ;;
 	*) exit 0 ;;
 esac
 [ -n "$m" ] && echo "$m" > "/sys${DEVPATH}/macaddress"

@@ -37,7 +37,7 @@ return view.extend({
 				E('summary', {}, [ _('The provider shows a different amount left?') ]),
 				E('p', { 'class': 'vx-hint' }, [ _('Type what the provider (its app, website or SMS) shows as remaining now. The package then continues from that figure until the next renewal.') ]),
 				hn.field('vx-u-rem', _('Remaining at the provider (GB)'), rem),
-				E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.packageCalibrate(hn.mbFromGb(rem.value)), _('Saved.')).then(r => r && r.result !== false && location.reload()) }, [ _('Save') ])
+				E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.packageCalibrate(hn.mbFromGb(rem.value)), _('Saved.')).then(r => r && r.result !== false && hn.refresh()) }, [ _('Save') ])
 			]));
 		return hn.card(_('Package'), body);
 	},
@@ -204,6 +204,7 @@ return view.extend({
 	},
 
 	render(data) {
+		hn.page(this);
 		if (!data) return hn.failed();
 		const [ us, dv, pp ] = data;
 		return E('div', { 'class': 'vx-page vx-usage-page' }, [

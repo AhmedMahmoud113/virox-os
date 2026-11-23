@@ -61,6 +61,10 @@ function eventText(e) {
 		import_done: () => _('The devices and people of the old router were brought in.'),
 		dhcp_down: () => _('Devices cannot get an address from the router; please send a help report.'),
 		backup_failed: () => _('The backup to the USB disk did not work.'),
+		// lan-check (owner 2026-11-22): another router or DHCP server on the home network
+		ip_conflict: () => fmt.sentence(_('Another device on the home network uses this router\'s own address %s. Unplug the router or access point that is cabled to a LAN port, or set it up as an access point.'), [ fmt.ltr(String(d.ip || '')) ]),
+		foreign_dhcp: () => fmt.sentence(_('Another router gives addresses on the home network (%s), so some devices may lose the internet. If a modem or router is cabled to a LAN port, move it to the internet port or switch its DHCP off.'), [ fmt.ltr(String(d.server || '')) ]),
+		second_virox: () => _('A second Virox router is cabled to the home network and still works as a router, with this router\'s address. Make it an access point: unplug its cable, connect a computer to it, open 192.168.72.1 and sign in, choose Quick setup, then Access point, and plug its cable back in.'),
 		scheduled_restart: () => _('The router restarted at its scheduled time.'),
 		settings_restored: () => _('The settings were restored from a backup.'),
 		time_approximate: () => _('The router clock could not be checked on the internet; the time may be a little off.'),
@@ -126,46 +130,88 @@ return view.extend({
 			head = t ? fmt.sentence(_('The internet has been down for %s'), [ since(now - t) ]) : _('The internet is down');
 			sub = (LINE_HINT[first.state] || LINE_HINT.wan_down)();
 		}
-		this.speedDown = this.speedDown || E('b', {}, [ '—' ]);
-		this.speedUp = this.speedUp || E('b', {}, [ '—' ]);
-		return E('div', { 'class': 'vx-hero' + cls, 'id': 'vx-internet' }, [
-			E('span', { 'class': 'vx-pulse' }),
+		// the speeds keep their elements between redraws; the first reading shows "…" (measuring),
+		// never a confident 0 (guideline 7.3 and 9.2)
+		this.speedDown = this.speedDown || E('b', { 'class': 'vx-val' }, [ '…' ]);
+		this.speedUp = this.speedUp || E('b', { 'class': 'vx-val' }, [ '…' ]);
+		this.livePill = this.livePill || E('span', { 'class': 'vx-live', 'hidden': '' });
+		this.liveNote = this.liveNote || E('small', { 'class': 'vx-idle', 'hidden': '' });
+		this.speedBox = this.speedBox || E('div', { 'class': 'vx-speed', 'aria-live': 'off' }, [
+			E('div', {}, [ E('span', {}, [ _('Download', 'Virox') ]), this.speedDown ]),
+			E('div', {}, [ E('span', {}, [ _('Upload', 'Virox') ]), this.speedUp ])
+		]);
+		this.heroUp = !cls;
+		const hero = E('div', { 'class': 'vx-hero' + cls + (this.liveState == 'live' && !cls ? ' live' : ''), 'id': 'vx-internet' }, [
+			E('span', { 'class': 'vx-pulse', 'aria-hidden': 'true' }),
 			E('div', { 'class': 'vx-hero-main' }, [
-				E('strong', {}, [ head ]),
+				E('div', { 'class': 'vx-hero-top' }, [ E('strong', {}, [ head ]), cls ? '' : this.livePill ]),
 				E('small', {}, [ sub ]),
-				lines.length > 1 ? E('small', { 'class': 'vx-hero-line' }, lines.map((l, i) => E('span', {}, [
-					i ? ' · ' : '', _('Line'), ' ', fmt.ltr(l.line), ' ', l.state == 'up' ? _('working', 'Virox') : _('down', 'Virox')
+				lines.length > 1 ? E('small', { 'class': 'vx-hero-line' }, lines.map(l => E('span', {}, [
+					_('Line'), ' ', fmt.ltr(l.line), ' ', l.state == 'up' ? _('working', 'Virox') : _('down', 'Virox')
 				]))) : ''
 			]),
-			E('div', { 'class': 'vx-speed' }, [
-				E('div', {}, [ E('span', {}, [ _('Download', 'Virox') ]), this.speedDown ]),
-				E('div', {}, [ E('span', {}, [ _('Upload', 'Virox') ]), this.speedUp ])
-			])
+			E('div', {}, [ this.speedBox, cls ? '' : this.liveNote ])
 		]);
+		this.heroEl = hero;
+		return hero;
+	},
+
+	// the live state of the bar (guideline 9.2): measuring (first reading), live, idle (a fresh reading,
+	// nothing moves), unavailable (the router did not answer: "—", never 0)
+	setLive(state) {
+		this.liveState = state;
+		const pill = this.livePill, note = this.liveNote;
+		if (!pill) return;
+		pill.hidden = !(state == 'live' || state == 'idle');
+		pill.classList.toggle('stale', false);
+		dom.content(pill, [ _('Live') ]);
+		note.hidden = !(state == 'idle' || state == 'unavailable');
+		dom.content(note, [ state == 'unavailable' ? _('Live data unavailable.') : _('Nothing is using the internet now.') ]);
+		if (this.heroEl) this.heroEl.classList.toggle('live', state == 'live' && !!this.heroUp);
+		if (state == 'unavailable') {
+			dom.content(this.speedDown, [ '—' ]);
+			dom.content(this.speedUp, [ '—' ]);
+		}
 	},
 
 	speed(net) {
-		const t = net && net.traffic;
-		if (!t || !t.time) return;
+		if (!net) { this.lastTraffic = null; return this.setLive('unavailable'); }
+		const t = net.traffic;
+		if (!t || !t.time) return this.setLive('unavailable');
 		const p = this.lastTraffic;
 		this.lastTraffic = t;
-		if (!p || t.time <= p.time || t.rx < p.rx || t.tx < p.tx) return;
+		if (!p || t.time <= p.time || t.rx < p.rx || t.tx < p.tx) return this.setLive('measuring');
 		const s = t.time - p.time;
 		// bytes per second, as download programs show it (30 Mbit/s = 3.75 MB/s)
-		dom.content(this.speedDown, [ fmt.rate((t.rx - p.rx) / s) ]);
-		dom.content(this.speedUp, [ fmt.rate((t.tx - p.tx) / s) ]);
+		const down = (t.rx - p.rx) / s, up = (t.tx - p.tx) / s;
+		this.wanRate = down + up;
+		dom.content(this.speedDown, [ fmt.rate(down) ]);
+		dom.content(this.speedUp, [ fmt.rate(up) ]);
+		// under 10 kbit/s in both directions: nothing in the house uses the internet
+		this.setLive(down + up < 1250 ? 'idle' : 'live');
 	},
 
-	stats(net, dv) {
+	// the four tiles (guideline 9.2): today down, today up, devices online, package left (on an access
+	// point, or without a package size: how many are blocked or paused)
+	stats(net, dv, us, onAP) {
 		const all = (dv && dv.devices) || [];
 		const nowSec = Date.now() / 1000;
-		const stopped = all.filter(d => d.blocked || (d.paused_until && d.paused_until > nowSec)).length;
-		return E('div', { 'class': 'vx-stats', 'id': 'vx-stats' }, [
-			stat(_('Connected now'), fmt.ltr(String(all.filter(d => d.online).length)), 'blue'),
-			stat(_('Used today'), fmt.bytes(all.reduce((s, d) => s + used(d), 0))),
-			stat(_('Blocked or paused'), fmt.ltr(String(stopped))),
-			stat(_('Router running for'), net && net.uptime != null ? since(net.uptime) : '—')
-		]);
+		const sum = k => all.reduce((s, d) => s + ((d.usage && d.usage[k]) || 0), 0);
+		const tiles = [
+			stat(_('Today download'), dv ? fmt.bytes(sum('today_down')) : '—'),
+			stat(_('Today upload'), dv ? fmt.bytes(sum('today_up')) : '—'),
+			stat(_('Devices online'), dv ? fmt.ltr(String(all.filter(d => d.online).length)) : '—', 'blue')
+		];
+		if (!onAP && us && us.package_mb) {
+			const limit = us.package_mb * fmt.MB, left = Math.max(0, us.remaining || 0);
+			const share = limit ? left / limit : 0;
+			tiles.push(stat(_('Package left'), fmt.bytes(left), left <= 0 ? 'bad' : (share < 0.2 ? 'warn' : '')));
+		}
+		else {
+			const stopped = all.filter(d => d.blocked || (d.paused_until && d.paused_until > nowSec)).length;
+			tiles.push(stat(_('Blocked or paused'), dv ? fmt.ltr(String(stopped)) : '—'));
+		}
+		return E('div', { 'class': 'vx-stats', 'id': 'vx-stats' }, tiles);
 	},
 
 	packageCard(us) {
@@ -202,7 +248,7 @@ return view.extend({
 	},
 
 	topCard(dv) {
-		const top = ((dv && dv.devices) || []).filter(d => used(d) > 0).sort((a, b) => used(b) - used(a)).slice(0, 6);
+		const top = ((dv && dv.devices) || []).filter(d => used(d) > 0).sort((a, b) => used(b) - used(a)).slice(0, 5);
 		const max = Math.max(1, ...top.map(used));
 		return E('section', { 'class': 'vx-card', 'id': 'vx-top' }, [
 			cardHead(_('Most used today'), E('a', { 'class': 'btn cbi-button small', 'href': L.url('admin/devices') }, [ _('All devices') ])),
@@ -217,12 +263,26 @@ return view.extend({
 	// who uses the internet now (owner 2026-11-22): the speed of each device at this moment,
 	// refreshed with the line speed every 5 s, so a slow game shows at once who is downloading
 	nowCard(lv) {
-		const all = ((lv && lv.devices) || []).filter(x => x.down_bps + x.up_bps >= 1250);   // from 10 kbit/s
-		const top = all.slice(0, 5), max = Math.max(1, ...top.map(x => x.down_bps + x.up_bps));
+		const every = (lv && lv.devices) || [];
+		const all = every.filter(x => x.down_bps + x.up_bps >= 1250);   // from 10 kbit/s
+		// "Not updating" (guideline 9.2, audit item 12): the internet line moves data (its own
+		// counters) but the per-device counters showed nothing two readings in a row. A quiet house
+		// is not stale: then the line is quiet too.
+		if (lv) {
+			const devTotal = every.reduce((s, x) => s + x.down_bps + x.up_bps, 0);
+			this.staleCount = (devTotal < 1250 && (this.wanRate || 0) > 25000) ? (this.staleCount || 0) + 1 : 0;
+			if (devTotal >= 1250) this.lastLive = lv;
+		}
+		const stale = !!lv && this.staleCount >= 2;
+		const shown = stale && this.lastLive ? (this.lastLive.devices || []).filter(x => x.down_bps + x.up_bps >= 1250) : all;
+		const top = shown.slice(0, 5), max = Math.max(1, ...top.map(x => x.down_bps + x.up_bps));
 		const kbit = bps => Math.round(bps * 8 / 1000);
 		const name = id => id.indexOf('ip:') == 0 ? _('A new device') : this.targetName(id);
-		return E('section', { 'class': 'vx-card', 'id': 'vx-now' }, [
-			cardHead(_('Using the internet now'), E('a', { 'class': 'btn cbi-button small', 'href': L.url('admin/devices') }, [ _('All devices') ])),
+		return E('section', { 'class': 'vx-card' + (stale ? ' vx-stale' : ''), 'id': 'vx-now' }, [
+			cardHead(_('Using the internet now'), stale ? hn.badge('info', _('Not updating'))
+				: E('a', { 'class': 'btn cbi-button small', 'href': L.url('admin/devices') }, [ _('All devices') ])),
+			stale ? E('p', { 'class': 'vx-alert info' }, [ E('span', { 'class': 'vx-alert-text' }, [ _('Live data is not updating.') ]) ]) : '',
+			!lv && lv !== undefined ? E('p', { 'class': 'vx-empty' }, [ _('Live data unavailable.') ]) :
 			top.length ? E('div', { 'class': 'vx-topbars' }, top.map(x => E('div', { 'class': 'vx-topbar' }, [
 				E('span', { 'class': 'vx-topbar-name' }, [ E('span', { 'class': 'vx-dot on', 'aria-hidden': 'true' }), fmt.name(name(x.id)) ]),
 				E('span', { 'class': 'vx-topbar-track', 'aria-hidden': 'true' }, [ E('i', { 'style': 'inline-size:%.1f%%'.format((x.down_bps + x.up_bps) / max * 100) }) ]),
@@ -332,7 +392,7 @@ return view.extend({
 				E('span', { 'class': 'vx-name' }, [ a.target == 'all' ? _('Everyone') : fmt.name(this.targetName(a.target)) ]),
 				E('span', { 'class': 'vx-hint' }, [ a.kind == 'both' ? _('Both lines') : _('Borrowing the other line'),
 					a.minutes_left != null ? ' ' : '', a.minutes_left != null ? fmt.sentence(_('%s left'), [ fmt.minutes(a.minutes_left) ]) : '' ]),
-				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.linesEnd(a.target), _('Ended.')).then(() => location.reload()) }, [ _('End') ])
+				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.linesEnd(a.target), _('Ended.')).then(() => hn.refresh()) }, [ _('End') ])
 			]))) : '',
 		]);
 	},
@@ -354,7 +414,7 @@ return view.extend({
 				E('span', { 'class': 'vx-alert-text' }, [ fmt.sentence(_('A new device is waiting for your approval: %s'), [ fmt.name(hn.deviceName(d)) ]) ]),
 				E('button', { 'class': 'btn cbi-button-positive', 'click': ev => {
 					ev.target.disabled = true;
-					hn.act(hn.api.approve(d.id), _('Allowed.')).then(() => location.reload());
+					hn.act(hn.api.approve(d.id), _('Allowed.')).then(() => hn.refresh());
 				} }, [ _('Allow') ])
 			]);
 		}
@@ -369,13 +429,13 @@ return view.extend({
 			const m = +tr.data.minutes == 60 ? 60 : 30;
 			const give = (min, text) => ev2 => {
 				ev2.target.disabled = true;
-				hn.act(hn.api.timelimitExtra(tr.data.person, min), text).then(() => hn.api.eventsRead(tr.id || '')).then(() => location.reload());
+				hn.act(hn.api.timelimitExtra(tr.data.person, min), text).then(() => hn.api.eventsRead(tr.id || '')).then(() => hn.refresh());
 			};
 			return E('div', { 'class': 'vx-alert info', 'role': 'status' }, [
 				E('span', { 'class': 'vx-alert-text' }, [ fmt.sentence(m == 60 ? _('%s asks for one more hour today.') : _('%s asks for 30 more minutes today.'),
 					[ fmt.name(this.targetName(tr.data.person)) ]), ' ', E('span', { 'class': 'vx-hint' }, [ fmt.time(tr.time) ]) ]),
 				E('button', { 'class': 'btn cbi-button-positive', 'click': give(m, m == 60 ? _('One more hour for today.') : _('30 more minutes for today.')) }, [ _('Allow') ]),
-				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(tr.id || ''), null).then(() => location.reload()) }, [ _('Not now') ])
+				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(tr.id || ''), null).then(() => hn.refresh()) }, [ _('Not now') ])
 			]);
 		}
 		if (up && up.available)
@@ -390,19 +450,20 @@ return view.extend({
 				E('span', { 'class': 'vx-alert-text' }, [ fmt.sentence(_('Is the new device %s the same as %s?'),
 					[ fmt.name(e.data.name || e.data.mac || ''), fmt.name(known ? hn.deviceName(known) : e.data.device_id) ]) ]),
 				E('button', { 'class': 'btn cbi-button-positive', 'click': () => hn.act(hn.api.link(e.data.mac, e.data.device_id), _('Joined.'))
-					.then(() => hn.api.eventsRead(e.id || '')).then(() => location.reload()) }, [ _('Same device') ]),
-				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(e.id || ''), null).then(() => location.reload()) }, [ _('Not the same') ])
+					.then(() => hn.api.eventsRead(e.id || '')).then(() => hn.refresh()) }, [ _('Same device') ]),
+				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(e.id || ''), null).then(() => hn.refresh()) }, [ _('Not the same') ])
 			]);
 		}
 		if (e)
 			return E('div', { 'class': 'vx-alert' + (e.level == 'info' ? ' info' : (e.level == 'danger' ? ' danger' : '')), 'role': 'status' }, [
 				E('span', { 'class': 'vx-alert-text' }, [ eventText(e)(), ' ', E('span', { 'class': 'vx-hint' }, [ fmt.time(e.time) ]) ]),
-				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(e.id || ''), null).then(() => location.reload()) }, [ _('Mark as read') ])
+				E('button', { 'class': 'btn cbi-button', 'click': () => hn.act(hn.api.eventsRead(e.id || ''), null).then(() => hn.refresh()) }, [ _('Mark as read') ])
 			]);
 		return '';
 	},
 
 	render(data) {
+		hn.page(this);
 		const [ net, dv, us, ev, up, ls, ap ] = data;
 		if (!net && !dv && !us) return hn.failed();
 		this.dv = dv;
@@ -410,26 +471,28 @@ return view.extend({
 		// the card sent to "set the package size" on a page that says "set on the main router")
 		const onAP = hn.isAccessPoint(ap);
 		const pkg = (u, l) => onAP ? '' : ((l && l.enabled) ? this.linesCard(l) : this.packageCard(u));
-		this.speed(net);
 		const alert = this.alertLine(dv, up, ev);
 		const root = E('div', { 'class': 'vx-page vx-home' }, [
 			this.hero(net, dv),
 			alert ? E('div', { 'class': 'vx-alerts' }, [ alert ]) : '',
-			this.stats(net, dv),
-			E('div', { 'class': 'vx-grid' }, [ pkg(us, ls), this.nowCard(null), this.topCard(dv) ]),
+			this.stats(net, dv, us, onAP),
+			E('div', { 'class': 'vx-grid' }, [ pkg(us, ls), this.nowCard(undefined), this.topCard(dv) ]),
 			this.outagesCard(net)
 		]);
+		this.speed(net);
 		const swap = (id, el) => { const old = root.querySelector('#' + id); if (old) old.replaceWith(el); };
-		// the speed every 5 s (the fastest refresh of section 10.9); the rest every 30 s
+		// the speed every 5 s (the fastest refresh of section 10.9); the rest every 30 s. A failed
+		// reading shows "—" and "Live data unavailable.", and the last drawing stays (6.13).
 		let n = 0;
-		hn.poll(() => Promise.all([ hn.api.network(), hn.api.live().catch(() => null) ]).then(([ r, lv ]) => {
+		hn.poll(() => Promise.all([ hn.api.network().catch(() => null), hn.api.live().catch(() => null) ]).then(([ r, lv ]) => {
 			this.speed(r);
 			swap('vx-now', this.nowCard(lv));
-			if (n++ % 6) return;
+			if (!r || n++ % 6) return;
 			return Promise.all([ hn.api.devices(), hn.api.usage(), hn.api.lines().catch(() => null) ]).then(([ d, u, l ]) => {
 				this.dv = d;
 				swap('vx-internet', this.hero(r, d));
-				swap('vx-stats', this.stats(r, d));
+				this.setLive(this.liveState);
+				swap('vx-stats', this.stats(r, d, u, onAP));
 				swap('vx-package', pkg(u, l));
 				swap('vx-top', this.topCard(d));
 				swap('vx-outages', this.outagesCard(r));

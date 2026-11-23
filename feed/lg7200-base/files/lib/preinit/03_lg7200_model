@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# BUILD-PLAN 16: the GAPD-7200 runs the ASUS RT-AC58U board description (same board, same
+# recovery); the pages, the access-point list and board.json show the name on its label.
+# The board name (asus,rt-ac58u) is kept: sysupgrade and the board scripts need it.
+lg7200_model() {
+	[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = asus,rt-ac58u ] || return 0
+	echo "Davolink GAPD-7200" > /tmp/sysinfo/model
+}
+
+boot_hook_add preinit_main lg7200_model

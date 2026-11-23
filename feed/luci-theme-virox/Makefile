@@ -8,11 +8,11 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=Virox theme (based on Argon, Arabic RTL, phone first)
-LUCI_DEPENDS:=+luci-base
+LUCI_DEPENDS:=+luci-base +ucode-mod-math
 PKG_LICENSE:=Apache-2.0 GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE.argon
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=30
+PKG_RELEASE:=31
 
 define Package/luci-theme-virox/postrm
 #!/bin/sh

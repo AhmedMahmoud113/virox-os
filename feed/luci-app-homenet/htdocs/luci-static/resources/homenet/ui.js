@@ -8,6 +8,7 @@
 'require baseclass';
 'require rpc';
 'require ui';
+'require dom';
 'require virox.fmt as fmt';
 
 function call(method, params) {
@@ -133,7 +134,7 @@ const api = {
 	setLanguage: rpc.declare({ object: 'virox.setup', method: 'set_language', params: [ 'lang' ] }),
 	factoryReset: rpc.declare({ object: 'virox.setup', method: 'factory_reset', params: [ 'confirm' ] }),
 	theme: rpc.declare({ object: 'virox.setup', method: 'theme' }),
-	setTheme: rpc.declare({ object: 'virox.setup', method: 'set_theme', params: [ 'look', 'mode', 'accent' ] }),
+	setTheme: rpc.declare({ object: 'virox.setup', method: 'set_theme', params: [ 'look', 'mode', 'accent', 'base' ] }),
 	// B9 two internet lines (homenet-dualwan; the calls fail when it is not installed)
 	lines: rpc.declare({ object: 'virox.lines', method: 'status' }),
 	linesEnable: rpc.declare({ object: 'virox.lines', method: 'enable', params: [ 'on' ] }),
@@ -248,6 +249,7 @@ function updateErrorText(code) {
 		bad_image: _('The downloaded update was damaged and was deleted. Try again.'),
 		image_refused: _('The router refused this update file. Nothing was changed.'),
 		wrong_board: _('The newest version is not for this router model.'),
+		wrong_board_image: _('This update file is for the other router model (GAPM-7200 or GAPD-7200, see the label under the router). Nothing was changed.'),
 		no_space: _('Not enough free memory for the update. Restart the router and try again.'),
 		no_update_server: _('No update server is set.'),
 		no_image: _('The newest version has no update file for the system on this router. Nothing was changed.'),
@@ -263,6 +265,10 @@ function errorText(code) {
 	return ({
 		unknown_target: _('This device or person no longer exists.'),
 		limit_required: _('Set a time or an amount.'),
+		// internet from Wi-Fi / repeater (virox.apctl wifi_wan, repeat)
+		key_needed: _('This network needs a password.'),
+		unsupported_security: _('This network uses a kind of security this router cannot join (old WEP or a company login).'),
+		channel_not_allowed: _('The other router uses a channel this router may not use.'),
 		invalid_key: _('A Wi-Fi password has 8 to 63 letters, digits or signs (no Arabic letters).'),
 		key_taken: _('Another person already has this password.'),
 		wrong_code: _('This code is wrong or expired. Get a new code on the main router.'),
@@ -424,6 +430,20 @@ function lineName(l) {
 	return (l && l.name) ? l.name : _('Line %d').format(l ? l.id : 1);
 }
 
+// B9: the line a device uses now, from virox.lines status plan (by MAC, an online one first):
+// { text, colour, warn } or null when there is one line only (owner 2026-11-23)
+function deviceLine(ls, d) {
+	if (!ls || !ls.enabled || !ls.plan) return null;
+	const macs = (d.macs || []).slice().sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+	let r = null;
+	for (const m of macs) { r = ls.plan[(m.mac || '').toLowerCase()]; if (r) break; }
+	if (!r) return null;
+	if (r == 'both') return { text: _('Both lines'), colour: null, warn: false };
+	if (r == 'stop') return { text: _('Package used up'), colour: null, warn: true };
+	const l = (ls.lines || [])[+r.slice(1) - 1];
+	return { text: lineName(l || { id: +r.slice(1) }), colour: l && l.colour, warn: false };
+}
+
 // B9: what a device or person does with the lines now (assignments of virox.lines status)
 function lineState(ls, ids) {
 	const a = ((ls && ls.assignments) || []).filter(x => ids.indexOf(x.target) >= 0 || x.target == 'all');
@@ -448,9 +468,11 @@ function empty(text) {
 	return E('p', { 'class': 'vx-state vx-empty' }, [ text ]);
 }
 function failed(err) {
+	// "Try again" reads the page's data again in place (guideline 6.13); the whole page only when
+	// there is no page to redraw
 	return E('div', { 'class': 'vx-state vx-error-box', 'role': 'alert' }, [
 		E('p', {}, [ _('The router did not answer. Check that you are still connected to it, then reload the page.') ]),
-		E('button', { 'class': 'btn cbi-button', 'click': () => location.reload() }, [ _('Reload') ])
+		E('button', { 'class': 'btn cbi-button', 'click': () => curView ? redraw() : location.reload() }, [ _('Reload') ])
 	]);
 }
 
@@ -469,9 +491,34 @@ function notify(text, kind) {
 	}
 	box.textContent = typeof text == 'string' ? text : '';
 	if (typeof text != 'string') box.appendChild(text);
-	box.className = 'vx-toast show' + (kind == 'danger' ? ' bad' : (kind == 'warning' ? ' warn' : ''));
+	box.className = 'vx-toast show' + (kind == 'danger' ? ' bad' : (kind == 'warning' ? ' warn' : (kind == 'info' ? ' info' : '')));
+	// an error is read out at once (role alert); 4 s for a success, 8 s for an error (guideline 6.8)
+	box.setAttribute('role', kind == 'danger' ? 'alert' : 'status');
 	window.clearTimeout(box._t);
-	box._t = window.setTimeout(() => box.classList.remove('show'), kind == 'danger' ? 6000 : 3500);
+	box._t = window.setTimeout(() => box.classList.remove('show'), kind == 'danger' ? 8000 : 4000);
+}
+
+// the button the user just pressed, so act() can show it as busy (guideline 6.1 and audit item 15:
+// no pending state let a double tap send the request twice). Safari does not focus a pressed button,
+// so the click itself is remembered.
+let lastPress = null;
+document.addEventListener('click', ev => {
+	const b = ev.target && ev.target.closest ? ev.target.closest('button, .btn') : null;
+	lastPress = b ? { el: b, at: Date.now() } : null;
+}, true);
+function busy(el) {
+	if (!el || el.getAttribute('aria-busy') == 'true') return () => {};
+	const w = el.offsetWidth, label = el.textContent, wasDisabled = el.disabled;
+	el.setAttribute('aria-busy', 'true');
+	el.disabled = true;
+	// the width stays, the words say what happens (only on a plain text button)
+	if (w && el.children.length == 0) { el.style.minInlineSize = w + 'px'; el.textContent = _('Saving…'); }
+	return () => {
+		if (!el.isConnected) return;
+		el.removeAttribute('aria-busy');
+		el.disabled = wasDisabled;
+		if (el.style.minInlineSize) { el.textContent = label; el.style.minInlineSize = ''; }
+	};
 }
 
 // a sheet or dialog closes when the dark area around it is tapped
@@ -479,11 +526,46 @@ document.addEventListener('click', ev => { if (ev.target && ev.target.id == 'mod
 
 // run an API write; show the translated error, or the success text; resolve to the result
 function act(promise, okText) {
+	const done = busy(lastPress && Date.now() - lastPress.at < 1000 ? lastPress.el : null);
+	lastPress = null;
 	return Promise.resolve(promise).then(r => {
+		done();
 		if (r && r.result === false) { notify(errorText(r.error), 'danger'); return r; }
 		if (okText) notify(okText, 'success');
+		// the page shows the result by itself (no F5): see refresh()
+		refresh();
 		return r;
-	}).catch(() => { notify(_('The router did not answer.'), 'danger'); return { result: false }; });
+	}).catch(() => { done(); notify(_('The router did not answer.'), 'danger'); return { result: false }; });
+}
+
+// ---------------------------------------------------------------- the page after an action
+// Owner 2026-11-22: "after I do something on a page I must press F5 to see that it was done".
+// Every page registers itself (hn.page(this) in its render); after a successful action the page
+// reads its data again and draws it in place: its own reload() when it has one, else load() and
+// render() again. The scroll position and the open tab stay. A later refresh(ms) (an action whose
+// effect takes a few seconds, e.g. Wi-Fi restarting) replaces an earlier one, so one action draws
+// once. Never while a sheet (modal) is open: tried again when it is closed.
+let curView = null, viewPolls = [], refreshTimer = null, refreshing = false;
+function page(v) { curView = v; }
+function refresh(ms) {
+	clearTimeout(refreshTimer);
+	refreshTimer = setTimeout(redraw, ms == null ? 400 : ms);
+}
+function redraw() {
+	const v = curView, vp = document.getElementById('view');
+	if (!v || !vp || refreshing) return;
+	if (document.body.classList.contains('modal-overlay-active')) return refresh(1500);
+	const y = window.scrollY;
+	refreshing = true;
+	const done = () => { refreshing = false; window.scrollTo(0, y); };
+	if (typeof v.reload == 'function')
+		return Promise.resolve(v.reload()).then(done, done);
+	return Promise.resolve(v.load()).then(d => {
+		// the polls of the old drawing stop; render() adds its own again
+		viewPolls.forEach(f => L.Poll.remove(f));
+		viewPolls = [];
+		return v.render(d);
+	}).then(n => { if (n) dom.content(vp, n); }).then(done, done);
 }
 
 function askConfirm(title, text, yesLabel) {
@@ -513,6 +595,15 @@ function targetName(id, devices, people) {
 // a lead access point (it manages the others), so the lead counts too (2.230, 2026-11-22)
 function isAccessPoint(ap) {
 	return !!(ap && (ap.mode == 'ap' || ap.lead));
+}
+
+// a device flagged as a router (behind_router: forwarded packets seen from it) whose name says it is a
+// computer: a PC sharing its internet with a system inside it (WSL, Hyper-V, Docker, a hotspot), not a
+// router in the house (owner 2026-11-23: "Ahmed-pc" showed as a router). By the name only: a maker
+// like ASUS also makes routers.
+const COMPUTER_NAME = /desktop|\bpc\b|imac|mac-?mini|laptop|macbook|notebook|windows|thinkpad|كمبيوتر|ديسكتوب|لابتوب/;
+function isComputer(d) {
+	return COMPUTER_NAME.test([ d.name, ...(d.macs || []).map(m => m.hostname) ].filter(x => x).join(' ').toLowerCase());
 }
 
 function deviceName(d) {
@@ -579,11 +670,14 @@ function seg(id, options, value) {
 function tabs(defs, first) {
 	const bar = E('div', { 'class': 'vx-seg vx-tabbar', 'role': 'tablist' });
 	const panes = E('div', { 'class': 'vx-tabpanes' });
-	const show = id => {
+	const show = (id, clicked) => {
 		defs.forEach((d, i) => { bar.children[i].setAttribute('aria-selected', String(d.id == id)); d.pane.hidden = d.id != id; });
+		// the open tab goes into the address (#<tab>), which the pages read as the part to open: a
+		// redraw after an action, F5 or a shared link stay on it
+		if (clicked) history.replaceState(history.state, '', location.pathname + location.search + '#' + id);
 	};
 	defs.forEach(d => {
-		bar.appendChild(E('button', { 'type': 'button', 'role': 'tab', 'click': () => show(d.id) }, [ d.label ]));
+		bar.appendChild(E('button', { 'type': 'button', 'role': 'tab', 'click': () => show(d.id, true) }, [ d.label ]));
 		panes.appendChild(d.pane);
 	});
 	show(first || (defs[0] && defs[0].id));
@@ -591,14 +685,21 @@ function tabs(defs, first) {
 }
 
 // status refresh no faster than every 5 seconds (section 10.9)
+// Not while the tab is hidden; when it shows again, at once (guideline 14, Polling).
 function poll(fn, seconds) {
-	L.Poll.add(fn, Math.max(5, seconds || 10));
+	const f = () => document.hidden ? Promise.resolve() : fn();
+	viewPolls.push(f);
+	L.Poll.add(f, Math.max(5, seconds || 10));
 }
+document.addEventListener('visibilitychange', () => {
+	if (!document.hidden) viewPolls.forEach(f => Promise.resolve(f()).catch(() => {}));
+});
 
 const DAY_NAMES = () => [ _('Sun'), _('Mon'), _('Tue'), _('Wed'), _('Thu'), _('Fri'), _('Sat') ];
 
 return baseclass.extend({
-	api, MB, GB, errorText, updateErrorText, wifiQrText, wifiQr, printWifiCard, ltr, bytes, lineName, lineState, gbFromMb, mbFromGb, speed, minutesText, timeText, card,
-	loading, empty, failed, badge, notify, act, askConfirm, targetName, deviceName, targetSelect, isAccessPoint,
+	page, refresh,
+	api, MB, GB, errorText, updateErrorText, wifiQrText, wifiQr, printWifiCard, ltr, bytes, lineName, lineState, deviceLine, gbFromMb, mbFromGb, speed, minutesText, timeText, card,
+	loading, empty, failed, badge, notify, act, askConfirm, targetName, deviceName, isComputer, targetSelect, isAccessPoint,
 	field, row, section, seg, tabs, poll, DAY_NAMES
 });

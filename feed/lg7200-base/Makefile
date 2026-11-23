@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lg7200-base
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=21
+PKG_RELEASE:=23
 PKG_LICENSE:=LicenseRef-PolyForm-Noncommercial-1.0.0
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_LG7200_PRODUCT_NAME CONFIG_LG7200_SSID_PREFIX CONFIG_LG7200_HOSTNAME \
@@ -18,8 +18,8 @@ include $(INCLUDE_DIR)/version.mk
 define Package/lg7200-base
   SECTION:=base
   CATEGORY:=Base system
-  TITLE:=Virox per-unit identity and defaults (Mercury GAPM-7200)
-  DEPENDS:=+provision +ucode +ucode-mod-uloop +ucode-mod-uclient +ca-bundle
+  TITLE:=Virox per-unit identity and defaults (GAPM-7200, GAPD-7200)
+  DEPENDS:=+provision +ucode +ucode-mod-uloop +ucode-mod-uclient +ca-bundle +kmod-macvlan
   PKGARCH:=all
 endef
 
@@ -88,6 +88,8 @@ define Package/lg7200-base/install
 		$(1)/etc/config $(1)/etc/uci-defaults $(1)/etc/init.d \
 		$(1)/etc/hotplug.d/ieee80211 $(1)/etc/hotplug.d/iface $(1)/usr/libexec/lg7200
 	$(INSTALL_DATA) ./files/lib/functions/lg7200.sh $(1)/lib/functions/
+	$(INSTALL_DIR) $(1)/lib/preinit
+	$(INSTALL_DATA) ./files/lib/preinit/03_lg7200_model $(1)/lib/preinit/
 	$(INSTALL_DATA) ./files/etc/lg7200/mac-blocklist $(1)/etc/lg7200/
 	$(INSTALL_DATA) ./files/lib/upgrade/keep.d/lg7200-base $(1)/lib/upgrade/keep.d/
 	$(INSTALL_BIN) ./files/etc/uci-defaults/90-lg7200-identity $(1)/etc/uci-defaults/
@@ -122,6 +124,7 @@ define Package/lg7200-base/install
 	$(INSTALL_BIN) ./files/etc/init.d/lg7200-watch $(1)/etc/init.d/
 	$(INSTALL_BIN) ./files/usr/libexec/lg7200/watch $(1)/usr/libexec/lg7200/
 	$(INSTALL_BIN) ./files/usr/libexec/lg7200/dhcp-guard $(1)/usr/libexec/lg7200/
+	$(INSTALL_BIN) ./files/usr/libexec/lg7200/lan-check $(1)/usr/libexec/lg7200/
 	$(INSTALL_BIN) ./files/usr/libexec/lg7200/time-fallback $(1)/usr/libexec/lg7200/
 	$(INSTALL_BIN) ./files/usr/libexec/lg7200/http-date $(1)/usr/libexec/lg7200/
 	$(INSTALL_DATA) ./files/etc/hotplug.d/ntp/20-lg7200-timesync $(1)/etc/hotplug.d/ntp/

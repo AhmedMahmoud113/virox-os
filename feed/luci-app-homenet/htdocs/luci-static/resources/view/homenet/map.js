@@ -60,7 +60,7 @@ function pic(kind, size, wifi) {
 const KINDS = [
 	[ 'game', /playstation|\bps[345]\b|xbox|nintendo|switch|بلايستيشن/ ],
 	[ 'tablet', /ipad|\btab\b|tablet|galaxy-?tab|تابلت/ ],
-	[ 'phone', /iphone|android|galaxy|\bsm-|redmi|xiaomi|poco|oppo|realme|vivo|huawei|honor|infinix|tecno|itel|nokia|pixel|oneplus|phone|موبايل|تليفون|تلفون|جوال/ ],
+	[ 'phone', /iphone|android|galaxy|\bsm-|redmi|xiaomi|poco|oppo|realme|vivo|huawei|honor|infinix|tecno|itel|nokia|pixel|oneplus|phone|\b[asmfz][0-9]{2}[a-z]{0,2}\b|موبايل|تليفون|تلفون|جوال/ ],
 	[ 'tv', /\btv\b|-tv|tv-|bravia|webos|tizen|roku|chromecast|firetv|fire-tv|shield|receiver|ريسيفر|تلفزيون|تليفزيون|شاشة/ ],
 	[ 'printer', /print|epson|canon|brother|laserjet|طابعة/ ],
 	[ 'camera', /\bcam|camera|dvr|nvr|hikvision|dahua|ezviz|imou|كاميرا/ ],
@@ -69,12 +69,19 @@ const KINDS = [
 ];
 const KIND_NAME = {
 	phone: () => _('Mobile'), tablet: () => _('Tablet'), laptop: () => _('Laptop'), computer: () => _('Computer'), tv: () => _('TV'),
-	game: () => _('Game console'), printer: () => _('Printer'), camera: () => _('Camera'), other: () => _('Device', 'Virox')
+	game: () => _('Game console'), printer: () => _('Printer'), camera: () => _('Camera'), other: () => _('Device', 'Virox'),
+	// a device flagged as a router (behind_router): it had no name here, and the whole map stopped
+	// drawing with "KIND_NAME[k] is not a function" (2026-11-23, a PC sharing its internet with a VM)
+	router: () => _('Router')
 };
 function kindOf(d) {
-	if (d.behind_router) return 'router';
+	// a computer sharing its internet (hn.isComputer) is drawn as a computer, with a note
+	if (d.behind_router && !hn.isComputer(d)) return 'router';
 	const t = [ d.name, ...(d.macs || []).map(m => m.hostname) ].filter(x => x).join(' ').toLowerCase();
 	for (const k of KINDS) if (k[1].test(t)) return k[0];
+	// a random (private) MAC: phones and tablets use one per network; computers rarely do (2026-11-23:
+	// "A05s-alkhas-b-Hoda" showed as a device, Samsung model names without "Galaxy" are matched above too)
+	if (d.private_mac) return 'phone';
 	return 'other';
 }
 function signalOf(dbm) {
@@ -98,21 +105,27 @@ return view.extend({
 	// the tree: { kind, title, sub: [lines], href, wifi, signal, kids: [] }
 	tree() {
 		const [ dv, net, ap, ls ] = this.data;
-		const devices = ((dv && dv.devices) || []).filter(d => d.online);
-		devices.sort((a, b) => hn.deviceName(a).localeCompare(hn.deviceName(b)));
 		const lead = !!(ap && ap.lead), onAP = !!(ap && (ap.mode == 'ap' || ap.lead));
 		const aps = (ap && ap.aps) || [];
+		// the access points are drawn as boxes: not again as devices under the router (2026-11-23)
+		const apMacs = {};
+		aps.forEach(a => { if (a.mac) apMacs[a.mac.toLowerCase()] = true; });
+		const devices = ((dv && dv.devices) || []).filter(d => d.online && !(d.macs || []).some(m => apMacs[(m.mac || '').toLowerCase()]));
+		devices.sort((a, b) => hn.deviceName(a).localeCompare(hn.deviceName(b)));
 		const groups = { self: [] };
 		aps.forEach(a => { groups[a.id] = []; });
 		devices.forEach(d => { groups[(d.where && d.where.ap != 'main' && groups[d.where.ap]) ? d.where.ap : 'self'].push(d); });
 
 		const devNode = d => {
 			const on = (d.macs || []).filter(m => m.online);
-			const wifi = !!d.where || on.some(m => m.link == 'wifi');
-			const k = kindOf(d), s = signalOf(d.where ? d.where.signal : null);
+			// where.band "lan": on a cable port of an access point (no signal)
+			const wifi = d.where ? d.where.band != 'lan' : on.some(m => m.link == 'wifi');
+			const k = kindOf(d), s = signalOf(d.where && d.where.band != 'lan' ? d.where.signal : null);
 			const how = wifi ? (d.where && d.where.band ? (d.where.band == '5g' ? _('Wi-Fi 5 GHz') : _('Wi-Fi 2.4 GHz')) : _('Wi-Fi')) : _('Cable');
 			return { kind: k, title: fmt.name(hn.deviceName(d)), href: L.url('admin/devices') + '#dev=' + encodeURIComponent(d.id), wifi, signal: s,
-				sub: [ KIND_NAME[k]() + ' · ' + how, (on[0] && on[0].ip) ? fmt.ltr(on[0].ip) : '' ], kids: [] };
+				sub: [ KIND_NAME[k]() + ' · ' + how, (on[0] && on[0].ip) ? fmt.ltr(on[0].ip) : '',
+					d.behind_router && k != 'router' ? _('Shares its internet with a system running inside it (for example a virtual machine)') : '',
+					(ln => ln ? _('Line: %s').format(ln.text) : '')(hn.deviceLine(ls, d)) ], kids: [] };
 		};
 		const devNodes = list => {
 			const out = list.slice(0, MAX_DEVICES).map(devNode);
@@ -269,6 +282,7 @@ return view.extend({
 	},
 
 	render(data) {
+		hn.page(this);
 		this.data = data;
 		this.root = E('div', { 'class': 'vx-page vx-netmap' });
 		if (!data || !data[0]) return hn.failed();

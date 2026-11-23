@@ -150,7 +150,8 @@ join_del() {
 m_mesh() {
 	local want=0 r5 id key wch=1 nch=1
 	r5="$(band_radio 5g)"
-	if [ -n "$r5" ] && [ "$(uci -q get apctl.main.mesh)" != 0 ]; then
+	# off unless the admin turned it on (it broke the 5 GHz network of the GAPM-7200 main router, 2026-11-22)
+	if [ -n "$r5" ] && [ "$(uci -q get apctl.main.mesh)" = 1 ]; then
 		{ [ -n "$(uci -q show apctl | grep '=ap$')" ] || join_open; } && want=1
 	fi
 	if [ "$want" = 1 ]; then
@@ -248,6 +249,140 @@ a_uplink() {
 	ip -4 route show default | grep -q . && echo cable || echo none
 }
 
+# ------------------------------------------------------------------ Wi-Fi client (both images)
+# Owner 2026-11-22: "internet from Wi-Fi" on 5 GHz kept searching, found no networks for a long time,
+# or did not stay connected. Found in the code: the scan used the first interface of the radio,
+# which is the client itself once one exists (busy searching: the scan failed); the client always
+# used sae-mixed; the 5 GHz radio was held to 36-48 (and wifi-power put a fixed channel above 64
+# back to automatic at every boot), so the radio fought the channel of the router above; the night
+# schedule switched the whole radio off, client included. Now the security type and the channel
+# come from the scan, the radio follows the router above while a client is on it (its own channel
+# settings are kept in lg7200_saved_* and put back when the client goes), and the state of the
+# client is read from wpa_supplicant's and hostapd's log lines.
+
+# scan_parse <band>: iw scan output -> "band<TAB>signal<TAB>channel<TAB>security<TAB>ssid" per network;
+# security: none | sae | sae-mixed | psk2 | psk | wep | eap
+scan_parse() {
+	awk -v b="$1" -F '\n' '
+		function out() {
+			if (s == "") return
+			e = "none"
+			if (rsn) { e = (sae && psk) ? "sae-mixed" : (sae ? "sae" : (psk ? "psk2" : "eap")) }
+			else if (wpa) e = "psk"
+			else if (priv) e = "wep"
+			printf "%s\t%d\t%d\t%s\t%s\n", b, sig, ch, e, s
+		}
+		/^BSS / { out(); s = ""; sig = 0; ch = 0; rsn = 0; wpa = 0; sae = 0; psk = 0; priv = 0; blk = ""; next }
+		/^\tfreq: / { f = $0; sub(/.*freq: /, "", f); f = int(f)
+			ch = (f == 2484) ? 14 : (f < 3000 ? (f - 2407) / 5 : (f - 5000) / 5) }
+		/^\tsignal: / { v = $0; sub(/.*signal: /, "", v); sig = int(v) }
+		/^\tSSID: / { s = $0; sub(/^\tSSID: /, "", s) }
+		/^\tcapability: / { if (index($0, "Privacy")) priv = 1 }
+		/^\tRSN:/ { rsn = 1; blk = "rsn" }
+		/^\tWPA:/ { wpa = 1; blk = "wpa" }
+		/Authentication suites:/ { if (blk == "rsn") { if (index($0, "SAE")) sae = 1; if (index($0, "PSK")) psk = 1 } }
+		END { out() }'
+}
+# the networks one band of this unit can hear. An active scan from a home (AP) interface of that
+# radio; when that fails (a client on the radio is searching, the driver answers busy) the results
+# the radio already has (scan dump: the client's own scans); with no interface at all, a short-lived
+# client interface scans
+band_scan() { # <band>
+	local r ph ifc t
+	r="$(band_radio "$1")"; [ -n "$r" ] || return 0
+	ph="$(band_phy "$1")"
+	t="$(ubus call network.wireless status 2>/dev/null)"
+	ifc="$(echo "$t" | jsonfilter -e "@.$r.interfaces[@.config.mode=\"ap\"].ifname" 2>/dev/null | head -n 1)"
+	[ -n "$ifc" ] || ifc="$(echo "$t" | jsonfilter -e "@.$r.interfaces[*].ifname" 2>/dev/null | head -n 1)"
+	if [ -n "$ifc" ]; then
+		{ iw dev "$ifc" scan ap-force 2>/dev/null || iw dev "$ifc" scan dump 2>/dev/null; } | scan_parse "$1"
+	elif [ -n "$ph" ] && iw phy "$ph" interface add vxscan0 type managed 2>/dev/null; then
+		ip link set vxscan0 up 2>/dev/null; sleep 1
+		iw dev vxscan0 scan 2>/dev/null | scan_parse "$1"
+		iw dev vxscan0 del 2>/dev/null
+	fi
+}
+# the strongest network of that name on that band: "signal<TAB>channel<TAB>security"
+find_net() { # <band> <ssid>
+	band_scan "$1" | awk -F '\t' -v s="$2" '$5 == s' | sort -t "$(printf '\t')" -k2 -n -r | head -n 1 | cut -f2-4
+}
+# the radio follows the channel of the router above while a client is on it. Prints notes for the
+# page: "dfs" (a channel with a radar check: the home network on that band waits about a minute after
+# each start) and/or "high" (above 64: phones set for Egypt may not see the 5 GHz home network).
+# Returns 1 when the channel may not be used here.
+radio_follow() { # <radio> <channel>
+	local r="$1" ch="$2" o
+	[ -n "$ch" ] && [ "$ch" -gt 0 ] 2>/dev/null || return 0
+	case "$(uci -q get wireless.$r.band)" in
+		2g) [ "$ch" -le 11 ] || return 1 ;;
+		5g) case "$ch" in 36|40|44|48|52|56|60|64|100|104|108|112|116|120|124|128|132|136|140|144|149|153|157|161|165) ;; *) return 1 ;; esac ;;
+	esac
+	if [ -z "$(uci -q get wireless.$r.lg7200_saved)" ]; then
+		uci set wireless.$r.lg7200_saved=1
+		for o in channel channels acs_exclude_dfs; do
+			uci -q get wireless.$r.$o >/dev/null && uci set "wireless.$r.lg7200_saved_$o=$(uci -q get wireless.$r.$o)"
+		done
+	fi
+	uci set wireless.$r.channel="$ch"
+	uci -q delete wireless.$r.channels
+	uci -q delete wireless.$r.acs_exclude_dfs
+	[ "$ch" -ge 52 ] && [ "$ch" -le 144 ] && echo dfs
+	[ "$ch" -gt 64 ] && echo high
+	return 0
+}
+# the radio's own channel settings back, when no client is left on it
+radio_restore() { # <radio>
+	local r="$1" o v
+	[ "$(uci -q get wireless.$r.lg7200_saved)" = 1 ] || return 0
+	uci -q show wireless | grep -q "^wireless\.[^.]*\.device='$r'$" && for s in $(uci -q show wireless | sed -n "s/^wireless\.\([^.]*\)\.device='$r'$/\1/p"); do
+		[ "$(uci -q get wireless.$s.mode)" = sta ] && return 0
+	done
+	for o in channel channels acs_exclude_dfs; do
+		v="$(uci -q get wireless.$r.lg7200_saved_$o)"
+		if [ -n "$v" ]; then uci set "wireless.$r.$o=$v"; else uci -q delete wireless.$r.$o; fi
+		uci -q delete wireless.$r.lg7200_saved_$o
+	done
+	uci -q delete wireless.$r.lg7200_saved
+}
+# client_set <section> <security> <key>: the security of the client interface
+client_sec() {
+	case "$2" in
+		none) uci set wireless.$1.encryption=none; uci -q delete wireless.$1.key ;;
+		*) uci set wireless.$1.encryption="$2"; uci set wireless.$1.key="$3" ;;
+	esac
+}
+# security for the client from the scan (unknown with a key: WPA2, which every router accepts;
+# a mixed WPA2/WPA3 router is joined with WPA2 too, WPA2 only (owner 2026-11-22: WPA2/WPA3 mixed kept the iPhone and many devices out))
+client_enc() { # <scanned security> <key>
+	case "$1" in
+		none|'') [ -n "$2" ] && echo psk2+ccmp || echo none ;;
+		sae) echo sae ;;
+		sae-mixed) echo psk2+ccmp ;;
+		psk2) echo psk2+ccmp ;;
+		psk) echo psk-mixed ;;
+		*) echo "$1" ;;
+	esac
+}
+# the state of a client interface: connected | address | connecting | channel_check |
+# wrong_password | not_found (the newest log line of its wpa_supplicant, and hostapd's radar check)
+client_state() { # <section> <has address 0|1>
+	local ifc ph l
+	ifc="$(ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.*.interfaces[@.section=\"$1\"].ifname" 2>/dev/null | head -n 1)"
+	if [ -n "$ifc" ] && iw dev "$ifc" link 2>/dev/null | grep -q '^Connected'; then
+		[ "$2" = 1 ] && echo connected || echo address; return 0
+	fi
+	ph="${ifc%%-*}"
+	l="$(logread 2>/dev/null | grep -E "${ph:-none}-ap[0-9]*: DFS-CAC-|DFS-CAC-" | tail -n 1)"
+	case "$l" in *DFS-CAC-START*) echo channel_check; return 0 ;; esac
+	[ -n "$ifc" ] || { echo connecting; return 0; }
+	l="$(logread 2>/dev/null | grep -F "$ifc:" | grep -E 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect|NETWORK-NOT-FOUND|CTRL-EVENT-CONNECTED|Trying to associate' | tail -n 1)"
+	case "$l" in
+		*WRONG_KEY*|*"4-Way Handshake failed"*|*"may be incorrect"*) echo wrong_password ;;
+		*NETWORK-NOT-FOUND*) echo not_found ;;
+		*) echo connecting ;;
+	esac
+}
+
 # ------------------------------------------------------------------ internet from Wi-Fi (router)
 # Owner 2026-11-22: a Virox router can take its internet from another router's Wi-Fi (the band the
 # admin picks: that radio becomes a client too, its home network, if any, follows the other
@@ -256,10 +391,15 @@ a_uplink() {
 # usage, outages and the internet state include it.
 #   wifiwan <2g|5g> <ssid> <key>   wifiwan-off   wifiwan-status: "ssid band up|down ip signal clash"
 a_wifiwan() {
-	local band="$1" ssid="$2" key="$3" r z
+	local band="$1" ssid="$2" key="$3" r z net sig ch sec notes
 	[ "$(my_mode)" = router ] || { echo "ERR not_router"; return 0; }
 	r="$(band_radio "$band")"; [ -n "$r" ] || { echo "ERR no_wifi"; return 0; }
+	net="$(find_net "$band" "$ssid")"
+	ch="$(echo "$net" | cut -f2)"; sec="$(echo "$net" | cut -f3)"
+	case "$sec" in wep|eap) echo "ERR unsupported_security"; return 0 ;; esac
+	[ -n "$sec" ] && [ "$sec" != none ] && [ -z "$key" ] && { echo "ERR key_needed"; return 0; }
 	uci -q delete wireless.vx_wifiwan
+	notes="$(radio_follow "$r" "$ch")" || { uci revert wireless; echo "ERR channel_not_allowed"; return 0; }
 	uci -q batch <<-EOF
 		set wireless.$r.disabled=0
 		set wireless.vx_wifiwan=wifi-iface
@@ -271,24 +411,25 @@ a_wifiwan() {
 		set network.wan3.metric=20
 	EOF
 	uci set wireless.vx_wifiwan.ssid="$ssid"
-	if [ -n "$key" ]; then uci set wireless.vx_wifiwan.encryption=sae-mixed; uci set wireless.vx_wifiwan.key="$key"
-	else uci set wireless.vx_wifiwan.encryption=none; fi
+	client_sec vx_wifiwan "$(client_enc "$sec" "$key")" "$key"
 	z="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
 	[ -n "$z" ] && ! uci -q get "firewall.$z.network" | grep -qw wan3 && uci add_list "firewall.$z.network=wan3"
 	uci commit wireless; uci commit network; uci commit firewall
 	/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1; wifi reload >/dev/null 2>&1
-	echo OK
+	echo "OK $(echo $notes)"
 }
 a_wifiwan_off() {
-	local z
+	local z r
+	r="$(uci -q get wireless.vx_wifiwan.device)"
 	uci -q delete wireless.vx_wifiwan; uci -q delete network.wan3
+	[ -n "$r" ] && radio_restore "$r"
 	z="$(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)\.name='wan'$/\1/p" | head -n 1)"
 	[ -n "$z" ] && uci -q del_list "firewall.$z.network=wan3"
 	uci commit wireless; uci commit network; uci commit firewall
 	/etc/init.d/network reload; /etc/init.d/firewall reload >/dev/null 2>&1; wifi reload >/dev/null 2>&1
 	echo OK
 }
-# ssid band up|down ip signal clash(1 = the other router gives addresses of this router's own range)
+# ssid band up|down ip signal clash(1 = the other router gives addresses of this router's own range) state
 a_wifiwan_status() {
 	local ssid band st ip ifc sig lan clash=0
 	[ "$(uci -q get wireless.vx_wifiwan)" = wifi-iface ] || { echo "none"; return 0; }
@@ -299,16 +440,22 @@ a_wifiwan_status() {
 	sig="$([ -n "$ifc" ] && iw dev "$ifc" link 2>/dev/null | awk '/signal:/ { print int($2) }')"
 	lan="$(uci -q get network.lan.ipaddr)"
 	[ -n "$ip" ] && [ -n "$lan" ] && [ "${ip%.*}" = "${lan%.*}" ] && clash=1
-	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ssid" "$band" "$([ "$(echo "$st" | jsonfilter -e '@.up' 2>/dev/null)" = true ] && [ -n "$ip" ] && echo up || echo down)" "${ip:--}" "${sig:--}" "$clash"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ssid" "$band" "$([ "$(echo "$st" | jsonfilter -e '@.up' 2>/dev/null)" = true ] && [ -n "$ip" ] && echo up || echo down)" "${ip:--}" "${sig:--}" "$clash" \
+		"$(client_state vx_wifiwan "$([ -n "$ip" ] && echo 1 || echo 0)")"
 }
 
 # ------------------------------------------------------------------ repeater (not a Virox above)
 # repeat <band> <ssid> <key>: join that router's Wi-Fi as a client and repeat it
 a_repeat() {
-	local band="$1" ssid="$2" key="$3" r
+	local band="$1" ssid="$2" key="$3" r net ch sec notes
 	r="$(band_radio "$band")"; [ -n "$r" ] || { echo "ERR no_wifi"; return 0; }
 	[ "$(my_mode)" = ap ] || { echo "ERR not_ap"; return 0; }
+	net="$(find_net "$band" "$ssid")"
+	ch="$(echo "$net" | cut -f2)"; sec="$(echo "$net" | cut -f3)"
+	case "$sec" in wep|eap) echo "ERR unsupported_security"; return 0 ;; esac
+	[ -n "$sec" ] && [ "$sec" != none ] && [ -z "$key" ] && { echo "ERR key_needed"; return 0; }
 	uci -q delete wireless.vx_repeat; uci -q delete network.vxrelay; uci -q delete network.wwan
+	notes="$(radio_follow "$r" "$ch")" || { uci revert wireless; echo "ERR channel_not_allowed"; return 0; }
 	uci -q batch <<-EOF
 		set wireless.vx_repeat=wifi-iface
 		set wireless.vx_repeat.device=$r
@@ -320,14 +467,16 @@ a_repeat() {
 		set apctl.repeat.mode=wds
 	EOF
 	uci set wireless.vx_repeat.ssid="$ssid"
-	if [ -n "$key" ]; then uci set wireless.vx_repeat.encryption=sae-mixed; uci set wireless.vx_repeat.key="$key"
-	else uci set wireless.vx_repeat.encryption=none; fi
+	client_sec vx_repeat "$(client_enc "$sec" "$key")" "$key"
 	uci commit wireless; uci commit apctl
 	wifi reload >/dev/null 2>&1
-	echo OK
+	echo "OK $(echo $notes)"
 }
 a_repeat_off() {
+	local r
+	r="$(uci -q get wireless.vx_repeat.device)"
 	uci -q delete wireless.vx_repeat; uci -q delete network.vxrelay; uci -q delete network.wwan; uci -q delete apctl.repeat
+	[ -n "$r" ] && radio_restore "$r"
 	uci commit wireless; uci commit network; uci commit apctl
 	/etc/init.d/network reload; wifi reload >/dev/null 2>&1
 	echo OK
@@ -359,31 +508,11 @@ a_repeat_check() {
 	uci commit wireless; uci commit network; uci commit apctl
 	/etc/init.d/network reload; wifi reload >/dev/null 2>&1
 }
-# the networks in reach, for the repeater page: band signal ssid (one per line, strongest first)
+# the networks in reach, for the repeater and internet-from-Wi-Fi pages, strongest first:
+# band<TAB>signal<TAB>channel<TAB>security<TAB>ssid
 a_scan() {
-	local r ifc band ph
-	for band in 2g 5g; do
-		r="$(band_radio $band)"; [ -n "$r" ] || continue
-		ifc="$(ubus call network.wireless status 2>/dev/null | jsonfilter -e "@.$r.interfaces[0].ifname" 2>/dev/null)"
-		if [ -n "$ifc" ]; then
-		iw dev "$ifc" scan ap-force 2>/dev/null | awk -v b=$band '
-			$1 == "BSS" { if (s != "") print b, sig, s; s = ""; sig = 0 }
-			$1 == "signal:" { sig = int($2) }
-			$1 == "SSID:" { s = substr($0, index($0, "SSID:") + 6) }
-			END { if (s != "") print b, sig, s }'
-		else
-			# no network runs on that radio (switched off or deleted, owner 2026-11-22): a short-lived
-			# client interface on that radio scans (iwinfo found nothing there; tried on 2.230)
-			ph="$(band_phy $band)"
-			if [ -n "$ph" ] && iw phy "$ph" interface add vxscan0 type managed 2>/dev/null; then
-				ip link set vxscan0 up 2>/dev/null; sleep 1
-				iw dev vxscan0 scan 2>/dev/null | awk -v b=$band '
-					$1 == "BSS" { if (s != "") print b, sig, s; s = ""; sig = 0 }
-					$1 == "signal:" { sig = int($2) }
-					$1 == "SSID:" { s = substr($0, index($0, "SSID:") + 6) }
-					END { if (s != "") print b, sig, s }'
-				iw dev vxscan0 del 2>/dev/null
-			fi
-		fi
-	done | awk '$3 != "" && $3 != "Virox-Join" && $3 != "Virox-Setup"' | sort -k2 -n -r | awk '!seen[$1 " " substr($0, index($0, $3))]++' | head -n 30
+	local band
+	for band in 2g 5g; do band_scan $band; done |
+		awk -F '\t' '$5 != "" && $5 != "Virox-Join" && $5 != "Virox-Setup"' | sort -t "$(printf '\t')" -k2 -n -r |
+		awk -F '\t' '!seen[$1 "\t" $5]++' | head -n 30
 }

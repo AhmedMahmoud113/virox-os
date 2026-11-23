@@ -1,7 +1,7 @@
 From bf2d32461ecda53f5d768c81e4ddd43af7a303d1 Mon Sep 17 00:00:00 2001
 From: Virox Build <build@virox.invalid>
 Date: Tue, 17 Nov 2026 02:32:08 +0200
-Subject: [PATCH 1/6] ramips: add support for Mercury GAPM-7200
+Subject: [PATCH 1/8] ramips: add support for Mercury GAPM-7200
 
 MT7621 board with 128 MiB parallel NAND, MT7615 DBDC Wi-Fi, MT7530 switch (wan + 4 lan) and a PCA9535 I2C GPIO expander for the port LEDs. Board facts taken from the running device tree (read-only collection, 2026-11-17).
 

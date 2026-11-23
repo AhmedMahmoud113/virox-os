@@ -3,8 +3,14 @@
 This guide is for anyone: no knowledge of networks is needed. Follow the steps in order and do not
 skip any. Plan about 30 minutes.
 
-Virox is only for the **Mercury GAPM-7200** (sold as "LG-7200"). Look at the sticker under the
-router: it must say **GAPM-7200**. If it says anything else, **stop**.
+Look at the sticker under the router. Virox has one file for each of two routers:
+
+- **GAPM-7200** (Mercury, sold as "LG-7200"): the file with `mercury_gapm7200` in its name;
+- **GAPD-7200** (Davolink): the file with `davolink_gapd7200` in its name. This one is installed
+  from its rescue page or from OpenWrt, see "GAPD-7200" at the end of this guide (still in testing).
+
+The difference is one letter, **M** or **D**. The wrong file leaves the router unable to start.
+If the sticker says anything else, **stop**.
 
 ## Before you start
 
@@ -122,6 +128,18 @@ otherwise its usage is not counted.
 
 Connect the second modem to the router's **LAN 4** port. Then in Virox open **Settings → Package**
 and click **Turn on the second line**. Do step 7 on the second modem too.
+
+## GAPD-7200
+
+Still in testing (BUILD-PLAN 16). Make the full backup first. Then either:
+
+- **from its rescue page** (PandoraBox, shows "RT-AC58U"): give the computer the fixed address
+  192.168.1.2 / 255.255.255.0 with no gateway, hold Reset while switching the router on, open
+  http://192.168.1.1 and upload the `davolink_gapd7200` sysupgrade file; wait about 4 minutes; or
+- **from OpenWrt already on it**: copy the file to `/tmp` and run `sysupgrade -n -v /tmp/<file>`.
+
+Both write only the system; the maker's data (ART, Factory, Factory2, nvram) and the rescue
+program are never touched.
 
 ## If something goes wrong
 

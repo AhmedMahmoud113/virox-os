@@ -1,0 +1,35 @@
+From 262cbf92a06df38f403855ad86f775c4bd2c3005 Mon Sep 17 00:00:00 2001
+From: Virox Build <build@virox.invalid>
+Date: Sun, 22 Nov 2026 23:13:31 +0200
+Subject: [PATCH 8/8] ipq40xx: davolink_gapd7200 also supports the board name
+ of the reseller's system (davolink,gapd7200)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ target/linux/ipq40xx/image/generic.mk | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/target/linux/ipq40xx/image/generic.mk b/target/linux/ipq40xx/image/generic.mk
+index 1f81316643..aa34b26996 100644
+--- a/target/linux/ipq40xx/image/generic.mk
++++ b/target/linux/ipq40xx/image/generic.mk
+@@ -260,7 +260,9 @@ TARGET_DEVICES += asus_rt-ac58u
+ 
+ # LG U+ GAPD-7200 (Davolink, 2018): the board of the ASUS RT-AC58U (same DTS, flash map and
+ # PandoraBox recovery, which takes this sysupgrade image). Its own profile so the image carries
+-# its own name; SUPPORTED_DEVICES keeps the RT-AC58U board name the unit reports.
++# its own name. SUPPORTED_DEVICES: the RT-AC58U board name (a unit on OpenWrt or Virox) and
++# davolink,gapd7200 (the reseller's system on these units names the board so, with the same
++# nand_do_upgrade): a GAPD-7200 takes this image from its old system page, a GAPM-7200 never.
+ define Device/davolink_gapd7200
+ 	$(call Device/FitImageLzma)
+ 	DEVICE_VENDOR := Davolink
+@@ -274,7 +276,7 @@ define Device/davolink_gapd7200
+ 	IMAGE_SIZE := 20439364
+ 	FILESYSTEMS := squashfs
+ 	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC58U')
+-	SUPPORTED_DEVICES := asus,rt-ac58u
++	SUPPORTED_DEVICES := asus,rt-ac58u davolink,gapd7200
+ 	DEVICE_PACKAGES := -kmod-ath10k-ct kmod-ath10k-ct-smallbuffers \
+ 		kmod-usb-ledtrig-usbport
+ endef

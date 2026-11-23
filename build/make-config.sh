@@ -1,12 +1,13 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# The OpenWrt .config of the Virox release image: the seed plus the product identity of
+# The OpenWrt .config of a Virox release image: the seed plus the product identity of
 # product.conf (name, version, update host, defaults). The same lines as tools/build.sh writes.
-#   sh make-config.sh <dir with release.seed and product.conf> > .config ; make defconfig
+#   sh make-config.sh <dir with release.seed and product.conf> [gapd7200] > .config ; make defconfig
+# gapd7200: the GAPD-7200 image (board-gapd7200.seed instead of the seed's own target lines)
 set -eu
 d="${1:-.}"
 . "$d/product.conf"
-cat "$d/release.seed"
+if [ "${2:-}" = gapd7200 ]; then cat "$d/board-gapd7200.seed"; grep -v '^CONFIG_TARGET_' "$d/release.seed"; else cat "$d/release.seed"; fi
 echo "CONFIG_IMAGEOPT=y"
 echo "CONFIG_VERSIONOPT=y"
 echo "CONFIG_VERSION_DIST=\"$PRODUCT_SYSTEM_NAME\""

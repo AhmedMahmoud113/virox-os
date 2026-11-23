@@ -43,7 +43,8 @@ _iface() {
 	[ "$(uci -q get wireless.$1.mode)" = "ap" ] || return 0
 	if [ "$(uci -q get wireless.$1.ssid)" = OpenWrt ] && [ -n "$ssid" ] && [ -n "$key" ]; then
 		uci set wireless.$1.ssid="$ssid"
-		uci set wireless.$1.encryption=sae-mixed
+		# WPA2 only (owner 2026-11-22: WPA2/WPA3 mixed kept the iPhone and many devices out)
+		uci set wireless.$1.encryption=psk2+ccmp
 		uci set wireless.$1.key="$key"
 	fi
 	uci -q delete wireless.$1.wds

@@ -23,6 +23,32 @@ const DEVICES_CMD = '/usr/libexec/homenet/devices', CONTROLS_CMD = '/usr/libexec
 const DNS_CMD = '/usr/libexec/homenet/dns', FILTER_CMD = '/usr/libexec/homenet/filter';
 
 // ------------------------------------------------------------------ helpers
+
+// ------------------------------------------------------------------ short-lived copy (owner 2026-11-22:
+// "moving between pages is very slow"). rpcd answers one call at a time, so a page waits for the sum
+// of its calls; the device list (~0.35 s on the GAPM-7200: neighbours, Wi-Fi stations, usage files)
+// was built twice per Devices or Home page (devices and people both build it) and again by every
+// poll. It is now built at most once every 2 seconds and shared; every method that changes
+// anything clears it first (cached_clear, wrapped around them at the end of this file).
+let cache_v = {}, cache_t = {};
+function now_s() { const c = clock(true); return c[0] + c[1] / 1e9; }
+function cached(key, ttl, fn) {
+	const t = now_s();
+	if (cache_v[key] != null && t - cache_t[key] < ttl) return cache_v[key];
+	cache_v[key] = fn(); cache_t[key] = now_s();
+	return cache_v[key];
+}
+function cached_clear() { cache_v = {}; cache_t = {}; }
+// wrap every method of an API object that is not in `reads` so it clears the copy before it runs
+function clears_cache(obj, reads) {
+	for (let name in keys(obj)) {
+		if (index(reads, name) >= 0) continue;
+		const f = obj[name].call;
+		obj[name].call = function(req) { cached_clear(); return f(req); };
+	}
+	return obj;
+}
+
 function shq(s) { return "'" + replace(`${s ?? ''}`, "'", "'\\''") + "'"; }
 
 function sh_out(cmd) {
@@ -93,7 +119,7 @@ function online_macs() {
 			for (let l in split(readfile('/tmp/homenet/ap-clients.tsv') ?? '', '\n')) {
 				const f = split(l, '\t');
 				if (length(f) >= 5 && f[1] != 'main' && now - +f[4] < 300 && !on[f[0]])
-					on[f[0]] = { ip: ipof[f[0]] ?? '', link: 'wifi' };
+					on[f[0]] = { ip: ipof[f[0]] ?? '', link: f[3] == 'lan' ? 'lan' : 'wifi' };
 			}
 		}
 		return on;
@@ -426,12 +452,33 @@ function devices_list() {
 	let macs = {}, use = {};
 	// B9 Y3: which access point each device is on, with its signal (homenet-apctl writes the list;
 	// "main" is the main router itself)
-	const apname = { main: null }, where = {};
-	cursor().foreach('apctl', 'ap', s => { apname[s['.name']] = s.name ?? s['.name']; });
+	const apname = { main: null }, apmac = {}, where = {}, cab = {}, cabset = {};
+	cursor().foreach('apctl', 'ap', s => { apname[s['.name']] = s.name ?? s['.name']; apmac[s['.name']] = lc(s.mac ?? ''); });
 	for (let l in split(readfile('/tmp/homenet/ap-clients.tsv') ?? '', '\n')) {
 		const f = split(l, '\t');
-		if (length(f) >= 4 && (!where[f[0]] || +f[2] > where[f[0]].signal))
+		if (length(f) < 4) continue;
+		// band "lan": on a cable port of that access point (0.9.0-rc4.2)
+		if (f[3] == 'lan') {
+			if (!cab[f[0]]) cab[f[0]] = [];
+			push(cab[f[0]], f[1]);
+			if (!cabset[f[1]]) cabset[f[1]] = {};
+			cabset[f[1]][f[0]] = true;
+		}
+		else if (!where[f[0]] || +f[2] > where[f[0]].signal)
 			where[f[0]] = { ap: f[1], name: apname[f[1]] ?? null, signal: +f[2], band: f[3] };
+	}
+	// a cable only where no Wi-Fi saw the device; seen on the cable side of several units (a switch,
+	// units in a chain): the nearest one, the unit with none of the other claimants behind it
+	for (let m, c in cab) {
+		if (where[m]) continue;
+		let best = null;
+		for (let x in c) {
+			let behind = false;
+			for (let z in c) if (z != x && apmac[z] && cabset[x]?.[apmac[z]]) behind = true;
+			if (!behind) { best = x; break; }
+		}
+		best ??= c[0];
+		where[m] = { ap: best, name: apname[best] ?? null, signal: null, band: 'lan' };
 	}
 	for (let f in tsv('device-macs.tsv', true)) {
 		if (!macs[f[1]]) macs[f[1]] = [];
@@ -557,11 +604,11 @@ function me_reply(u) {
 
 const homenet = {
 	// ------------------------------------------------ devices and people (B7 feature 1)
-	devices: { call: function() { return devices_list(); } },
+	devices: { call: function() { return cached('devices', 2, devices_list); } },
 
 	people: {
 		call: function() {
-			const d = devices_list().devices;
+			const d = cached('devices', 2, devices_list).devices;
 			return { people: map(people_list(), p => ({ ...p, devices: map(filter(d, x => x.person == p.id), x => x.id) })) };
 		}
 	},
@@ -1526,4 +1573,9 @@ const homenet = {
 	}
 };
 
-return { 'virox.homenet': homenet };
+// the methods that only read; every other one changes something and clears the copy first
+const HOMENET_READS = [ 'devices', 'people', 'guest', 'wifikeys', 'wifi_cards', 'controls', 'schedules', 'timelimits',
+                        'settings', 'speed_limits', 'limits', 'usage', 'usage_range', 'kids', 'site_catalog', 'site_locks',
+                        'filter', 'computers', 'wakes', 'outages', 'network', 'users', 'live', 'quality', 'night_use',
+                        'kid_sites', 'me', 'reservations' ];
+return { 'virox.homenet': clears_cache(homenet, HOMENET_READS) };

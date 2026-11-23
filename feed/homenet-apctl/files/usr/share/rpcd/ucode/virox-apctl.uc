@@ -16,7 +16,7 @@
 //   join_open {minutes}          a new access point without a cable may join for 10 minutes: an
 //                                open network "Virox-Join" (isolated, only DHCP and the hello)  (admin)
 //   join_close                   close it now                                                     (admin)
-//   mesh_set {enabled}           the wireless link between Virox units on / off (on by default) (admin)
+//   mesh_set {enabled}           the wireless link between Virox units on / off (off by default) (admin)
 //   repeat {band, ssid, key}     (access point under a router that is not a Virox) repeat that
 //                                router's Wi-Fi: 4-address client, relayd if it does not take it (admin)
 //   repeat_off                                                                                     (admin)
@@ -47,11 +47,31 @@
 
 'use strict';
 
-import { readfile, writefile, mkdir, popen, unlink, open, rename, stat } from 'fs';
+import { readfile, writefile, mkdir, popen, unlink, open, rename, stat, lsdir } from 'fs';
 import { cursor } from 'uci';
 
 const RUN = '/tmp/homenet/apctl';
 const CLIENTS = '/tmp/homenet/ap-clients.tsv';     // mac ap_id signal band epoch
+// one part per source (main, ap1, ...), each written whole; CLIENTS is rebuilt from all parts.
+// Before (2026-11-23): every report read CLIENTS, changed its own rows and wrote it back; three
+// access points reporting in the same second wiped each other's rows, so a phone on AP 2 had no
+// access point and the pages showed it on a cable.
+const CLIENTS_D = CLIENTS + '.d';
+function clients_rebuild(tag) {
+	const now = time();
+	let rows = [];
+	for (let f in sort(lsdir(CLIENTS_D) ?? [])) {
+		if (!match(f, /^[A-Za-z0-9_]+\.tsv$/)) continue;
+		for (let l in split(readfile(`${CLIENTS_D}/${f}`) ?? '', '\n')) {
+			const p = split(l, '\t');
+			// rows of a source that stopped reporting go after 5 minutes
+			if (length(p) >= 5 && now - +p[4] < 300) push(rows, l);
+		}
+	}
+	const tmp = `${CLIENTS}.${tag}.tmp`;
+	writefile(tmp, length(rows) ? join('\n', rows) + '\n' : '');
+	rename(tmp, CLIENTS);
+}
 const AGENT = '/usr/libexec/homenet/apctl';
 
 function sh(cmd) { const fd = popen(cmd); if (!fd) return ''; const o = fd.read('all'); fd.close(); return trim(o ?? ''); }
@@ -91,7 +111,9 @@ function same(a, b) {
 // hardware allow automatic lowering.
 const CH2 = [ 6, 11, 1 ], CH5_80 = [ 52, 36 ], CH5_40 = [ 44, 52, 60, 36 ];
 // the wireless link (15.4 item 1): every unit on the main router's 5 GHz channel
-function mesh_on(c) { return c.get('apctl', 'main', 'mesh') != '0' && !!c.get('apctl', 'main', 'mesh_id'); }
+// off unless the admin turns it on: on the GAPM-7200 (MT7615) the mesh beside the 5 GHz network broke that
+// network for phones on the main router (2026-11-22); with cables it is not needed (owner 2026-11-22)
+function mesh_on(c) { return c.get('apctl', 'main', 'mesh') == '1' && !!c.get('apctl', 'main', 'mesh_id'); }
 function main_channel() {
 	const f = split(sh('. /usr/lib/homenet/apctl-mesh.sh; main_channel 2>/dev/null'), ' ');
 	return length(f) == 2 && +f[0] >= 36 ? { ch: +f[0], ht: f[1] } : null;
@@ -141,7 +163,7 @@ function wifi_config(c) {
 	let mdid = 0;
 	for (let i = 0; i < length(base ?? ''); i++) mdid = (mdid * 31 + ord(base, i)) % 65536;
 	return {
-		ssid: base ?? '', ssid5: b5 ?? base ?? '', key: key ?? '', encryption: enc ?? 'sae-mixed', keys: keys, hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
+		ssid: base ?? '', ssid5: b5 ?? base ?? '', key: key ?? '', encryption: enc ?? 'psk2+ccmp', keys: keys, hidden_2g: (c.get('lg7200', 'wifi', 'hidden_2g') ?? c.get('lg7200', 'wifi', 'hidden')) == '1', hidden_5g: (c.get('lg7200', 'wifi', 'hidden_5g') ?? c.get('lg7200', 'wifi', 'hidden')) == '1',
 		off_2g: c.get('lg7200', 'wifi', 'off_2g') == '1', off_5g: c.get('lg7200', 'wifi', 'off_5g') == '1',
 		roaming: c.get('apctl', 'main', 'roaming') == '1', mobility_domain: sprintf('%04x', mdid),
 		power_high: true	// always: old access points (rc2) still read it (owner 2026-11-22)
@@ -385,7 +407,7 @@ const apctl = {
 			const ju = +(c.get('apctl', 'main', 'join_until') ?? 0);
 			const rp = c.get('apctl', 'repeat') ? { ssid: c.get('wireless', 'vx_repeat', 'ssid') ?? '', mode: c.get('apctl', 'repeat', 'mode') ?? '' } : null;
 			return { mode: lead() ? 'router' : mode(), lead: lead(), version: my_version(), roaming: c.get('apctl', 'main', 'roaming') == '1', aps: out, found: found,
-			         mesh: c.get('apctl', 'main', 'mesh') != '0', join_until: ju > time() ? ju : null, repeat: rp,
+			         mesh: c.get('apctl', 'main', 'mesh') == '1', join_until: ju > time() ? ju : null, repeat: rp,
 			         uplink: mode() == 'ap' ? uplink_of({ uplink: sh('/usr/libexec/homenet/apctl uplink 2>/dev/null') }) : null,
 			         paired: !!c.get('apctl', 'agent', 'token'), via: c.get('apctl', 'agent', 'via') ?? null,
 			         main_ip: c.get('apctl', 'agent', 'main') ?? null, role: trim(readfile(`${RUN}/role`) ?? '') || null,
@@ -476,7 +498,7 @@ const apctl = {
 	},
 
 	sync: {
-		args: { id: '', token: '', version: '', uptime: 0, ip: '', clients: [], usage: [], uplink: '' },
+		args: { id: '', token: '', version: '', board: '', uptime: 0, ip: '', clients: [], wired: [], usage: [], uplink: '' },
 		call: function(req) {
 			const c = cursor(), a = req.args;
 			if (!match(a.id ?? '', /^ap[0-9]+$/)) return { result: false, error: 'unknown_ap' };
@@ -487,12 +509,22 @@ const apctl = {
 			const prev = status_of(a.id) ?? {};
 			const ip = match(a.ip ?? '', /^([0-9]{1,3}\.){3}[0-9]{1,3}$/) ? a.ip : null;
 			const ul = match(`${a.uplink ?? ''}`, /^(cable|none|(wireless|repeat) -?[0-9]{1,3})$/) ? a.uplink : '';
-			writefile(`${RUN}/${a.id}.json`, sprintf('%J', { seen: now, version: substr(`${a.version ?? ''}`, 0, 40), uptime: +a.uptime, ip: ip, clients: cl, uplink: ul }));
-			// Y3: which access point each device is on (the other access points' rows are kept)
-			let rows = filter(split(readfile(CLIENTS) ?? '', '\n'), l => l != '' && split(l, '\t')[1] != a.id);
+			// board: the Virox board id of the unit (gapm7200 | gapd7200, BUILD-PLAN 16); update all fetches
+			// each board's own image for it
+			const bd = match(`${a.board ?? ''}`, /^[a-z0-9]{1,16}$/) ? a.board : '';
+			writefile(`${RUN}/${a.id}.json`, sprintf('%J', { seen: now, version: substr(`${a.version ?? ''}`, 0, 40), board: bd, uptime: +a.uptime, ip: ip, clients: cl, uplink: ul }));
+			// Y3: which access point each device is on (this unit's part, then the whole list again)
+			let rows = [];
 			for (let x in cl)
 				push(rows, join('\t', [ lc(x.mac), a.id, `${+x.signal}`, x.band == '5g' ? '5g' : '2g', `${now}` ]));
-			writefile(CLIENTS, join('\n', rows) + '\n');
+			// devices on its cable ports (band "lan", no signal; 0.9.0-rc4.2)
+			const wl = filter(type(a.wired) == 'array' ? a.wired : [], m => type(m) == 'string' && match(lc(m), /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/));
+			for (let m in slice(wl, 0, 200))
+				push(rows, join('\t', [ lc(m), a.id, '0', 'lan', `${now}` ]));
+			mkdir(CLIENTS_D);
+			writefile(`${CLIENTS_D}/${a.id}.tsv.tmp`, length(rows) ? join('\n', rows) + '\n' : '');
+			rename(`${CLIENTS_D}/${a.id}.tsv.tmp`, `${CLIENTS_D}/${a.id}.tsv`);
+			clients_rebuild(a.id);
 			// a lead (no Virox main router): the member's own counting of its devices, booked here
 			// (apctl usage-import: the growth since its last report, on the device with that MAC)
 			if (lead() && type(a.usage) == 'array') {
@@ -562,7 +594,7 @@ const apctl = {
 			const c = cursor();
 			if (!match(req.args.id ?? '', /^ap[0-9]+$/) || c.get('apctl', req.args.id) == null) return { result: false, error: 'unknown_ap' };
 			c.delete('apctl', req.args.id); c.commit('apctl');
-			unlink(`${RUN}/${req.args.id}.json`);
+			unlink(`${RUN}/${req.args.id}.json`); unlink(`${CLIENTS_D}/${req.args.id}.tsv`); clients_rebuild('forget');
 			// its fixed address goes back to the units range (15.9 item 4)
 			ap_address_free(cursor(), req.args.id);
 			return { result: true };
@@ -674,7 +706,7 @@ const apctl = {
 			const k = `${a.key ?? ''}`;
 			if (k != '' && (length(k) < 8 || length(k) > 63)) return { result: false, error: 'invalid_key' };
 			const out = sh(`${AGENT} repeat ${shq(a.band)} ${shq(a.ssid)} ${shq(k)} 2>/dev/null`);
-			if (match(out, /^OK/)) return { result: true };
+			if (match(out, /^OK/)) return { result: true, notes: filter(split(trim(substr(trim(out), 2)), ' '), x => x in [ 'dfs', 'high' ]) };
 			const e = match(out, /^ERR ([a-z_]+)/);
 			return { result: false, error: e ? e[1] : 'failed' };
 		}
@@ -691,7 +723,9 @@ const apctl = {
 			const k = `${a.key ?? ''}`;
 			if (k != '' && (length(k) < 8 || length(k) > 63)) return { result: false, error: 'invalid_key' };
 			const out = sh(`${AGENT} wifiwan ${shq(a.band)} ${shq(a.ssid)} ${shq(k)} 2>/dev/null`);
-			if (match(out, /^OK/)) return { result: true };
+			// notes: dfs (the channel of the router above needs a radar check: about a minute after each
+			// start), high (above 64: phones set for Egypt may not see this router's 5 GHz network)
+			if (match(out, /^OK/)) return { result: true, notes: filter(split(trim(substr(trim(out), 2)), ' '), x => x in [ 'dfs', 'high' ]) };
 			const e = match(out, /^ERR ([a-z_]+)/);
 			return { result: false, error: e ? e[1] : 'failed' };
 		}
@@ -699,13 +733,14 @@ const apctl = {
 	wifi_wan_off: {
 		call: function() { sh(`${AGENT} wifiwan-off >/dev/null 2>&1`); return { result: true }; }
 	},
-	// { on, ssid, band, up, ip, signal, clash } (clash: the other router gives this router's own range)
+	// { on, ssid, band, up, ip, signal, clash, state } (clash: the other router gives this router's own
+	// range; state: connected | address | connecting | channel_check | wrong_password | not_found)
 	wifi_wan_status: {
 		call: function() {
 			const f = split(trim(sh(`${AGENT} wifiwan-status 2>/dev/null`)), '\t');
 			if (length(f) < 6) return { on: false, router: mode() == 'router' };
 			return { on: true, router: mode() == 'router', ssid: f[0], band: f[1], up: f[2] == 'up', ip: f[3] == '-' ? null : f[3],
-			         signal: f[4] == '-' ? null : +f[4], clash: f[5] == '1' };
+			         signal: f[4] == '-' ? null : +f[4], clash: f[5] == '1', state: f[6] ?? null };
 		}
 	},
 
@@ -717,10 +752,12 @@ const apctl = {
 		call: function() {
 			// an access point (repeat) or a router (internet from Wi-Fi, wifi_wan)
 			if (!(mode() in [ 'ap', 'router' ])) return { result: false, error: 'not_ap' };
+			// channel and security of each network (BUILD-PLAN 16 round, 2026-11-22: the client takes
+			// the security of the network it joins)
 			const out = [];
 			for (let l in split(sh(`${AGENT} scan 2>/dev/null`), '\n')) {
-				const m = match(l, /^(2g|5g) (-?[0-9]+) (.+)$/);
-				if (m) push(out, { band: m[1], signal: +m[2], ssid: m[3] });
+				const m = match(l, /^(2g|5g)\t(-?[0-9]+)\t([0-9]+)\t([a-z0-9-]+)\t(.+)$/);
+				if (m) push(out, { band: m[1], signal: +m[2], channel: +m[3], security: m[4], ssid: m[5] });
 			}
 			return { result: true, networks: out };
 		}

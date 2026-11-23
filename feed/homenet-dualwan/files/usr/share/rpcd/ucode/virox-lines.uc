@@ -90,10 +90,26 @@ const lines = {
 				minutes_left: +a[3] ? int((+a[3] - now) / 60) : null,
 				mb_limit: +a[4] ? int(+a[4] / 1048576) : null
 			}));
+			// the line each MAC uses now (owner 2026-11-23: "show me which line each device is on"):
+			// the same plan the routing is built from (lines plan: own line, person, default, both,
+			// borrowing, a line that is down or used up), mac -> l1 | l2 | both | stop
+			const enabled = c.get('lines', 'main', 'enabled') == '1';
+			const plan = {};
+			if (enabled) {
+				const fd = popen('/usr/libexec/homenet/lines plan 2>/dev/null');
+				if (fd) {
+					for (let l in split(fd.read('all') ?? '', '\n')) {
+						const p = split(l, '\t');
+						if (length(p) == 2 && match(lc(p[0]), /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) && match(p[1], /^(l1|l2|both|stop)$/))
+							plan[lc(p[0])] = p[1];
+					}
+					fd.close();
+				}
+			}
 			return {
-				enabled: c.get('lines', 'main', 'enabled') == '1',
+				enabled: enabled,
 				default_line: +(c.get('lines', 'main', 'default_line') ?? 1),
-				lines: out, assignments: assigns
+				lines: out, assignments: assigns, plan: plan
 			};
 		}
 	},

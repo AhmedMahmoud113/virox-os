@@ -3786,3 +3786,99 @@ msgstr "نطاق 5 جيجاهرتز يلتقط شبكات 5 جيجاهرتز ف�
 
 msgid "No network of this band found."
 msgstr "لم يتم العثور على شبكة على هذا النطاق."
+
+msgid "This update file is for the other router model (GAPM-7200 or GAPD-7200, see the label under the router). Nothing was changed."
+msgstr "ملف التحديث هذا للطراز الآخر من الراوتر (GAPM-7200 أو GAPD-7200، انظر الملصق أسفل الراوتر). لم يتغير شيء."
+
+msgid "Another device on the home network uses this router's own address %s. Unplug the router or access point that is cabled to a LAN port, or set it up as an access point."
+msgstr "جهاز آخر على شبكة البيت يستخدم عنوان هذا الراوتر نفسه %s. افصل الراوتر أو نقطة الوصول الموصّلة بكابل في منفذ LAN، أو اضبطها كنقطة وصول."
+
+msgid "Another router gives addresses on the home network (%s), so some devices may lose the internet. If a modem or router is cabled to a LAN port, move it to the internet port or switch its DHCP off."
+msgstr "راوتر آخر يوزّع عناوين على شبكة البيت (%s)، لذلك قد ينقطع الإنترنت عن بعض الأجهزة. إذا كان مودم أو راوتر موصّلًا بكابل في منفذ LAN، انقله إلى منفذ الإنترنت أو أوقف DHCP فيه."
+
+msgid "Another router announces itself on the home network. If a modem or router is cabled to a LAN port, move it to the internet port."
+msgstr "راوتر آخر يعلن عن نفسه على شبكة البيت. إذا كان مودم أو راوتر موصّلًا بكابل في منفذ LAN، انقله إلى منفذ الإنترنت."
+
+msgid "A second Virox router is cabled to the home network and still works as a router, with this router's address. Make it an access point: unplug its cable, connect a computer to it, open 192.168.72.1 and sign in, choose Quick setup, then Access point, and plug its cable back in."
+msgstr "راوتر Virox آخر موصّل بكابل في شبكة البيت وما زال يعمل كراوتر بعنوان هذا الراوتر نفسه. اجعله نقطة وصول: افصل كابله، ووصّل به كمبيوتر، وافتح 192.168.72.1 وسجّل الدخول، واختر الإعداد السريع ثم نقطة وصول، ثم أعد توصيل كابله."
+
+msgid "Connected, getting an address…"
+msgstr "متصل، جارٍ الحصول على عنوان…"
+
+msgid "Waiting for the radar check of this channel (about one minute)"
+msgstr "في انتظار فحص الرادار لهذه القناة (نحو دقيقة)"
+
+msgid "Wrong password"
+msgstr "كلمة المرور غير صحيحة"
+
+msgid "The network is not in reach"
+msgstr "الشبكة ليست في المدى"
+
+msgid "Connecting…"
+msgstr "جارٍ الاتصال…"
+
+msgid "The other router refused the password. Stop, then connect again with the right password."
+msgstr "رفض الراوتر الآخر كلمة المرور. اضغط إيقاف، ثم اتصل مرة أخرى بكلمة المرور الصحيحة."
+
+msgid "The other router uses a channel with a radar check: this router's Wi-Fi on that band waits about one minute after each start."
+msgstr "يستخدم الراوتر الآخر قناة تحتاج فحص رادار: لذلك ينتظر الواي فاي في هذا الراوتر على هذا النطاق نحو دقيقة بعد كل تشغيل."
+
+msgid "The other router uses a channel above 64: some phones may not see this router's 5 GHz network while it follows that channel."
+msgstr "يستخدم الراوتر الآخر قناة أعلى من 64: قد لا ترى بعض الهواتف شبكة 5 جيجاهرتز في هذا الراوتر ما دام يتبع هذه القناة."
+
+msgid "This network needs a password."
+msgstr "هذه الشبكة تحتاج إلى كلمة مرور."
+
+msgid "This network uses a kind of security this router cannot join (old WEP or a company login)."
+msgstr "تستخدم هذه الشبكة نوع حماية لا يستطيع هذا الراوتر الاتصال به (WEP القديم أو تسجيل دخول خاص بالشركات)."
+
+msgid "The other router uses a channel this router may not use."
+msgstr "يستخدم الراوتر الآخر قناة لا يُسمح لهذا الراوتر باستخدامها."
+
+msgid "Saving…"
+msgstr "جارٍ الحفظ…"
+
+msgid "Base theme"
+msgstr "الشكل الأساسي"
+
+msgid "The background and text colours, with their own main colour. Choosing one also brings back its main colour."
+msgstr "ألوان الخلفية والنص مع لون رئيسي خاص بها. اختيار أحدها يعيد لونه الرئيسي أيضًا."
+
+msgid "Virox (warm, green)"
+msgstr "Virox (دافئ، أخضر)"
+
+msgid "Slate (cool, blue)"
+msgstr "Slate (هادئ، أزرق)"
+
+msgid "Sand (warm, clay)"
+msgstr "Sand (دافئ، طوبي)"
+
+msgid "Live"
+msgstr "مباشر"
+
+msgid "Live data unavailable."
+msgstr "البيانات المباشرة غير متاحة."
+
+msgid "Nothing is using the internet now."
+msgstr "لا شيء يستخدم الإنترنت الآن."
+
+msgid "Not updating"
+msgstr "متوقف عن التحديث"
+
+msgid "Live data is not updating."
+msgstr "البيانات المباشرة متوقفة عن التحديث."
+
+msgid "Today download"
+msgstr "تحميل اليوم"
+
+msgid "Today upload"
+msgstr "رفع اليوم"
+
+msgid "Devices online"
+msgstr "الأجهزة المتصلة"
+
+msgid "Package left"
+msgstr "المتبقي من الباقة"
+
+msgid "Shares its internet with a system running inside it (for example a virtual machine)"
+msgstr "يشارك الإنترنت مع نظام يعمل بداخله (مثل جهاز افتراضي)"

@@ -1,0 +1,5 @@
+# BUILD-PLAN 16: the GAPD-7200 image (LG U+ / Davolink, ipq40xx, the RT-AC58U board).
+# tools/build.sh gapd: these target lines, then config/release.seed without its CONFIG_TARGET_ lines.
+CONFIG_TARGET_ipq40xx=y
+CONFIG_TARGET_ipq40xx_generic=y
+CONFIG_TARGET_ipq40xx_generic_DEVICE_davolink_gapd7200=y

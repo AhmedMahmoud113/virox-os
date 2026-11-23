@@ -12,6 +12,7 @@
 -#}
 {%
 	import { stat, readfile, lsdir } from 'fs';
+	import { pow } from 'math';
 	import { cursor } from 'uci';
 
 	let cfg = cursor();
@@ -24,20 +25,90 @@
 		return type(value) == 'string' && match(value, /^(0|[1-9][0-9]*)(\.[0-9]+)?$/) && +value <= maximum ? value : fallback;
 	}
 
+	// ---- the colour tokens (virox-ui-ux-guideline.md sections 3 and 8): a base theme gives the
+	// neutrals and the default accent; the accent the owner chose drives every accent surface, with
+	// its strong / soft / line / ink shades worked out here, so the first paint has the right colours
+	// and the dark mode never falls back to blue (the old accent_dark gap).
+	const BASES = {
+		virox: { accent: [ '#0b7a5f', '#4fd1a8' ],
+			light: { bg: '#f6f5f1', surface: '#ffffff', raised: '#ffffff', sunken: '#efede7', strong: '#121a1c', text: '#2a3438', muted: '#65727a', border: '#e2dfd7', border2: '#c9c4b9', track: '#e7e4dc' },
+			dark: { bg: '#0d1316', surface: '#151d21', raised: '#1b252b', sunken: '#0a0f12', strong: '#f1f6f7', text: '#d3dde1', muted: '#8fa0a8', border: '#28353c', border2: '#3a4a53', track: '#223038' } },
+		slate: { accent: [ '#2563eb', '#7aa7ff' ], radius: [ '12px', '10px' ],
+			light: { bg: '#f4f6f8', surface: '#ffffff', raised: '#ffffff', sunken: '#eaeef2', strong: '#0f172a', text: '#243044', muted: '#5b6b7f', border: '#dfe5ec', border2: '#c4ced9', track: '#e4eaf1' },
+			dark: { bg: '#0b1220', surface: '#131c2b', raised: '#1a2536', sunken: '#080e18', strong: '#f0f4fa', text: '#cfdae8', muted: '#8ca0b8', border: '#26344a', border2: '#3a4c66', track: '#1e2b3d' } },
+		sand: { accent: [ '#b4552d', '#f0a06a' ],
+			light: { bg: '#faf6ef', surface: '#fffdf9', raised: '#fffdf9', sunken: '#f2ebdd', strong: '#241c14', text: '#3d3227', muted: '#7a6a58', border: '#e8dfd0', border2: '#d3c5af', track: '#ede4d5' },
+			dark: { bg: '#14100c', surface: '#1e1813', raised: '#28201a', sunken: '#0f0b08', strong: '#faf3e9', text: '#e4d7c6', muted: '#ae9c86', border: '#382e24', border2: '#4e4032', track: '#2a2118' } }
+	};
+	// status colours do not follow the accent (section 3.6): light, then dark
+	const STATUS = [
+		'--vx-success:#12734a;--vx-success-soft:#e6f4ec;--vx-warning:#8a5600;--vx-warning-soft:#fbf1de;--vx-danger:#b3261e;--vx-danger-soft:#fceae8;--vx-info:#1d5fa8;--vx-info-soft:#e8f0fa;--vx-scrim:rgba(18,26,28,.48);' +
+		'--vx-shadow-card:0 1px 2px rgba(18,26,28,.04),0 8px 24px rgba(18,26,28,.05);--vx-shadow-pop:0 8px 16px rgba(18,26,28,.08),0 24px 48px rgba(18,26,28,.12);',
+		'--vx-success:#5bd68f;--vx-success-soft:#0c2a1b;--vx-warning:#f2b24c;--vx-warning-soft:#2c2109;--vx-danger:#ff8a80;--vx-danger-soft:#33110f;--vx-info:#8ab8f0;--vx-info-soft:#0d1f33;--vx-scrim:rgba(0,0,0,.64);' +
+		'--vx-shadow-card:none;--vx-shadow-pop:0 24px 48px rgba(0,0,0,.5);'
+	];
+	function rgb(h) {
+		h = lc(h);
+		if (length(h) == 4) h = '#' + substr(h, 1, 1) + substr(h, 1, 1) + substr(h, 2, 1) + substr(h, 2, 1) + substr(h, 3, 1) + substr(h, 3, 1);
+		return [ hex(substr(h, 1, 2)), hex(substr(h, 3, 2)), hex(substr(h, 5, 2)) ];
+	}
+	function hexOf(c) { return sprintf('#%02x%02x%02x', c[0], c[1], c[2]); }
+	// p = share of b
+	function mix(a, b, p) {
+		const x = rgb(a), y = rgb(b);
+		return hexOf(map([ 0, 1, 2 ], i => int(x[i] * (1 - p) + y[i] * p + 0.5)));
+	}
+	function luminance(h) {
+		const c = map(rgb(h), v => { v = v / 255.0; return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); });
+		return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+	}
+	function contrast(a, b) {
+		const l1 = luminance(a), l2 = luminance(b);
+		return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05);
+	}
+	function tokens(n, accent, dark) {
+		let strong, soft, line, on;
+		if (dark) {
+			// a dark accent is lifted until it reads on the dark canvas
+			for (let i = 0; i < 10 && luminance(accent) < 0.30; i++) accent = mix(accent, '#ffffff', 0.12);
+			strong = mix(accent, '#ffffff', 0.18); soft = mix(n.surface, accent, 0.14); line = mix(n.surface, accent, 0.42);
+			on = contrast(accent, '#08130f') >= 4.5 ? '#08130f' : '#ffffff';
+		}
+		else {
+			strong = mix(accent, '#000000', 0.16); soft = mix(n.surface, accent, 0.10); line = mix(n.surface, accent, 0.38);
+			on = contrast(accent, '#ffffff') >= 4.5 ? '#ffffff' : '#08130f';
+		}
+		const focus = contrast(accent, n.bg) >= 3 ? accent : strong;
+		// the hero of Home: an accent block in light mode, a quiet surface with an accent edge in dark
+		const hero = dark ? sprintf('--vx-hero-bg:%s;--vx-hero-text:%s;--vx-hero-muted:%s;--vx-hero-edge:%s;', n.raised, n.strong, n.muted, accent)
+			: sprintf('--vx-hero-bg:linear-gradient(135deg,%s,%s);--vx-hero-text:%s;--vx-hero-muted:%s;--vx-hero-edge:transparent;', strong, accent, on, on);
+		return sprintf('--vx-bg:%s;--vx-surface:%s;--vx-surface-raised:%s;--vx-surface-sunken:%s;--vx-text-strong:%s;--vx-text:%s;--vx-text-muted:%s;' +
+			'--vx-border:%s;--vx-border-strong:%s;--vx-track:%s;--vx-accent:%s;--vx-accent-strong:%s;--vx-accent-soft:%s;--vx-accent-line:%s;' +
+			'--vx-on-accent:%s;--vx-focus:%s;%s%s' +
+			// Argon's own colour roles follow the same tokens, so its pages match ours
+			'--primary:%s;--background-color:%s;--surface-color:%s;--surface-raised:%s;--text-color:%s;--text-strong:%s;--muted-text:%s;' +
+			'--border-color:%s;--border-muted:%s;--link-color:%s;--accent-text:%s;--focus-ring:%s;',
+			n.bg, n.surface, n.raised, n.sunken, n.strong, n.text, n.muted, n.border, n.border2, n.track, accent, strong, soft, line,
+			on, focus, hero, STATUS[dark ? 1 : 0],
+			accent, n.bg, n.surface, n.raised, n.text, n.strong, n.muted, n.border, n.border, dark ? accent : strong, on, focus);
+	}
+
 	const ui = cfg.get_all('lg7200', 'ui') ?? {};
 	let mode = (ui.mode in [ 'normal', 'light', 'dark' ]) ? ui.mode : 'light';
-	let primary = validColor(ui.accent, '#2563eb');
-	let dark_primary = validColor(ui.accent_dark, '#1d4ed8');
+	const base = (ui.base in keys(BASES)) ? ui.base : 'slate';   // the default base (owner 2026-11-23: blue)
+	const B = BASES[base];
+	let primary = validColor(ui.accent, B.accent[0]);
+	// the dark accent: the base's own when the accent is the base default, else the stored one (older
+	// units), else the chosen accent itself (lifted in tokens())
+	let dark_primary = (lc(primary) == B.accent[0]) ? B.accent[1] : validColor(ui.accent_dark, primary);
 	let blur_radius = validNumber(ui.blur, '10', 100);
 	let blur_opacity = validNumber(ui.transparency, '0.5', 1);
-	const bar_color = mode == 'dark' ? dark_primary : primary;
 	const dark_css = (mode != 'light') ? (readfile('/www' + media + '/css/dark.css') ?? '') : '';
-	// colour roles our pages use, with Argon 2.4.3's values (light, then dark)
-	const roles = '--background-color:#f4f5f7;--surface-color:#fff;--surface-raised:#fff;--text-color:#32325d;--text-strong:#32325d;' +
-		'--muted-text:#6b7a90;--border-color:#e9ecef;--border-muted:#e9ecef;--link-color:var(--primary);--accent-text:#fff;' +
-		'--focus-ring:var(--primary);--field-gap:1rem;--section-inset:1.25rem;--radius-card:.375rem;';
-	const roles_dark = '--background-color:#1e1e1e;--surface-color:#2c2c2c;--surface-raised:#333;--text-color:#ccc;--text-strong:#ddd;' +
-		'--muted-text:#a0a0a0;--border-color:#444;--border-muted:#444;--link-color:#a5b2ff;--accent-text:#fff;--focus-ring:#a5b2ff;';
+	const radius = B.radius ? sprintf('--vx-radius-lg:%s;--vx-radius-md:%s;', B.radius[0], B.radius[1]) : '';
+	const roles = tokens(B.light, primary, false) + radius + '--field-gap:1rem;--section-inset:1.25rem;--radius-card:var(--vx-radius-md);';
+	const roles_dark = tokens(B.dark, dark_primary, true);
+	const bar_color = mode == 'dark' ? match(roles_dark, /--vx-accent:(#[0-9a-f]+)/)[1] : primary;
+	dark_primary = match(roles_dark, /--vx-accent:(#[0-9a-f]+)/)[1];
 	const rtl = (dispatcher.lang in [ 'ar', 'fa', 'he', 'ur' ]);
 
 	const css_stat = stat('/www' + media + '/css/cascade.css');
@@ -62,7 +133,7 @@
 	const res_version = sprintf('%s-%s-%d', version.luciversion, pv ? pv[1] : '0', res_mtime);
 -%}
 <!DOCTYPE html>
-<html lang="{{ dispatcher.lang }}" dir="{{ rtl ? 'rtl' : 'ltr' }}" data-argon-mode="{{ mode }}">
+<html lang="{{ dispatcher.lang }}" dir="{{ rtl ? 'rtl' : 'ltr' }}" data-argon-mode="{{ mode }}" data-theme="{{ base }}">
 
 <head>
 	<meta charset="utf-8">
@@ -81,7 +152,7 @@
 	<link rel="stylesheet" href="{{ media }}/css/cascade.css?v={{ css_version }}">
 	<link rel="stylesheet" href="{{ media }}/virox.css?v={{ vx_version }}">
 	<style title="text/css">
-		:root { --primary: {{ primary }}; --dark-primary: {{ dark_primary }}; --blur-radius:{{ blur_radius }}px; --blur-opacity:{{ blur_opacity }};
+		:root { --dark-primary: {{ dark_primary }}; --blur-radius:{{ blur_radius }}px; --blur-opacity:{{ blur_opacity }};
 			--blur-radius-dark:{{ blur_radius }}px; --blur-opacity-dark:{{ blur_opacity }}; {{ roles }} }
 		{% if (mode == 'normal'): %}
 		@media (prefers-color-scheme: dark) { {{ dark_css }} :root { {{ roles_dark }} } }

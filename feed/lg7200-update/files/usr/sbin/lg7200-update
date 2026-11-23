@@ -4,13 +4,16 @@
 #
 #   lg7200-update check      fetch latest.json and latest.json.sig from the update server, verify the
 #                            signature with a key shipped in the image, keep the result
-#   lg7200-update download   fetch the image named in the verified latest.json; check size + sha256
+#   lg7200-update download [<board>]  fetch this board's image named in the verified latest.json;
+#                            check size + sha256. <board> = another board id (gapm7200 | gapd7200):
+#                            the main router fetches the image of its access points of that board
+#                            for "update all" (kept apart, never installed here)
 #   lg7200-update install    check + download, then `sysupgrade -T`, then `sysupgrade` (settings kept;
 #                            the router restarts). LG7200_UPDATE_DRYRUN=1: stop after -T (tests)
 #   lg7200-update daily      cron: once a day, after the clock is synced, `check` (the banner)
 #   lg7200-update status     the state as key=value lines
 #   lg7200-update serve      (main router, update all) offer the verified latest.json, its signature
-#                            and the downloaded image to the access points on the LAN, under
+#                            and the downloaded images to the access points on the LAN, under
 #                            http://<this router>/virox-update/ (RAM only, bind mount)
 #   lg7200-update unserve    stop offering them
 # LG7200_UPDATE_URL=<url> replaces the update server for one call: an access point updated by the
@@ -20,8 +23,13 @@
 #
 # latest.json (written by tools/release.sh, signed with usign):
 #   { "product": "Virox", "version": "26.01.1", "boards": [ "mercury,gapm7200" ],
-#     "image": { "file": "26.01.1/<name>-sysupgrade.bin", "sha256": "...", "size": 123 },
+#     "image": { "file": "<name>-sysupgrade.bin", "sha256": "...", "size": 123 },
+#     "images": [ { "board": "gapm7200", "boards": [ "mercury,gapm7200" ], "file": ..., "sha256": ..., "size": ... },
+#                 { "board": "gapd7200", "boards": [ "asus,rt-ac58u" ], "file": ..., ... } ],
 #     "changelog": { "ar": "...", "en": "..." } }
+# One entry of "images" per board (BUILD-PLAN 16); a unit takes only the entry whose "boards" name
+# its own board name, never another one. "boards" + "image" at the top stay the GAPM-7200 image:
+# units from before BUILD-PLAN 16 read only those; a latest.json with "images" is read only there.
 # Rules: nothing is installed without a valid signature by a key in /etc/lg7200/update-keys and a
 # matching sha256; HTTPS certificates are always checked, so before the clock is synced (a router
 # has no battery clock) the updater refuses with clock_not_synced instead of skipping a check;
@@ -45,10 +53,31 @@ base_url() {
 	if [ -n "${LG7200_UPDATE_URL:-}" ]; then u="$LG7200_UPDATE_URL"; else u="$(uci -q get lg7200.update.url)"; fi
 	echo "${u%/}"
 }
-# img <file|sha256|size>: the image in the verified latest.json (one public image for every unit,
-# BUILD-PLAN 15.8 item 1)
-img() { jsonfilter -i "$DIR/latest.json" -e "@.image.$1" 2>/dev/null; }
 board() { cat /tmp/sysinfo/board_name 2>/dev/null; }
+myid() { if command -v lg7200_board >/dev/null 2>&1; then lg7200_board; else echo unknown; fi; }
+# the OpenWrt board names of a Virox board id (same table as lg7200_board)
+names_of() { case "$1" in gapm7200) echo mercury,gapm7200 ;; gapd7200) echo asus,rt-ac58u ;; esac; }
+# sel <board name>: the jsonfilter path of the image for that OpenWrt board name in the verified
+# latest.json: the "images" entry whose "boards" name it; a latest.json from before BUILD-PLAN 16
+# (no "images") has one image at the top for its "boards"
+sel() {
+	local i=0 L="$DIR/latest.json"
+	[ -n "$1" ] || return 1
+	if jsonfilter -i "$L" -e '@.images' >/dev/null 2>&1; then
+		while [ $i -lt 16 ] && jsonfilter -i "$L" -e "@.images[$i].file" >/dev/null 2>&1; do
+			jsonfilter -i "$L" -e "@.images[$i].boards[*]" 2>/dev/null | grep -qxF "$1" && { echo "@.images[$i]"; return 0; }
+			i=$((i + 1))
+		done
+		return 1
+	fi
+	jsonfilter -i "$L" -e '@.boards[*]' 2>/dev/null | grep -qxF "$1" && echo "@.image"
+}
+# img <file|sha256|size> [<board name>]: that board's image in the verified latest.json
+img() {
+	local p
+	p="$(sel "${2:-$(board)}")" || return 1
+	jsonfilter -i "$DIR/latest.json" -e "$p.$1" 2>/dev/null
+}
 current() { . /etc/lg7200-release 2>/dev/null; echo "${PRODUCT_VERSION:-0}"; }
 
 synced() {
@@ -110,7 +139,8 @@ check() {
 	mv -f "$DIR/latest.json.new" "$DIR/latest.json"; mv -f "$DIR/latest.json.new.sig" "$DIR/latest.json.sig"
 	v="$(jsonfilter -i "$DIR/latest.json" -e '@.version' 2>/dev/null)"
 	[ -n "$v" ] || err bad_latest
-	if [ -n "$(board)" ] && ! jsonfilter -i "$DIR/latest.json" -e '@.boards[*]' 2>/dev/null | grep -qxF "$(board)"; then
+	# this board's own image only (BUILD-PLAN 16: never an image of the other board)
+	if ! sel "$(board)" >/dev/null; then
 		st available ""; st latest "$v"; st error wrong_board; echo "ERR wrong_board"; exit 2
 	fi
 	st latest "$v"; st error ""
@@ -118,11 +148,18 @@ check() {
 }
 
 download() {
-	local f sum size got
+	local f sum size got b="${1:-$(myid)}" bn out="$DIR/image.bin" name="$DIR/image.name"
 	[ -s "$DIR/latest.json" ] || err not_checked
 	# the stored latest.json is verified again: a file left in /tmp is never trusted by itself
 	usign -V -q -P "$KEYS" -m "$DIR/latest.json" -x "$DIR/latest.json.sig" 2>/dev/null || err bad_signature
-	f="$(img file)"; sum="$(img sha256)"; size="$(img size)"
+	# another board's image (update all, for the access points): kept apart, never installed here
+	bn="$(board)"
+	if [ "$b" != "$(myid)" ]; then
+		echo "$b" | grep -qE '^[a-z0-9]+$' || err bad_board
+		bn="$(names_of "$b")"; [ -n "$bn" ] || err bad_board
+		mkdir -p "$DIR/other"; out="$DIR/other/$b.bin"; name="$DIR/other/$b.name"
+	fi
+	f="$(img file "$bn")"; sum="$(img sha256 "$bn")"; size="$(img size "$bn")"
 	[ -n "$f" ] || err no_image
 	case "$f" in /*|*..*) err bad_latest ;; esac
 	echo "$sum" | grep -Eq '^[0-9a-f]{64}$' || err bad_latest
@@ -130,12 +167,12 @@ download() {
 	# enough room in RAM for the image (+ 16 MB to spare)
 	[ "$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)" -gt $(( ${size:-0} / 1024 + 16384 )) ] || err no_space
 	st downloading "$(date +%s)"
-	fetch "$(base_url)/$f" "$DIR/image.bin" || { st downloading ""; err download_failed; }
+	fetch "$(base_url)/$f" "$out" || { st downloading ""; err download_failed; }
 	st downloading ""
-	got="$(wc -c < "$DIR/image.bin")"
-	[ -z "$size" ] || [ "$got" = "$size" ] || { rm -f "$DIR/image.bin"; err bad_image; }
-	[ "$(sha256sum "$DIR/image.bin" | cut -d' ' -f1)" = "$sum" ] || { rm -f "$DIR/image.bin"; logger -t lg7200-update "image sha256 mismatch, deleted"; err bad_image; }
-	echo "$f" > "$DIR/image.name"
+	got="$(wc -c < "$out")"
+	[ -z "$size" ] || [ "$got" = "$size" ] || { rm -f "$out"; err bad_image; }
+	[ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sum" ] || { rm -f "$out"; logger -t lg7200-update "image sha256 mismatch, deleted"; err bad_image; }
+	echo "$f" > "$name"
 	echo OK
 }
 
@@ -151,13 +188,21 @@ serve() {
 	ln -f "$DIR/image.bin" "$DIR/pub/$f"
 	chmod 755 "$DIR" "$DIR/pub" "$DIR/pub/$(dirname "$f")"
 	chmod 644 "$DIR/pub/latest.json" "$DIR/pub/latest.json.sig" "$DIR/pub/$f"
+	# the images of the other board downloaded for the access points (BUILD-PLAN 16)
+	for o in "$DIR"/other/*.name; do
+		[ -s "$o" ] && [ -s "${o%.name}.bin" ] || continue
+		f="$(cat "$o")"
+		case "$f" in /*|*..*) continue ;; esac
+		mkdir -p "$DIR/pub/$(dirname "$f")"; chmod 755 "$DIR/pub/$(dirname "$f")"
+		ln -f "${o%.name}.bin" "$DIR/pub/$f"; chmod 644 "$DIR/pub/$f"
+	done
 	mkdir -p "$WWW"
 	mount --bind "$DIR/pub" "$WWW" || err serve_failed
 	echo OK
 }
 unserve() {
 	grep -q " $WWW " /proc/mounts && umount "$WWW"
-	rm -rf "$DIR/pub"
+	rm -rf "$DIR/pub" "$DIR/other"
 	echo OK
 }
 
@@ -167,6 +212,13 @@ install() {
 	out="$(check)" || { echo "$out"; exit 2; }
 	[ -n "$(sed -n 's/^available=//p' "$STATUS")" ] || err no_update
 	out="$(download)" || { echo "$out"; exit 2; }
+	# made for this board? (GAPM-7200 / GAPD-7200, BUILD-PLAN 16) the signed latest.json already
+	# names it; the image's own metadata is checked too, so a wrong entry can never be installed
+	if command -v lg7200_image_for_board >/dev/null 2>&1 && ! out="$(lg7200_image_for_board "$DIR/image.bin")"; then
+		rm -f "$DIR/image.bin"
+		logger -t lg7200-update "the image is for $out, not for $(board): refused"
+		err wrong_board_image
+	fi
 	if ! out="$(sysupgrade -T "$DIR/image.bin" 2>&1)"; then
 		logger -t lg7200-update "sysupgrade -T refused the image: $out"
 		err image_refused
@@ -209,12 +261,12 @@ case "$1" in
 esac
 case "$1" in
 	check) check ;;
-	download) download ;;
+	download) download "$2" ;;
 	install) install ;;
 	daily) daily ;;
-	status) cat "$STATUS" 2>/dev/null; echo "current=$(current)" ;;
+	status) cat "$STATUS" 2>/dev/null; echo "current=$(current)"; echo "board=$(myid)" ;;
 	serve) serve ;;
 	unserve) unserve ;;
 	newer) newer "$2" "$3" ;;          # for tests
-	*) echo "usage: $0 check|download|install|daily|status|serve|unserve" >&2; exit 1 ;;
+	*) echo "usage: $0 check|download [<board>]|install|daily|status|serve|unserve" >&2; exit 1 ;;
 esac

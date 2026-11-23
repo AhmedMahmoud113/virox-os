@@ -11,7 +11,8 @@
 //                                           its session, uci apply+rollback, confirm (admin)
 //                 set_password {password}   root password through passwd's stdin  (admin)
 //                 set_language {lang}       LuCI language, committed at once      (admin)
-//                 set_theme {look,mode,accent} the look (Argon / Vantage), light/dark, accent (10b) (admin)
+//                 set_theme {look,mode,accent,base} the look (Argon / Vantage), light/dark, accent ('default' = the
+//                                           base theme's own), base theme virox / slate / sand (guideline 8.3) (admin)
 //                 theme                     the current look settings                 (admin)
 //
 // Error codes, not sentences: every client translates them itself.
@@ -168,7 +169,7 @@ function plan(s) {
 	for (let k, v in wl)
 		if (v['.type'] == 'wifi-iface' && v.mode == 'ap' && v.network != 'guest')
 			U('set', { config: 'wireless', section: k, values: { ssid: (split && wl[v.device]?.band == '5g') ? ssid_5g(s.ssid) : s.ssid,
-				key: s.key, encryption: 'sae-mixed', disabled: '0' } });
+				key: s.key, encryption: 'psk2+ccmp', disabled: '0' } });	// WPA2 only (owner 2026-11-22: WPA2/WPA3 mixed kept the iPhone and many devices out)
 
 	if (!lg.get('lg7200', 'state'))
 		U('add', { config: 'lg7200', type: 'state', name: 'state' });
@@ -286,12 +287,13 @@ const setup = {
 	// colour. Every argument is optional; only the given ones change. Stored in lg7200.ui (mode,
 	// accent, accent_dark) and luci.main.mediaurlbase; the pages apply it from the next load.
 	set_theme: {
-		args: { look: '', mode: '', accent: '' },
+		args: { look: '', mode: '', accent: '', base: '' },
 		call: function(req) {
 			const a = req.args;
 			const LOOKS = { argon: '/luci-static/virox', vantage: '/luci-static/virox-vantage' };
 			if ((a.look && !(a.look in keys(LOOKS))) || (a.mode && !(a.mode in [ 'normal', 'light', 'dark' ])) ||
-			    (a.accent && !match(a.accent, /^#[0-9a-fA-F]{6}$/)))
+			    (a.base && !(a.base in [ 'virox', 'slate', 'sand' ])) ||
+			    (a.accent && a.accent != 'default' && !match(a.accent, /^#[0-9a-fA-F]{6}$/)))
 				return { result: false, error: 'invalid' };
 			if (a.look == 'vantage' && !readfile('/www/luci-static/virox-vantage/vantage.css', 1))
 				return { result: false, error: 'not_installed' };
@@ -299,9 +301,15 @@ const setup = {
 			if (uci.get('lg7200', 'ui') == null)
 				uci.set('lg7200', 'ui', 'ui');
 			if (a.mode) uci.set('lg7200', 'ui', 'mode', a.mode);
-			if (a.accent) {
+			if (a.base) uci.set('lg7200', 'ui', 'base', a.base);
+			if (a.accent == 'default') {
+				// back to the base theme's own accent (light and dark)
+				uci.delete('lg7200', 'ui', 'accent');
+				uci.delete('lg7200', 'ui', 'accent_dark');
+			}
+			else if (a.accent) {
 				uci.set('lg7200', 'ui', 'accent', lc(a.accent));
-				uci.delete('lg7200', 'ui', 'accent_dark');   // the dark variant is derived from it
+				uci.delete('lg7200', 'ui', 'accent_dark');   // the dark variant is derived from it (head.ut)
 			}
 			uci.commit('lg7200');
 			if (a.look) {
@@ -315,11 +323,18 @@ const setup = {
 	theme: {
 		call: function() {
 			const uci = cursor();
-			const base = uci.get('luci', 'main', 'mediaurlbase');
+			const media = uci.get('luci', 'main', 'mediaurlbase');
+			const DEF = { virox: '#0b7a5f', slate: '#2563eb', sand: '#b4552d' };
+			let base = uci.get('lg7200', 'ui', 'base');
+			if (!(base in keys(DEF))) base = 'slate';   // the default base (owner 2026-11-23)
+			const accent = uci.get('lg7200', 'ui', 'accent');
 			return {
-				look: base == '/luci-static/virox-vantage' ? 'vantage' : 'argon',
+				look: media == '/luci-static/virox-vantage' ? 'vantage' : 'argon',
 				mode: uci.get('lg7200', 'ui', 'mode') ?? 'light',
-				accent: uci.get('lg7200', 'ui', 'accent') ?? '#2563eb',
+				base: base,
+				bases: keys(DEF),
+				accent: accent ?? DEF[base],
+				accent_custom: accent != null,
 				looks: readfile('/www/luci-static/virox-vantage/vantage.css', 1) ? [ 'vantage' ] : [ 'argon' ]
 			};
 		}
@@ -375,7 +390,33 @@ function ssid_5g(base) {
 	return substr(base, 0, 32 - 3) + '-5G';
 }
 
-function wifi_status() {
+
+// ------------------------------------------------------------------ short-lived copy (owner 2026-11-22:
+// "moving between pages is very slow"). rpcd answers one call at a time, so a page waits for the sum
+// of its calls; the device list (~0.35 s on the GAPM-7200: neighbours, Wi-Fi stations, usage files)
+// was built twice per Devices or Home page (devices and people both build it) and again by every
+// poll. It is now built at most once every 2 seconds and shared; every method that changes
+// anything clears it first (cached_clear, wrapped around them at the end of this file).
+let cache_v = {}, cache_t = {};
+function now_s() { const c = clock(true); return c[0] + c[1] / 1e9; }
+function cached(key, ttl, fn) {
+	const t = now_s();
+	if (cache_v[key] != null && t - cache_t[key] < ttl) return cache_v[key];
+	cache_v[key] = fn(); cache_t[key] = now_s();
+	return cache_v[key];
+}
+function cached_clear() { cache_v = {}; cache_t = {}; }
+// wrap every method of an API object that is not in `reads` so it clears the copy before it runs
+function clears_cache(obj, reads) {
+	for (let name in keys(obj)) {
+		if (index(reads, name) >= 0) continue;
+		const f = obj[name].call;
+		obj[name].call = function(req) { cached_clear(); return f(req); };
+	}
+	return obj;
+}
+
+function wifi_status_read() {
 	let radios = [];
 	const uci = cursor();
 	let iface_band = {};
@@ -425,6 +466,8 @@ function wifi_status() {
 	}
 	return radios;
 }
+// virox.wifi status runs iw for every interface (survey, stations): at most once every 3 seconds
+function wifi_status() { return cached('wifi', 3, wifi_status_read); }
 
 // the bands of this unit and whether the home Wi-Fi is on there (owner 2026-11-22: "where is the
 // switch to turn 5 GHz off?"): { "2g": { on }, "5g": { on } }, only the bands that have a radio
@@ -442,7 +485,7 @@ function wifi_bands(c) {
 }
 
 const wifi = {
-	status: { call: function() { const c = cursor(); return { radios: wifi_status(), split: c.get('lg7200', 'wifi', 'split') == '1', hidden_2g: c.get('lg7200', 'wifi', 'hidden_2g') == '1', hidden_5g: c.get('lg7200', 'wifi', 'hidden_5g') == '1',
+	status: { call: function() { const c = cursor(); return { radios: wifi_status(), split: c.get('lg7200', 'wifi', 'split') == '1', hidden_2g: (c.get('lg7200', 'wifi', 'hidden_2g') ?? c.get('lg7200', 'wifi', 'hidden')) == '1', hidden_5g: (c.get('lg7200', 'wifi', 'hidden_5g') ?? c.get('lg7200', 'wifi', 'hidden')) == '1',
 	                                                   power_high: true /* always (owner 2026-11-22) */, bands: wifi_bands(c) }; } },
 	// switch the home Wi-Fi of one band off or on again (owner 2026-11-22). Off: the home and guest
 	// networks of that band are switched off; a Wi-Fi client on that radio (internet from another
@@ -498,7 +541,7 @@ const wifi = {
 					for (let k in [ 'encryption', 'key', 'ieee80211k', 'bss_transition', 'wps_pushbutton', 'wpa_psk_file' ])
 						if (model[k] != null) uci.set('wireless', s, k, model[k]);
 					// hidden: the setting of this band, not of the other one
-					if (uci.get('lg7200', 'wifi', `hidden_${band}`) == '1') uci.set('wireless', s, 'hidden', '1');
+					if ((uci.get('lg7200', 'wifi', `hidden_${band}`) ?? uci.get('lg7200', 'wifi', 'hidden')) == '1') uci.set('wireless', s, 'hidden', '1');
 				}
 			}
 			uci.commit('wireless');
@@ -652,7 +695,7 @@ const provision = {
 	info: {
 		call: function() {
 			const u = unitcfg([ 'wifi_ssid', 'wifi_key', 'base_mac_override' ]);
-			const fdev = shell_lines('. /lib/functions/lg7200.sh; echo "${LG7200_FACTORY_DEV:-$(lg7200_mtd_dev Factory)}"');
+			const fdev = shell_lines('. /lib/functions/lg7200.sh; lg7200_factory_dev');
 			return {
 				api: API_VERSION,
 				factory_mac: shell_lines('. /lib/functions/lg7200.sh; lg7200_factory_mac'),
@@ -691,6 +734,9 @@ const provision = {
 				return { result: false, error: 'invalid_path' };
 			if (shell_lines('ls /sys/class/ubi 2>/dev/null | head -n 1') == '')
 				return { result: false, error: 'no_nand' };
+			// an image of the other board (GAPM-7200 / GAPD-7200, BUILD-PLAN 16) is refused by name
+			if (system(`. /lib/functions/lg7200.sh; lg7200_image_for_board '${p}' >/dev/null 2>&1`) != 0)
+				return { result: false, error: 'wrong_board' };
 			if (system(`sysupgrade -T '${p}' >/dev/null 2>&1`) != 0)
 				return { result: false, error: 'image_rejected' };
 			system(`(sleep 3; sysupgrade -P -n '${p}') >/dev/null 2>&1 &`);
@@ -754,5 +800,5 @@ const events = {
 	}
 };
 
-return { 'virox.info': info, 'virox.setup': setup, 'virox.gaming': gaming, 'virox.wifi': wifi,
+return { 'virox.info': info, 'virox.setup': setup, 'virox.gaming': gaming, 'virox.wifi': clears_cache(wifi, [ 'status' ]),
          'virox.provision': provision, 'virox.events': events };

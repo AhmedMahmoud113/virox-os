@@ -1,7 +1,7 @@
 From bfc3b59c078bdce4a582979dfb1a21e2bf37ac8d Mon Sep 17 00:00:00 2001
 From: Virox Build <build@virox.invalid>
 Date: Tue, 17 Nov 2026 02:42:59 +0200
-Subject: [PATCH 5/6] ramips: mt7621: mercury,gapm7200: port LEDs by link speed
+Subject: [PATCH 5/8] ramips: mt7621: mercury,gapm7200: port LEDs by link speed
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

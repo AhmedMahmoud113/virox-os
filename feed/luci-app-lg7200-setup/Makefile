@@ -5,7 +5,7 @@ LUCI_TITLE:=Virox setup wizard
 LUCI_DEPENDS:=+luci-base +lg7200-base +luci-theme-virox +luci-lib-uqr
 PKG_LICENSE:=LicenseRef-PolyForm-Noncommercial-1.0.0
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=22
+PKG_RELEASE:=24
 
 include $(TOPDIR)/feeds/luci/luci.mk
 

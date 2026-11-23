@@ -19,7 +19,12 @@ lan_has_addr() { ubus call network.interface.lan status 2>/dev/null | jsonfilter
 case "$1" in
 	lan-up)
 		(
-			sleep 90
+			# the 90 s are for the setup wizard, which confirms the change from the old address; a
+			# fallback raised at boot (no main router then) goes at once, so the unit never holds the
+			# main router's address next to it longer than needed (owner 2026-11-22: two units must
+			# never both hold it; AA54 plugged in after a boot without a cable kept it 90 s)
+			if [ -f /var/run/lg7200-fb-boot ]; then sleep 2; else sleep 90; fi
+			rm -f /var/run/lg7200-fb-boot
 			lan_has_addr || exit 0
 			[ "$(uci -q get network.lan_fb.auto)" = 0 ] || { uci set network.lan_fb.auto=0; uci commit network; }
 			# both addresses are in one subnet: the main router's is the secondary one, and Linux
@@ -36,6 +41,7 @@ case "$1" in
 		(
 			sleep 60
 			lan_has_addr && exit 0
+			: > /var/run/lg7200-fb-boot
 			ifup lan_fb
 			logger -t lg7200 "access point: no address from a main router, fallback address on"
 		) >/dev/null 2>&1 </dev/null &

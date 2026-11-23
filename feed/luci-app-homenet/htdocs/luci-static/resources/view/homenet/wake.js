@@ -15,6 +15,7 @@ return view.extend({
 	},
 
 	render(data) {
+		hn.page(this);
 		if (!data) return hn.failed();
 		const [ cp, wk, pc ] = data;
 		const pcs = pc.pcs || [];
@@ -39,7 +40,7 @@ return view.extend({
 			[ 'hibernate', _('Hibernate') ], [ 'lock', _('Lock the screen') ], [ 'signout', _('Sign out'), true ], [ 'cancel', _('Cancel shutdown') ] ];
 	},
 
-	reload(r, ms) { if (r && r.result !== false) setTimeout(() => location.reload(), ms || 800); return r; },
+	after(r, ms) { if (r && r.result !== false) hn.refresh(ms || 800); return r; },
 
 	// one row per computer: on or off, Wake when off, the commands when its program answers
 	listSection(comps, loose) {
@@ -52,7 +53,7 @@ return view.extend({
 			return hn.badge(p.last.ok ? 'ok' : 'bad', fmt.sentence(p.last.ok ? _('%s: done') : _('%s: failed'), [ word(p.last.cmd) ]));
 		};
 		const send = (p, name, c) => {
-			const go = () => hn.act(hn.api.pcCommand(p.id, c[0]), _('Sent. The computer does it within a few seconds.')).then(r => this.reload(r, 4000));
+			const go = () => hn.act(hn.api.pcCommand(p.id, c[0]), _('Sent. The computer does it within a few seconds.')).then(r => this.after(r, 4000));
 			// shutting down, restarting or signing out loses unsaved work: ask first
 			if (c[2]) hn.askConfirm(c[1], fmt.sentence(_('%s: %s?'), [ c[1], fmt.name(name) ]), c[1]).then(y => { if (y) go(); });
 			else go();
@@ -60,8 +61,8 @@ return view.extend({
 		const commands = (p, name) => E('div', { 'class': 'vx-chips' }, CMD.map(c =>
 			E('button', { 'type': 'button', 'class': 'btn cbi-button' + (c[0] == 'shutdown' ? '-negative' : ''), 'click': () => send(p, name, c) }, [ c[1] ])));
 		const forgetPc = (p, name) => hn.askConfirm(_('Remove', 'Virox'), fmt.sentence(_('Remove %s? The program on it removes itself.'), [ fmt.name(name) ]), _('Remove', 'Virox'))
-			.then(y => { if (y) hn.act(hn.api.pcForget(p.id), _('Removed.')).then(r => this.reload(r)); });
-		const notPc = c => hn.act(hn.api.computerSet(c.device, false), _('Removed from the list.')).then(r => this.reload(r));
+			.then(y => { if (y) hn.act(hn.api.pcForget(p.id), _('Removed.')).then(r => this.after(r)); });
+		const notPc = c => hn.act(hn.api.computerSet(c.device, false), _('Removed from the list.')).then(r => this.after(r));
 		const rows = comps.map(c => {
 			const p = c.pc ? this.pcById[c.pc] : null;
 			const on = c.online || (p && p.online);
@@ -104,7 +105,7 @@ return view.extend({
 		});
 		const list = wakes.map(w => hn.row(fmt.name(nameOf(w.device)),
 			E('span', {}, [ actWord(w.action), ' ', fmt.ltr(w.time), ' ', w.days.split('').map(i => hn.DAY_NAMES()[+i]).join('، ') ]),
-			E('button', { 'class': 'btn cbi-button-negative small', 'click': () => hn.act(hn.api.wakeRemove(w.id), _('Removed.')).then(r => this.reload(r)) }, [ _('Remove', 'Virox') ])));
+			E('button', { 'class': 'btn cbi-button-negative small', 'click': () => hn.act(hn.api.wakeRemove(w.id), _('Removed.')).then(r => this.after(r)) }, [ _('Remove', 'Virox') ])));
 		if (!comps.length)
 			return hn.section(_('At a time'), _('For example: switch the office computer on every working day at 7:00 and put it to sleep at 23:00.'), list.length ? list : [ hn.empty(_('Add a computer first.')) ]);
 		return hn.section(_('At a time'), _('For example: switch the office computer on every working day at 7:00 and put it to sleep at 23:00.'), [
@@ -116,7 +117,7 @@ return view.extend({
 		], [ E('button', { 'class': 'btn cbi-button-positive', 'click': () => {
 			const d = days.filter(b => b.getAttribute('aria-pressed') == 'true').map(b => b.dataset.day).join('');
 			if (!d) return hn.notify(_('Choose at least one day.'), 'warning');
-			hn.act(hn.api.wakeAdd(pick.value, time.value, d, act.value), _('Saved.')).then(r => this.reload(r));
+			hn.act(hn.api.wakeAdd(pick.value, time.value, d, act.value), _('Saved.')).then(r => this.after(r));
 		} }, [ _('Add', 'Virox') ]) ]);
 	},
 
@@ -143,7 +144,7 @@ return view.extend({
 			others.length ? E('h3', {}, [ _('A computer that is not in the list') ]) : '',
 			others.length ? hn.field('vx-c-dev', _('Device', 'Virox'), pick) : '',
 			others.length ? E('div', { 'class': 'vx-actions' }, [ E('button', { 'class': 'btn cbi-button', 'click': () =>
-				hn.act(hn.api.computerSet(pick.value, true), _('Added.')).then(r => this.reload(r)) }, [ _('It is a computer') ]) ]) : ''
+				hn.act(hn.api.computerSet(pick.value, true), _('Added.')).then(r => this.after(r)) }, [ _('It is a computer') ]) ]) : ''
 		]);
 	},
 

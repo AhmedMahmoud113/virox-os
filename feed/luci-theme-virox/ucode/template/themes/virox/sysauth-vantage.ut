@@ -46,6 +46,23 @@
 <link rel="stylesheet" href="/luci-static/virox/virox.css">
 <link rel="stylesheet" href="/luci-static/virox-vantage/virox-vantage.css">
 <link rel="stylesheet" href="{{ media }}/css/login-look.css">
+{%
+	// the owner's own accent (Settings, Display) over the Virox default of login-look.css; the
+	// light mode uses it as it is, the dark mode a lighter mix so it reads on the dark card
+	const acc = uci.get('lg7200', 'ui', 'accent');
+	const DEF = { virox: '#0b7a5f', slate: '#2563eb', sand: '#b4552d' };
+	const DEF_DARK = { virox: '#4fd1a8', slate: '#7aa7ff', sand: '#f0a06a' };
+	const base = uci.get('lg7200', 'ui', 'base') ?? 'slate';
+	const a = (type(acc) == 'string' && match(acc, /^#[0-9a-fA-F]{6}$/)) ? acc : DEF[base];
+-%}
+{% if (a): %}
+<style>
+html[data-darkmode] { --accent: {{ a }} !important; --accent-hover: color-mix(in srgb, {{ a }} 84%, #000) !important; --accent-text: color-mix(in srgb, {{ a }} 84%, #000) !important;
+	--accent-line: color-mix(in srgb, {{ a }} 40%, transparent) !important; --accent-soft: color-mix(in srgb, {{ a }} 10%, transparent) !important; }
+html[data-darkmode="true"] { --accent: {{ (acc == a) ? `color-mix(in srgb, ${a} 60%, #fff)` : DEF_DARK[base] }} !important; --accent-hover: color-mix(in srgb, var(--accent) 80%, #fff) !important;
+	--accent-text: var(--accent) !important; --accent-ink: #08130f !important; }
+</style>
+{% endif %}
 <link rel="icon" href="/luci-static/virox-vantage/logo.svg" type="image/svg+xml">
 </head>
 <body class="vt-login-page" data-page="{{ entityencode(join('-', ctx.request_path), true) }}">

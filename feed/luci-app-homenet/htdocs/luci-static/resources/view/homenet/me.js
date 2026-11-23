@@ -12,6 +12,7 @@ return view.extend({
 	load() { return hn.api.me().catch(() => null); },
 
 	render(me) {
+		hn.page(this);
 		if (!me) return hn.failed();
 		if (me.result === false)
 			return E('div', { 'class': 'vx-page' }, [ hn.empty(_('This page is for family logins.')) ]);
