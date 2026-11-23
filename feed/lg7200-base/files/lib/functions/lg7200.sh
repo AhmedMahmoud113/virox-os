@@ -47,7 +47,11 @@ lg7200_image_for_board() {
 	local meta="/tmp/lg7200-image-meta.$$" b
 	command -v fwtool >/dev/null 2>&1 || return 0
 	if ! fwtool -q -i "$meta" "$1" 2>/dev/null; then rm -f "$meta"; return 0; fi
-	b="$(jsonfilter -i "$meta" -e '@.supported_devices[*]' 2>/dev/null)"
+	# new_supported_devices first: an image with a compat version (the GAPD-7200 profile, DSA 1.1) keeps
+	# in supported_devices only one text for very old systems, "<boards> - Image version mismatch ...";
+	# read as board names it refused every GAPD-7200 update (wrong_board_image, update all 2026-11-23)
+	b="$(jsonfilter -i "$meta" -e '@.new_supported_devices[*]' 2>/dev/null)"
+	[ -n "$b" ] || b="$(jsonfilter -i "$meta" -e '@.supported_devices[*]' 2>/dev/null)"
 	rm -f "$meta"
 	[ -n "$b" ] || return 0
 	echo "$b" | grep -qxF "$(cat "$LG7200_BOARD_NAME_FILE" 2>/dev/null)" && return 0

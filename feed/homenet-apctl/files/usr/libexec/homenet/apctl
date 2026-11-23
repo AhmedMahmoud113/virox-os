@@ -420,7 +420,10 @@ a_sync() {
 		[ "${APCTL_NO_REBOOT:-0}" = 1 ] && { echo restart > "$RUN/restart-asked"; return 0; }
 		sync; ( sleep 2; reboot ) >/dev/null 2>&1 &
 	fi
-	if [ "$(echo "$r" | jsonfilter -e '@.install')" = true ] && [ ! -f "$RUN/installing" ]; then
+	# after a failed try: the next one 5 minutes later, not at every report (each try asks the GitHub
+	# API several times; three units trying every minute used up its hourly limit, 2026-11-23)
+	if [ "$(echo "$r" | jsonfilter -e '@.install')" = true ] && [ ! -f "$RUN/installing" ] &&
+	   { [ ! -f "$RUN/install-failed" ] || [ $(( $(date +%s) - $(date -r "$RUN/install-failed" +%s 2>/dev/null || echo 0) )) -ge 300 ]; }; then
 		: > "$RUN/installing"
 		# update all: from the main router first (one download for the house; signature and sha256
 		# are checked here with this unit's keys), from the update server if that fails
@@ -428,7 +431,7 @@ a_sync() {
 		case "$url" in http://[0-9]*/virox-update) ;; *) url="" ;; esac
 		( if [ -n "$url" ]; then
 			LG7200_UPDATE_URL="$url" lg7200-update install >/dev/null 2>&1 || lg7200-update install >/dev/null 2>&1
-		  else lg7200-update install >/dev/null 2>&1; fi
+		  else lg7200-update install >/dev/null 2>&1; fi || : > "$RUN/install-failed"
 		  rm -f "$RUN/installing" ) &
 	fi
 }

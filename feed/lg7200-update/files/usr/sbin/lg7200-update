@@ -97,12 +97,19 @@ gh_fetch() { # <url> <file>
 	[ -n "$repo" ] && [ -n "$tag" ] && [ -n "$name" ] || return 1
 	case "$name" in */*) return 1 ;; esac
 	list="$DIR/github-$tag.json"
+	# the GitHub API allows 60 requests an hour for the whole house (one public address); after a
+	# refusal (HTTP 403 when they are used up) it is left alone for 10 minutes: retries every minute by
+	# several units used it up and kept it used up (update all to 0.9.0-rc4.2, 2026-11-23)
+	if [ -f "$DIR/api-refused" ] && [ $(( $(date +%s) - $(date -r "$DIR/api-refused" +%s 2>/dev/null || echo 0) )) -lt 600 ]; then
+		return 1
+	fi
 	if [ ! -s "$list" ] || [ $(( $(date +%s) - $(date -r "$list" +%s 2>/dev/null || echo 0) )) -gt 600 ]; then
-		uclient-fetch -q -T 60 -O "$list" "https://api.github.com/repos/$repo/releases/tags/$tag" 2>/dev/null || { rm -f "$list"; return 1; }
+		uclient-fetch -q -T 60 -O "$list" "https://api.github.com/repos/$repo/releases/tags/$tag" 2>/dev/null || { rm -f "$list"; : > "$DIR/api-refused"; return 1; }
 	fi
 	u="$(jsonfilter -i "$list" -e "@.assets[@.name=\"$name\"].url" 2>/dev/null | head -n 1)"
 	[ -n "$u" ] || return 1
-	uclient-fetch -q -T 60 --header='Accept: application/octet-stream' -O "$2" "$u" 2>/dev/null && [ -s "$2" ]
+	uclient-fetch -q -T 60 --header='Accept: application/octet-stream' -O "$2" "$u" 2>/dev/null && [ -s "$2" ] && { rm -f "$DIR/api-refused"; return 0; }
+	: > "$DIR/api-refused"; return 1
 }
 fetch() {
 	rm -f "$2"
@@ -182,7 +189,9 @@ serve() {
 	local f
 	[ -s "$DIR/image.bin" ] && [ -s "$DIR/image.name" ] || err not_downloaded
 	f="$(cat "$DIR/image.name")"
-	unserve >/dev/null 2>&1
+	# the old share only: unserve also deletes other/, the other board's images just downloaded for the
+	# access points, so a GAPD-7200 under a GAPM-7200 never found its image (update all, 2026-11-23)
+	if grep -q " $WWW " /proc/mounts; then umount "$WWW"; fi
 	rm -rf "$DIR/pub"; mkdir -p "$DIR/pub/$(dirname "$f")"
 	ln -f "$DIR/latest.json" "$DIR/pub/latest.json"; ln -f "$DIR/latest.json.sig" "$DIR/pub/latest.json.sig"
 	ln -f "$DIR/image.bin" "$DIR/pub/$f"
@@ -201,7 +210,7 @@ serve() {
 	echo OK
 }
 unserve() {
-	grep -q " $WWW " /proc/mounts && umount "$WWW"
+	if grep -q " $WWW " /proc/mounts; then umount "$WWW"; fi
 	rm -rf "$DIR/pub" "$DIR/other"
 	echo OK
 }
