@@ -325,3 +325,9 @@ msgstr "النظام يعمل في وضع الاسترداد (initramfs)."
 
 msgid "Note: a factory reset gives this router a new Wi-Fi name and password. To set it up again after a reset, connect a computer to it by cable. Installing an update (Settings, Update) keeps them for good."
 msgstr "ملاحظة: إعادة ضبط المصنع تعطي هذا الراوتر اسمًا وكلمة مرور جديدين للواي فاي. لإعداده بعد إعادة الضبط، صِل به كمبيوترًا بكابل. تثبيت تحديث (الإعدادات، التحديث) يحفظهما بشكل دائم."
+
+msgid "After saving, join the new Wi-Fi shown on the next page if you are on Wi-Fi now."
+msgstr "بعد الحفظ، إذا كنت متصلًا بالواي فاي الآن، اتصل بالواي فاي الجديد الظاهر في الصفحة التالية."
+
+msgid "The router is applying the settings now (about one minute). If this device was on Wi-Fi, it loses the connection: join the Wi-Fi below."
+msgstr "الراوتر يطبّق الإعدادات الآن (حوالي دقيقة). إذا كان هذا الجهاز متصلًا بالواي فاي فسينقطع الاتصال: اتصل بالواي فاي الظاهر بالأسفل."

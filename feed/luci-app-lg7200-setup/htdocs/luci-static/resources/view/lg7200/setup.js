@@ -15,6 +15,8 @@ const callValidate = rpc.declare({ object: 'virox.setup', method: 'validate', pa
 const callPlan = rpc.declare({ object: 'virox.setup', method: 'plan', params: [ 'settings' ] });
 const callSetPassword = rpc.declare({ object: 'virox.setup', method: 'set_password', params: [ 'password' ] });
 const callSetLanguage = rpc.declare({ object: 'virox.setup', method: 'set_language', params: [ 'lang' ] });
+// the session's changes committed and applied without the browser's confirmation (see save())
+const callApply = rpc.declare({ object: 'uci', method: 'apply', params: [ 'rollback', 'timeout' ], reject: true });
 
 const STEP_KEY = 'vx-setup-step';
 const STEPS = 5;
@@ -308,7 +310,7 @@ return view.extend({
 			dl,
 			E('div', { 'class': 'vx-notice warn' }, [
 				E('strong', {}, [ _('Before you press Save') ]),
-				_('The router will apply the settings and check that you can still reach it. If not, it goes back to the old settings by itself after about one minute.')
+				_('After saving, join the new Wi-Fi shown on the next page if you are on Wi-Fi now.')
 			])
 		]), this.nav(3, () => this.save(), _('Save')));
 	},
@@ -340,16 +342,23 @@ return view.extend({
 					else if (o.op == 'delete')
 						uci.remove(o.config, o.section);
 				});
+				// Applied without rollback (owner 2026-11-23: "saving does not keep the settings when I am on
+				// Wi-Fi, it goes back and I have to reset"). The checked apply waited for this browser to
+				// confirm within a minute; a save from Wi-Fi changes that Wi-Fi (name, key, the setup network
+				// closes), so the browser was gone, nothing confirmed, and the router went back to the old
+				// settings (only the password, saved apart, stayed). The wizard changes nothing that locks
+				// a device out for good: the new Wi-Fi is on the page shown first, before the link drops.
 				return uci.save().then(() => {
 					sessionStorage.removeItem(STEP_KEY);
-					return ui.changes.apply(true);
+					this.showDone(true);
+					return callApply(false, 0).catch(() => {});
 				});
 			});
 		}).catch(e => fail(_('Saving failed: %s').format(e.message || e)));
 	},
 
 	/* done */
-	showDone() {
+	showDone(applying) {
 		const ap = uci.sections('wireless', 'wifi-iface').filter(s => s.mode == 'ap')[0];
 		const ssid = (ap && ap.ssid) || this.status.unit_ssid || '';
 		const key = (ap && ap.key) || this.status.unit_key || '';
@@ -374,6 +383,8 @@ return view.extend({
 
 		this.root.replaceChildren(E('div', { 'class': 'vx-card' }, [
 			E('h2', {}, [ _('Your router is ready') ]),
+			// right after Save: the router applies for about a minute, this device may lose its link now
+			applying ? E('div', { 'class': 'vx-notice' }, [ _('The router is applying the settings now (about one minute). If this device was on Wi-Fi, it loses the connection: join the Wi-Fi below.') ]) : '',
 			E('p', { 'class': 'vx-help' }, [ _('Connect your phones and laptops to this Wi-Fi:') ]),
 			secret(_('Wi-Fi name'), ssid),
 			secret(_('Wi-Fi password'), key),
