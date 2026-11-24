@@ -204,7 +204,9 @@ html[lang="ar"] .vx-hero .vx-speed span { font-weight: 600; }
 @media (prefers-reduced-motion: no-preference) { .vx-meter-fill, .vx-topbar-track i { transition: inline-size 300ms var(--vx-ease-out); } }
 /* top devices (7.2): the name takes what is left and wraps to two lines; the value has a fixed width */
 .vx-topbars { display: grid; gap: var(--vx-space-2); }
-.vx-topbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 200px) minmax(96px, max-content); gap: var(--vx-space-1) var(--vx-space-3); align-items: center; min-block-size: 44px; }
+/* the name keeps at least 96 px and the bar gives way first: in a narrow card (two cards side by side, 313 px)
+   the bar (80 px) and a long value ("download 263 kbit/s") left the name 0 px wide (owner 2026-11-24) */
+.vx-topbar { display: grid; grid-template-columns: minmax(96px, 1fr) minmax(0, 200px) minmax(96px, max-content); gap: var(--vx-space-1) var(--vx-space-3); align-items: center; min-block-size: 44px; }
 .vx-topbar-name { display: flex; align-items: center; gap: var(--vx-space-2); min-inline-size: 0; }
 .vx-topbar-name > bdi, .vx-topbar-name > .vx-name { min-inline-size: 0; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
 	display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -312,13 +314,16 @@ html[lang="ar"] .vx-hero .vx-speed span { font-weight: 600; }
 .vx-page .vx-card .vx-list .btn { min-height: 36px; padding: 0 var(--vx-space-3); }
 
 /* ---------------------------------------------------------------- Usage: columns per day (6.12) */
-.vx-chart { display: flex; align-items: flex-end; gap: 3px; block-size: 180px; padding-block-start: var(--vx-space-3); border-block-end: 1px solid var(--vx-border); overflow-x: auto; direction: ltr; }
+/* bars and dates scroll together and keep the same columns (2026-11-24: on a phone the dates row, wider
+   than the bars, did not scroll with them and stood under the wrong days) */
+.vx-chart-wrap { display: grid; overflow-x: auto; direction: ltr; }
+.vx-chart { display: flex; align-items: flex-end; gap: 3px; block-size: 180px; padding-block-start: var(--vx-space-3); border-block-end: 1px solid var(--vx-border); direction: ltr; }
 @media (max-width: 767px) { .vx-chart { block-size: 140px; } }
-.vx-chart-col { flex: 1 0 14px; max-inline-size: 34px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; block-size: 100%; }
+.vx-chart-col { flex: 1 0 28px; max-inline-size: 34px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; block-size: 100%; }
 .vx-chart-col i { display: block; inline-size: 100%; min-block-size: 2px; border-start-start-radius: 4px; border-start-end-radius: 4px; background: var(--vx-accent-line); }
 .vx-chart-col:hover i, .vx-chart-col i.today { background: var(--vx-accent); }
-.vx-chart-labels { display: flex; gap: 3px; direction: ltr; font-size: var(--vx-text-caption); font-weight: 500; color: var(--vx-text-muted); overflow: hidden; margin-block-start: var(--vx-space-1); }
-.vx-chart-labels span { flex: 1 0 14px; max-inline-size: 34px; text-align: center; }
+.vx-chart-labels { display: flex; gap: 3px; direction: ltr; font-size: var(--vx-text-caption); font-weight: 500; color: var(--vx-text-muted); margin-block-start: var(--vx-space-1); }
+.vx-chart-labels span { flex: 1 0 28px; max-inline-size: 34px; min-inline-size: 0; overflow: hidden; white-space: nowrap; text-align: center; }
 .vx-topbar.vx-special .vx-topbar-name { font-style: italic; color: var(--vx-text-muted); }
 .vx-topbar b .vx-hint { font-weight: 400; margin-inline-start: 4px; }
 .vx-card > h3:not(.vx-card-title) { margin: var(--vx-space-5) 0 var(--vx-space-3); font-size: var(--vx-text-body); }

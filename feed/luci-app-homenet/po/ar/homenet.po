@@ -3882,3 +3882,6 @@ msgstr "المتبقي من الباقة"
 
 msgid "Shares its internet with a system running inside it (for example a virtual machine)"
 msgstr "يشارك الإنترنت مع نظام يعمل بداخله (مثل جهاز افتراضي)"
+
+msgid "Last measured %s."
+msgstr "آخر قياس %s."

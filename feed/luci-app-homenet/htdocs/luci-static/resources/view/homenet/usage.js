@@ -66,12 +66,13 @@ return view.extend({
 		const today = new Date(); const iso = '%04d-%02d-%02d'.format(today.getFullYear(), today.getMonth() + 1, today.getDate());
 		return E('section', { 'class': 'vx-card' }, [
 			head,
+			E('div', { 'class': 'vx-chart-wrap' }, [
 			E('div', { 'class': 'vx-chart', 'role': 'img', 'aria-label': _('Usage per day') }, days.map(d => {
 				const t = d.up + d.down;
 				return E('div', { 'class': 'vx-chart-col', 'title': fmt.bytesText(t) }, [
 					E('i', { 'class': d.day == iso ? 'today' : '', 'style': 'block-size:%.1f%%'.format(Math.max(1, t * 100 / max)) }) ]);
 			})),
-			E('div', { 'class': 'vx-chart-labels', 'aria-hidden': 'true' }, days.map(d => E('span', { 'dir': 'ltr' }, [ d.day.slice(8) + '/' + d.day.slice(5, 7) ])))
+			E('div', { 'class': 'vx-chart-labels', 'aria-hidden': 'true' }, days.map(d => E('span', { 'dir': 'ltr' }, [ d.day.slice(8) + '/' + d.day.slice(5, 7) ]))) ])
 		]);
 	},
 
@@ -164,9 +165,10 @@ return view.extend({
 						lines.length ? E('p', { 'class': 'vx-hint' }, [ _('The router\'s own traffic and the first minutes of a new device are in the total only.') ]) : ''
 					]) : '',
 					!tot ? hn.empty(_('No usage in these days.')) : E('div', {}, [
+						E('div', { 'class': 'vx-chart-wrap' }, [
 						E('div', { 'class': 'vx-chart', 'role': 'img', 'aria-label': _('Usage per day') }, days.map(d => E('div', { 'class': 'vx-chart-col', 'title': d.day + ': ' + fmt.bytesText(d.up + d.down) }, [
 							E('i', { 'style': 'block-size:%.1f%%'.format(Math.max(1, (d.up + d.down) * 100 / max)) }) ]))),
-						days.length <= 62 ? E('div', { 'class': 'vx-chart-labels', 'aria-hidden': 'true' }, days.map(d => E('span', { 'dir': 'ltr' }, [ d.day.slice(8) + '/' + d.day.slice(5, 7) ]))) : ''
+						days.length <= 62 ? E('div', { 'class': 'vx-chart-labels', 'aria-hidden': 'true' }, days.map(d => E('span', { 'dir': 'ltr' }, [ d.day.slice(8) + '/' + d.day.slice(5, 7) ]))) : '' ])
 					]),
 					who.length ? E('div', { 'class': 'vx-topbars' }, who.map(d => E('div', { 'class': 'vx-topbar' }, [
 						E('span', { 'class': 'vx-topbar-name' }, [ nameOf(d.id), split(d) ]),

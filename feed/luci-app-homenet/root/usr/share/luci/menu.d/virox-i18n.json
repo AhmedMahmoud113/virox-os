@@ -1,0 +1,10 @@
+{
+	"admin/translations/*": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.virox.i18n",
+			"function": "action_translations"
+		},
+		"auth": {}
+	}
+}

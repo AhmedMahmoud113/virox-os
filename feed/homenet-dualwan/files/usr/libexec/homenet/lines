@@ -316,14 +316,22 @@ ln_probe() {
 	done
 	return 1
 }
+# bytes received on the line's device (0 when it has none)
+ln_rx() { local d; d="$(ln_dev "$1")"; cat "/sys/class/net/$d/statistics/rx_bytes" 2>/dev/null || echo 0; }
 ln_watch() {
-	local f1=0 f2=0 s1=0 s2=0 n st old
+	local f1=0 f2=0 s1=0 s2=0 r1=0 r2=0 n st old rx r
 	while :; do
 		if ln_enabled; then
 			for n in 1 2; do
-				eval "f=\$f$n; s=\$s$n"
-				if ln_probe "$n"; then s=$((s + 1)); f=0; else f=$((f + 1)); s=0; fi
-				eval "f$n=$f; s$n=$s"
+				eval "f=\$f$n; s=\$s$n; r=\$r$n"
+				rx="$(ln_rx "$n")"
+				# a line that still brings in data (over 100 kB in the last 10 s) is busy, not cut: its
+				# pings can wait in a full queue past 2 s. Mahmoud-DSL was called down and up again six
+				# times in six minutes while it worked (owner 2026-11-24).
+				if ln_probe "$n"; then s=$((s + 1)); f=0
+				elif [ "$r" -gt 0 ] && [ $((rx - r)) -gt 102400 ]; then :
+				else f=$((f + 1)); s=0; fi
+				eval "f$n=$f; s$n=$s; r$n=$rx"
 				old="$(ln_health "$n")"; st="$old"
 				[ "$old" = up ] && [ "$f" -ge 3 ] && st=down
 				[ "$old" = down ] && [ "$s" -ge 5 ] && st=up
@@ -525,6 +533,7 @@ case "$1" in
 		uci set "lines.line$n.shaper=1"
 		# the speed is a measured one now (the ping page judges "house busy" only on a measured speed)
 		uci set "lines.line$n.measured=1"
+		uci set "lines.line$n.measured_at=$(date +%s)"
 		[ "$n" = 1 ] && uci set lines.line1.shaper_single=1
 		uci commit lines; ln_shaper
 		echo "OK $k $(uci -q get "lines.line$n.up_kbit")" > "$f" ;;

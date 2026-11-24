@@ -153,7 +153,8 @@ return view.extend({
 					lines.some(l => l.shaping) ? hn.badge('ok', _('On', 'Virox')) : hn.badge('warn', _('Not on yet'))),
 				...lines.map(l => hn.row(fmt.sentence(_('Speed of %s'), [ fmt.name(hn.lineName(l)) ]),
 					_('The router keeps the line a little below its speed, so a download or an upload cannot fill it. Measuring uses about 60 MB of the package.'),
-					[ E('span', { 'class': 'vx-hint' }, [ l.shaping ? fmt.sentence(_('Download %s, upload %s'), [ fmt.speed(l.down_kbit), fmt.speed(l.up_kbit) ]) : _('Not measured') ]), this.tuneBtn(l.id, out) ])),
+					[ E('span', { 'class': 'vx-hint' }, [ l.shaping && l.measured ? fmt.sentence(_('Download %s, upload %s'), [ fmt.speed(l.down_kbit), fmt.speed(l.up_kbit) ]) : _('Not measured'),
+						l.measured_at ? E('br') : '', l.measured_at ? fmt.sentence(_('Last measured %s.'), [ new Date(l.measured_at * 1000).toLocaleDateString() ]) : '' ]), this.tuneBtn(l.id, out) ])),
 				out
 			]),
 			gm && gm.installed ? this.gamingCard(gm) : ''

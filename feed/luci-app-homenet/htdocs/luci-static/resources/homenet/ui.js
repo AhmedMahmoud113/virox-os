@@ -546,7 +546,33 @@ function act(promise, okText) {
 // effect takes a few seconds, e.g. Wi-Fi restarting) replaces an earlier one, so one action draws
 // once. Never while a sheet (modal) is open: tried again when it is closed.
 let curView = null, viewPolls = [], refreshTimer = null, refreshing = false;
-function page(v) { curView = v; }
+function page(v) {
+	curView = v;
+	// pages without their own poll get their data again every 20 s while they are shown (owner
+	// 2026-11-24: "updates without refresh"); never while a window is open, a field has the focus or
+	// holds an unsaved change (redraw would lose it)
+	clearInterval(autoTimer);
+	snapLater();
+	autoTimer = setInterval(() => {
+		if (document.hidden || refreshing || curView !== v || viewPolls.length) return;
+		const vp = document.getElementById('view');
+		if (!vp || document.body.classList.contains('modal-overlay-active')) return;
+		const a = document.activeElement;
+		if (a && vp.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return;
+		// fields as drawn (a snapshot just after drawing: switches set by code after drawing are not
+		// changes); anything different is the owner's unsaved work
+		if (fieldsSig(vp) == fieldsSnap) Promise.resolve(redraw()).then(snapLater);
+	}, 20000);
+}
+function fieldsSig(vp) {
+	return [...vp.querySelectorAll('input, select, textarea')].map(f =>
+		f.type == 'checkbox' || f.type == 'radio' ? (f.checked ? '1' : '0') : f.value).join('\u0001');
+}
+let fieldsSnap = null;
+function snapLater() {
+	setTimeout(() => { const vp = document.getElementById('view'); fieldsSnap = vp ? fieldsSig(vp) : null; }, 1500);
+}
+let autoTimer = null;
 function refresh(ms) {
 	clearTimeout(refreshTimer);
 	refreshTimer = setTimeout(redraw, ms == null ? 400 : ms);

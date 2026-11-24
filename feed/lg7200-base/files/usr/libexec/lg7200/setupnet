@@ -48,7 +48,16 @@ reload_all() {
 
 start() {
 	case "$1" in ''|*[!0-9]*) ;; *) [ "$1" -ge 1 ] && [ "$1" -le 120 ] && MINUTES="$1" ;; esac
-	active && { echo "already open"; return 0; }
+	# open and whole: nothing to do. Half there (the Wi-Fi without its DHCP or firewall, left by a
+	# rolled-back setup, 2026-11-23: phones joined Virox-Setup and got no address, the button did
+	# nothing): removed and built again.
+	if active; then
+		if [ -n "$(uci -q get dhcp.lg7200_setup)" ] && [ -n "$(uci -q get network.lg7200_setup)" ] && [ -n "$(uci -q get firewall.lg7200_setup_in)" ]; then
+			echo "already open"; return 0
+		fi
+		logger -t lg7200 "setup network: incomplete, built again"
+		remove_config
+	fi
 	local radio="$(radio_2g)"
 	[ -n "$radio" ] || { logger -t lg7200 "setup network: no 2.4 GHz radio"; return 1; }
 	uci batch <<-EOF

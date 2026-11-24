@@ -691,6 +691,7 @@ still fails. `{ result: true, mac, ip }` or `{ result: false, error, ... }`:
 - `status` → `{ enabled, default_line, lines: [ { id, iface, name, colour, up, package_mb, renew_day,
   warn, up_kbit, down_kbit, used_mb, today_mb, cycle_start, used_up, days_left } ], assignments:
   [ { target, kind: line|both|borrow, line, minutes_left, mb_limit } ], plan: { <mac>: l1|l2|both|stop } }`.
+  `measured`, `measured_at` per line (0.9.0-rc4.5): the speed comes from "Measure and adjust" (by hand only, owner 2026-11-24), not the 30 Mbit default, and when it ran.
   `plan` (0.9.0-rc4.2): the line each MAC uses now, as the routing is built (`lines plan`); empty with one line. `days_left`: forecast
   from the last 7 full days (X2), `null` without a package or history.
 - `enable { on }`: second line on (port `lines.main.port`, default `lan4`, becomes `wan2`) / off.

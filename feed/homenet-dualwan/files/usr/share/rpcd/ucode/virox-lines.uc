@@ -24,7 +24,10 @@ const CMD = '/usr/libexec/homenet/lines';
 const DATA = '/etc/homenet/data', RUN = '/tmp/homenet/lines';
 
 function shq(s) { return "'" + replace(`${s ?? ''}`, "'", "'\\''") + "'"; }
+// the line of each MAC (lines plan, about 0.2 s): kept 10 s, dropped by every change made here
+let plan_v = null, plan_t = 0;
 function run(...args) {
+	plan_t = 0;
 	const fd = popen(join(' ', [ CMD, ...map(args, shq) ]) + ' >/dev/null 2>&1; echo $?');
 	if (!fd) return false;
 	const rc = trim(fd.read('all') ?? '');
@@ -78,6 +81,8 @@ const lines = {
 					up_kbit: +(s.up_kbit ?? 30000), down_kbit: +(s.down_kbit ?? 30000),
 					// the line is shaped now (cake on its device): games and calls go first
 					shaping: shaped(s.iface ?? (id == 1 ? 'wan' : 'wan2')),
+					// a measured speed ("Measure and adjust"), not the 30 Mbit default, and when
+					measured: s.measured == '1', measured_at: +(s.measured_at ?? 0) || null,
 					used_mb: int(used / 1048576), cycle_start: usage[`${id}`]?.cycle_start,
 					today_mb: int((+(filter(days, d => d[1] == `${id}` && d[0] == today)[0]?.[2] ?? 0)) / 1048576),
 					used_up: pkg > 0 && used >= pkg,
@@ -94,8 +99,9 @@ const lines = {
 			// the same plan the routing is built from (lines plan: own line, person, default, both,
 			// borrowing, a line that is down or used up), mac -> l1 | l2 | both | stop
 			const enabled = c.get('lines', 'main', 'enabled') == '1';
-			const plan = {};
-			if (enabled) {
+			let plan = {};
+			if (enabled && plan_v && time() - plan_t < 10) plan = plan_v;
+			else if (enabled) {
 				const fd = popen('/usr/libexec/homenet/lines plan 2>/dev/null');
 				if (fd) {
 					for (let l in split(fd.read('all') ?? '', '\n')) {
@@ -105,6 +111,7 @@ const lines = {
 					}
 					fd.close();
 				}
+				plan_v = plan; plan_t = time();
 			}
 			return {
 				enabled: enabled,

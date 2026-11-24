@@ -32,6 +32,9 @@ const DNS_CMD = '/usr/libexec/homenet/dns', FILTER_CMD = '/usr/libexec/homenet/f
 // anything clears it first (cached_clear, wrapped around them at the end of this file).
 let cache_v = {}, cache_t = {};
 function now_s() { const c = clock(true); return c[0] + c[1] / 1e9; }
+// the device list: about 0.7 s to build on the GAPM-7200; kept 10 s so moving between pages does not
+// build it each time (2026-11-24; was 2 s). Every write of this API clears it at once.
+const DEVICES_TTL = 10;
 function cached(key, ttl, fn) {
 	const t = now_s();
 	if (cache_v[key] != null && t - cache_t[key] < ttl) return cache_v[key];
@@ -604,11 +607,11 @@ function me_reply(u) {
 
 const homenet = {
 	// ------------------------------------------------ devices and people (B7 feature 1)
-	devices: { call: function() { return cached('devices', 2, devices_list); } },
+	devices: { call: function() { return cached('devices', DEVICES_TTL, devices_list); } },
 
 	people: {
 		call: function() {
-			const d = cached('devices', 2, devices_list).devices;
+			const d = cached('devices', DEVICES_TTL, devices_list).devices;
 			return { people: map(people_list(), p => ({ ...p, devices: map(filter(d, x => x.person == p.id), x => x.id) })) };
 		}
 	},
