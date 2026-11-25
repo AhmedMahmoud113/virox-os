@@ -3885,3 +3885,6 @@ msgstr "يشارك الإنترنت مع نظام يعمل بداخله (مثل 
 
 msgid "Last measured %s."
 msgstr "آخر قياس %s."
+
+msgid "Could not update; still works on the old version"
+msgstr "تعذّر التحديث، ويعمل على النسخة القديمة"

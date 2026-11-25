@@ -723,7 +723,8 @@ return view.extend({
 		if (!us) return '';
 		const ST = {
 			done: [ 'ok', _('Updated') ], updating: [ 'warn', _('Updating now') ], waiting: [ 'muted', _('Waiting') ],
-			skipped: [ 'bad', _('Was off, not updated') ], failed: [ 'bad', _('Did not come back') ]
+			skipped: [ 'bad', _('Was off, not updated') ], failed: [ 'bad', _('Did not come back') ],
+			not_installed: [ 'bad', _('Could not update; still works on the old version') ]
 		};
 		const running = [ 'preparing', 'updating', 'main' ].indexOf(us.state) >= 0;
 		const failedName = ((us.units || []).filter(u => u.id == us.failed)[0] || {}).name || us.failed || '';

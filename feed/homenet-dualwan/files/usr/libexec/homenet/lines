@@ -248,7 +248,7 @@ ln_qos_marks() { # <"dev1", "dev2"> or empty (no shaped line: no marks)
 # X3: download speed of one line, measured by the router: the test address is routed through
 # that line for the few seconds of the test. Prints "OK <kbit/s>" or "ERR <code>".
 ln_speedtest() {
-	local n="$1" url host ip t0 t1 size
+	local n="$1" url host ip a t0 t1 size
 	# one line without homenet-dualwan's second line: line 1 through the main table
 	if ln_enabled; then [ "$(ln_health "$n")" = up ] || { echo "ERR line_down"; return 0; }
 	else [ "$n" = 1 ] || { echo "ERR not_enabled"; return 0; }; fi
@@ -256,11 +256,16 @@ ln_speedtest() {
 	host="$(echo "$url" | sed -n 's#^https\?://\([^/:?]*\).*#\1#p')"
 	# an address as the test server (a local test server) needs no name lookup
 	ip="$(echo "$host" | grep -E '^[0-9]+(\.[0-9]+){3}$')"
-	[ -n "$ip" ] || ip="$(nslookup "$host" 2>/dev/null | awk '/^Address/ && $NF !~ /:/ && NR > 2 { print $NF; exit }')"
+	# every IPv4 address of the name goes through the line (speed.cloudflare.com has two; with only the
+	# first one routed, the download often went to the other one over line 1, and line 2 measured 0.7 Mbit)
+	[ -n "$ip" ] || ip="$(nslookup "$host" 2>/dev/null | awk '/^Address/ && $NF !~ /:/ && NR > 2 { print $NF }' | sort -u)"
 	[ -n "$ip" ] || { echo "ERR no_dns"; return 0; }
-	ln_enabled && ip rule add priority 899 to "$ip" lookup $((100 + n)) 2>/dev/null
+	if ln_enabled; then for a in $ip; do ip rule add priority 899 to "$a" lookup $((100 + n)) 2>/dev/null; done; fi
 	dev="$(ln_dev "$n")"
-	[ "${LN_KEEP_SHAPER:-0}" = 1 ] || { tc qdisc del dev "$dev" root 2>/dev/null; ip link set "ifb-line$n" down 2>/dev/null; }
+	# the shaping comes off for the test, the incoming side too (owner 2026-11-25, "Measure and adjust"
+	# always said failed): setting the ifb down while the line's ingress filter still redirected every
+	# packet to it dropped the whole download, so the speed came out near 0. ln_shaper puts both back.
+	[ "${LN_KEEP_SHAPER:-0}" = 1 ] || { tc qdisc del dev "$dev" root 2>/dev/null; tc qdisc del dev "$dev" ingress 2>/dev/null; ip link del "ifb-line$n" 2>/dev/null; }
 	# busybox has no `timeout` (the 2026-11-21 finding: this test always failed, so one line was never
 	# shaped): the download runs in the background, its speed is read from the line's byte counter
 	uclient-fetch -q -O /dev/null "$url" >/dev/null 2>&1 &
@@ -268,11 +273,14 @@ ln_speedtest() {
 	# the upload too when asked (tune): a file of zeros posted to the same service
 	if [ "${LN_UP:-0}" = 1 ]; then
 		head -c 8388608 /dev/zero > /tmp/lines-up
-		uclient-fetch -q -O /dev/null --post-file=/tmp/lines-up "$(uci -q get lines.main.speedtest_up_url || echo 'https://speed.cloudflare.com/__up')" >/dev/null 2>&1 &
+		# plain HTTP: uclient-fetch stalls when it posts a large body over TLS (2026-11-25 on the main
+		# router: 0.6 MB in 16 s, then "Connection reset"; the same post over HTTP ran at the line's
+		# speed). The body is only zeros.
+		uclient-fetch -q -O /dev/null --post-file=/tmp/lines-up "$(uci -q get lines.main.speedtest_up_url || echo 'http://speed.cloudflare.com/__up')" >/dev/null 2>&1 &
 		u="$(ln_rate "$dev" tx $! 8)"
 		rm -f /tmp/lines-up
 	fi
-	ln_enabled && ip rule del priority 899 to "$ip" lookup $((100 + n)) 2>/dev/null
+	if ln_enabled; then for a in $ip; do ip rule del priority 899 to "$a" lookup $((100 + n)) 2>/dev/null; done; fi
 	ln_shaper
 	[ "${k:-0}" -ge 100 ] || { echo "ERR failed"; return 0; }
 	echo "OK $k${u:+ $u}"

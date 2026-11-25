@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lg7200-update
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_LICENSE:=LicenseRef-PolyForm-Noncommercial-1.0.0
 
 include $(INCLUDE_DIR)/package.mk

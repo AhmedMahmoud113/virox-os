@@ -128,6 +128,31 @@ a_gateway_check() {
 	ifup lan
 }
 
+# The access point's own way out (2026-11-24, AP 2: its phones had internet through the bridge, but
+# the unit itself had none for hours, so it could not set its clock or update: "Update all" failed
+# with clock_not_synced). The routing table had the right default route, yet every address was
+# looked up as "direct on the cable" without the gateway (an exception held on that route; a cache
+# flush did not drop it, replacing the route did), and its local DNS answered REFUSED to every name
+# while the main router answered. Every minute: the route; every 10 minutes: the DNS.
+a_selfcheck() {
+	local gw dev src
+	[ "$(my_mode)" = ap ] || return 0
+	gw="$(ip -4 route show default | awk '{ print $3; exit }')"
+	[ -n "$gw" ] || return 0
+	if ! ip -4 route get 1.1.1.1 2>/dev/null | grep -q " via $gw "; then
+		dev="$(ip -4 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+		src="$(my_ip)"
+		ip -4 route del default via "$gw" dev "$dev" 2>/dev/null
+		ip -4 route add default via "$gw" dev "$dev" proto static ${src:+src "$src"} 2>/dev/null
+		logger -t homenet "access point: the way to the internet skipped the gateway $gw; route rebuilt"
+	fi
+	[ $(( $(date +%M | sed 's/^0//') % 10 )) -eq 0 ] || return 0
+	if ! nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1 && nslookup openwrt.org "$gw" >/dev/null 2>&1; then
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		logger -t homenet "access point: its DNS refused names the main router answers; DNS restarted"
+	fi
+}
+
 # not joined yet: say hello to the main router (the gateway) every minute; the owner adds this
 # unit there with one tap (no code); the answer to the next hello carries id and token
 a_hello() {
@@ -328,6 +353,11 @@ a_sync() {
 	json_close_array
 	# wired: MACs on this unit's cable ports (0.9.0-rc4.2); a main router from before refuses the whole
 	# report for an argument it does not know: after one empty answer it is left out (like board)
+	# install_error (0.9.0-rc4.6): why the last install asked by the main router failed, for 15 minutes
+	if [ ! -f "$RUN/main-no-insterr" ] && [ -s "$RUN/install-failed" ] &&
+	   [ $(( $(date +%s) - $(date -r "$RUN/install-failed" +%s 2>/dev/null || echo 0) )) -lt 900 ]; then
+		json_add_string install_error "$(head -c 32 "$RUN/install-failed")"
+	fi
 	if [ ! -f "$RUN/main-no-wired" ]; then
 		json_add_array wired
 		for m in $(a_wired); do json_add_string "" "$m"; done
@@ -349,6 +379,12 @@ a_sync() {
 	fi
 	body="$(json_dump)"
 	r="$(rpc "$main" sync "$body")"
+	# a main router from before 0.9.0-rc4.6 refuses the report for install_error (like wired, board)
+	if [ -z "$r" ] && [ ! -f "$RUN/main-no-insterr" ] && echo "$body" | grep -q '"install_error"'; then
+		body="$(echo "$body" | sed 's/, *"install_error": *"[a-z_]*"//')"
+		r="$(rpc "$main" sync "$body")"
+		[ -n "$r" ] && : > "$RUN/main-no-insterr"
+	fi
 	if [ -z "$r" ] && [ ! -f "$RUN/main-no-wired" ]; then
 		body="$(echo "$body" | sed 's/, *"wired": *\[[^]]*\]//')"
 		r="$(rpc "$main" sync "$body")"
@@ -429,9 +465,15 @@ a_sync() {
 		# are checked here with this unit's keys), from the update server if that fails
 		url="$(echo "$r" | jsonfilter -e '@.install_url' 2>/dev/null)"
 		case "$url" in http://[0-9]*/virox-update) ;; *) url="" ;; esac
-		( if [ -n "$url" ]; then
-			LG7200_UPDATE_URL="$url" lg7200-update install >/dev/null 2>&1 || lg7200-update install >/dev/null 2>&1
-		  else lg7200-update install >/dev/null 2>&1; fi || : > "$RUN/install-failed"
+		# a failed try keeps its reason ("ERR <code>") for the next report: Update all then goes on with
+		# the other units instead of waiting 10 minutes and stopping (2026-11-24)
+		rm -f "$RUN/install-failed"
+		( o=""
+		  if [ -n "$url" ]; then
+			o="$(LG7200_UPDATE_URL="$url" lg7200-update install 2>/dev/null)" || o="$(lg7200-update install 2>/dev/null)"
+		  else o="$(lg7200-update install 2>/dev/null)"; fi
+		  case "$o" in "OK installing"*) ;; *) echo "$o" | sed -n 's/^ERR \([a-z_]*\).*/\1/p' | head -n 1 > "$RUN/install-failed"
+			[ -s "$RUN/install-failed" ] || echo failed > "$RUN/install-failed" ;; esac
 		  rm -f "$RUN/installing" ) &
 	fi
 }
@@ -692,7 +734,7 @@ case "$1" in
 	event) case "$2" in update_all_failed) hn_event "$2" warn ap_id="$3" ;; *) hn_event "$2" info ap_id="$3" ;; esac ;;
 	update-prepare) m_update_prepare ;;
 	tick) if [ "$(my_mode)" = ap ]; then
-			a_join_wireless; a_gateway_check; a_hello; a_sync; a_repeat_check
+			a_join_wireless; a_gateway_check; a_selfcheck; a_hello; a_sync; a_repeat_check
 			# a lead is the main router of the other access points
 			[ "$(cat "$RUN/role" 2>/dev/null)" = lead ] && { m_local_scan; m_guest_tunnel; m_mesh; }
 		else m_local_scan; m_guest_tunnel; m_mesh; fi

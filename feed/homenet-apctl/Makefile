@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=homenet-apctl
 PKG_VERSION:=0.9.0
-PKG_RELEASE:=15
+PKG_RELEASE:=17
 PKG_LICENSE:=LicenseRef-PolyForm-Noncommercial-1.0.0
 
 include $(INCLUDE_DIR)/package.mk

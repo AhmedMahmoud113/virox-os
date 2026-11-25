@@ -247,6 +247,13 @@ function roll_tick(c) {
 			push(r.done, r.current);
 			if (c.get('apctl', r.current) != null) { c.set('apctl', r.current, 'update', '0'); c.commit('apctl'); }
 			r.current = null;
+		} else if (st.install_error && (st.seen ?? 0) >= (r.current_started ?? now) + 20 && st.version != r.target) {
+			// it could not install and still works on the old version (it said why): note it and go on
+			// with the other units, instead of waiting 10 minutes and stopping (2026-11-24, AP 2)
+			r.errors = r.errors ?? {}; r.errors[r.current] = st.install_error;
+			push(r.skipped, r.current);
+			if (c.get('apctl', r.current) != null) { c.set('apctl', r.current, 'update', '0'); c.commit('apctl'); }
+			r.current = null;
 		} else if (now - (r.current_started ?? now) > ROLL_WAIT) {
 			// it did not come back: stop here, the house keeps working on the old version
 			r.state = 'failed'; r.failed = r.current;
@@ -498,7 +505,7 @@ const apctl = {
 	},
 
 	sync: {
-		args: { id: '', token: '', version: '', board: '', uptime: 0, ip: '', clients: [], wired: [], usage: [], uplink: '' },
+		args: { id: '', token: '', version: '', board: '', uptime: 0, ip: '', clients: [], wired: [], usage: [], uplink: '', install_error: '' },
 		call: function(req) {
 			const c = cursor(), a = req.args;
 			if (!match(a.id ?? '', /^ap[0-9]+$/)) return { result: false, error: 'unknown_ap' };
@@ -512,7 +519,8 @@ const apctl = {
 			// board: the Virox board id of the unit (gapm7200 | gapd7200, BUILD-PLAN 16); update all fetches
 			// each board's own image for it
 			const bd = match(`${a.board ?? ''}`, /^[a-z0-9]{1,16}$/) ? a.board : '';
-			writefile(`${RUN}/${a.id}.json`, sprintf('%J', { seen: now, version: substr(`${a.version ?? ''}`, 0, 40), board: bd, uptime: +a.uptime, ip: ip, clients: cl, uplink: ul }));
+			const ie = match(`${a.install_error ?? ''}`, /^[a-z_]{1,32}$/) ? a.install_error : null;
+			writefile(`${RUN}/${a.id}.json`, sprintf('%J', { seen: now, version: substr(`${a.version ?? ''}`, 0, 40), board: bd, uptime: +a.uptime, ip: ip, clients: cl, uplink: ul, install_error: ie }));
 			// Y3: which access point each device is on (this unit's part, then the whole list again)
 			let rows = [];
 			for (let x in cl)
@@ -781,10 +789,11 @@ const apctl = {
 				const id = a['.name'], st = status_of(id) ?? {};
 				let s = 'waiting';
 				if (id in (r.done ?? [])) s = 'done';
+				else if (r.errors?.[id]) s = 'not_installed';
 				else if (id in (r.skipped ?? [])) s = 'skipped';
 				else if (r.failed == id) s = 'failed';
 				else if (r.current == id) s = 'updating';
-				push(units, { id: id, name: a.name ?? id, version: st.version ?? '', state: s });
+				push(units, { id: id, name: a.name ?? id, version: st.version ?? '', state: s, error: r.errors?.[id] ?? null });
 			}
 			return { state: r.state, target: r.target ?? null, error: r.error ?? null, failed: r.failed ?? null,
 			         current: r.current ?? null, wait_minutes: ROLL_WAIT / 60, version: my_version(), units: units };
